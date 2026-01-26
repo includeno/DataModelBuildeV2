@@ -9,6 +9,7 @@ export interface CommandConfig {
   joinType?: 'INNER' | 'LEFT' | 'RIGHT' | 'FULL';
   expression?: string;
   outputField?: string;
+  ascending?: boolean;
   [key: string]: any;
 }
 

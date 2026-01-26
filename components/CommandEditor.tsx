@@ -1,7 +1,7 @@
 import React from 'react';
 import { Command, CommandType, Dataset } from '../types';
 import { Button } from './Button';
-import { Trash2, Plus, GripVertical, Type, Hash, Calendar, Clock, CheckSquare, Code, AlertCircle, Map } from 'lucide-react';
+import { Trash2, Plus, GripVertical, Type, Hash, Calendar, Clock, CheckSquare, Code, AlertCircle, Map, ArrowDownAZ, ArrowUpAZ, Calculator } from 'lucide-react';
 
 interface CommandEditorProps {
   operationId: string;
@@ -192,6 +192,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                         <option value="filter">Filter</option>
                         <option value="join">Join</option>
                         <option value="sort">Sort</option>
+                        <option value="transform">Transform (Synthetic Column)</option>
                         <option value="aggregate">Aggregate</option>
                     </select>
                 </div>
@@ -326,7 +327,77 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                     </>
                 )}
 
-                {(cmd.type !== 'filter' && cmd.type !== 'join') && (
+                {cmd.type === 'sort' && (
+                    <>
+                        <div className="col-span-6">
+                            <label className="block text-xs text-gray-500 mb-1">Field to Sort By</label>
+                            <select 
+                                className="w-full text-sm border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 bg-white text-gray-900 shadow-sm"
+                                value={cmd.config.field || ''}
+                                onChange={(e) => updateCommand(cmd.id, 'config.field', e.target.value)}
+                            >
+                                <option value="">Select Field...</option>
+                                {allFields.map(f => <option key={f} value={f}>{f}</option>)}
+                            </select>
+                        </div>
+                        <div className="col-span-6">
+                            <label className="block text-xs text-gray-500 mb-1">Order</label>
+                            <div className="relative">
+                                <select 
+                                    className="w-full text-sm border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 bg-white text-gray-900 shadow-sm pl-8"
+                                    value={cmd.config.ascending === false ? 'false' : 'true'}
+                                    onChange={(e) => updateCommand(cmd.id, 'config.ascending', e.target.value === 'true')}
+                                >
+                                    <option value="true">Ascending (A-Z, 0-9)</option>
+                                    <option value="false">Descending (Z-A, 9-0)</option>
+                                </select>
+                                <div className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
+                                    {cmd.config.ascending !== false ? <ArrowDownAZ className="w-4 h-4" /> : <ArrowUpAZ className="w-4 h-4" />}
+                                </div>
+                            </div>
+                        </div>
+                    </>
+                )}
+
+                {cmd.type === 'transform' && (
+                    <>
+                        <div className="col-span-12 bg-blue-50 border border-blue-100 rounded-md p-3 mb-2 flex items-start space-x-3">
+                             <Calculator className="w-5 h-5 text-blue-500 shrink-0 mt-0.5" />
+                             <div className="text-xs text-blue-700">
+                                 <p className="font-semibold mb-1">Synthetic Column via Python Lambda</p>
+                                 <p className="opacity-90">
+                                     Enter a Python expression. Access values using <code>row['column_name']</code>.
+                                     <br/>Available modules: <code>math</code>, <code>np</code> (numpy).
+                                 </p>
+                             </div>
+                        </div>
+                        <div className="col-span-4">
+                            <label className="block text-xs text-gray-500 mb-1">New Column Name</label>
+                            <input 
+                                type="text"
+                                className="w-full text-sm border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 bg-white text-gray-900 shadow-sm"
+                                placeholder="e.g. total_price"
+                                value={cmd.config.outputField || ''}
+                                onChange={(e) => updateCommand(cmd.id, 'config.outputField', e.target.value)}
+                            />
+                        </div>
+                        <div className="col-span-8">
+                            <label className="block text-xs text-gray-500 mb-1">Python Expression (lambda row: ...)</label>
+                            <div className="relative">
+                                <Code className="absolute left-2.5 top-2.5 w-4 h-4 text-gray-400" />
+                                <input 
+                                    type="text"
+                                    className="w-full pl-9 text-sm font-mono border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 bg-white text-gray-900 shadow-sm"
+                                    placeholder="row['price'] * 1.2"
+                                    value={cmd.config.expression || ''}
+                                    onChange={(e) => updateCommand(cmd.id, 'config.expression', e.target.value)}
+                                />
+                            </div>
+                        </div>
+                    </>
+                )}
+
+                {(cmd.type !== 'filter' && cmd.type !== 'join' && cmd.type !== 'sort' && cmd.type !== 'transform') && (
                      <div className="col-span-12">
                          <label className="block text-xs text-gray-500 mb-1">JSON Configuration</label>
                          <textarea 

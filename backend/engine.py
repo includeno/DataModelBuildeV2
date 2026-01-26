@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import math
 from typing import List, Optional
 from .models import Command, OperationNode
 from .storage import storage
@@ -53,6 +54,8 @@ class ExecutionEngine:
                     df = self._apply_aggregate(df, cmd)
                 elif cmd.type == 'select':
                     df = self._apply_select(df, cmd)
+                elif cmd.type == 'transform':
+                    df = self._apply_transform(df, cmd)
             except Exception as e:
                 print(f"Error executing command {cmd.id} ({cmd.type}): {e}")
                 # Continue execution even if one command fails
@@ -156,8 +159,6 @@ class ExecutionEngine:
              if clean_on in df.columns and clean_on in other_df.columns:
                 return pd.merge(df, other_df, on=clean_on, how=join_type)
         
-        # If no valid 'on' clause or columns missing, proceed with cross/index join or skip?
-        # For safety in this tool, we skip if keys are invalid to avoid explosion
         return df
 
     def _apply_sort(self, df: pd.DataFrame, cmd: Command) -> pd.DataFrame:
@@ -181,7 +182,6 @@ class ExecutionEngine:
 
         grouped = df.groupby(valid_cols)
         
-        # Simple single-column aggregation for now
         if field in df.columns:
             if agg_func == 'sum':
                 res = grouped[field].sum().reset_index()
@@ -203,4 +203,38 @@ class ExecutionEngine:
             valid_fields = [f for f in fields if f in df.columns]
             if valid_fields:
                 return df[valid_fields]
+        return df
+
+    def _apply_transform(self, df: pd.DataFrame, cmd: Command) -> pd.DataFrame:
+        output_field = cmd.config.outputField
+        expression = cmd.config.expression
+
+        if not output_field or not expression:
+            return df
+
+        try:
+            # RESTRICTED EVAL ENVIRONMENT
+            # Expose 'row', 'math', 'np' (numpy), 'pd' (pandas)
+            # This allows expressions like: row['salary'] * 1.2 or row['first_name'] + ' ' + row['last_name']
+            
+            allowed_globals = {
+                "math": math,
+                "np": np,
+                "len": len,
+                "str": str,
+                "int": int,
+                "float": float
+            }
+
+            def eval_wrapper(row):
+                # Provide row as local context
+                return eval(expression, {"__builtins__": None}, {**allowed_globals, "row": row})
+
+            # Apply row-wise
+            df[output_field] = df.apply(eval_wrapper, axis=1)
+        except Exception as e:
+            print(f"Transform expression failed for field '{output_field}': {e}")
+            # Optionally set nulls or let the error propagate up to the loop
+            pass
+            
         return df
