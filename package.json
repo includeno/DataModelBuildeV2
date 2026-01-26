@@ -1,22 +1,29 @@
 {
-  "name": "hierarchical-data-filter-&-join-engine",
+  "name": "dataflow-engine",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "dev": "concurrently \"npm run backend\" \"tauri dev\"",
+    "backend": "cd backend && python -m uvicorn main:app --reload --port 8000",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "check:types": "tsc --noEmit"
   },
   "dependencies": {
-    "lucide-react": "^0.563.0",
-    "react-dom": "^19.2.3",
-    "react": "^19.2.3"
+    "lucide-react": "^0.292.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
   },
   "devDependencies": {
-    "@types/node": "^22.14.0",
-    "@vitejs/plugin-react": "^5.0.0",
-    "typescript": "~5.8.2",
-    "vite": "^6.2.0"
+    "@tauri-apps/cli": "^1.5.0",
+    "@types/react": "^18.2.37",
+    "@types/react-dom": "^18.2.15",
+    "@vitejs/plugin-react": "^4.2.0",
+    "concurrently": "^8.2.2",
+    "typescript": "^5.2.2",
+    "vite": "^5.0.0",
+    "wait-on": "^7.2.0"
   }
 }
