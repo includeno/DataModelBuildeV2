@@ -1,0 +1,5 @@
+{
+  "name": "Hierarchical Data Filter & Join Engine",
+  "description": "A frontend-first platform for hierarchical data filtering, joining, and transformation using a tree-based operation structure.",
+  "requestFramePermissions": []
+}
