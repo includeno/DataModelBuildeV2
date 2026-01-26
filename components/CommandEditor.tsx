@@ -191,8 +191,8 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                     >
                         <option value="filter">Filter</option>
                         <option value="join">Join</option>
-                        <option value="transform">Transform</option>
                         <option value="sort">Sort</option>
+                        <option value="aggregate">Aggregate</option>
                     </select>
                 </div>
                 <button onClick={() => removeCommand(cmd.id)} className="text-gray-400 hover:text-red-500">
@@ -332,10 +332,13 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                          <textarea 
                             className="w-full text-xs font-mono border-gray-300 rounded-md bg-gray-50 text-gray-900 shadow-sm"
                             rows={3}
-                            placeholder='{"param": "value"}'
-                            disabled
+                            placeholder='{"groupBy": ["col"], "aggFunc": "mean", "field": "val"}'
+                            value={JSON.stringify(cmd.config, null, 2)}
+                            readOnly
                          />
-                         <div className="text-xs text-gray-400 mt-1 italic">UI for {cmd.type} not implemented in demo.</div>
+                         <div className="text-xs text-gray-400 mt-1 italic">
+                            {cmd.type === 'aggregate' ? 'Use raw JSON to configure aggregation for now.' : 'Configuration UI coming soon.'}
+                         </div>
                      </div>
                 )}
               </div>

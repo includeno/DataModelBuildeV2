@@ -81,6 +81,27 @@ class ExecutionEngine:
             except:
                 pass
         
+        elif dtype == 'boolean':
+            try:
+                # Normalize boolean value from string or bool
+                if isinstance(val, str):
+                    bool_val = val.lower() == 'true'
+                else:
+                    bool_val = bool(val)
+                
+                # Ensure column is boolean for comparison
+                series = df[field].astype(bool)
+                
+                if op == '=' or op == 'true' or op == 'false': 
+                    # Handle "is true" / "is false" operators which might not strictly use 'val'
+                    if op == 'true': return df[series == True]
+                    if op == 'false': return df[series == False]
+                    return df[series == bool_val]
+                
+                if op == '!=': return df[series != bool_val]
+            except:
+                pass
+
         elif dtype == 'date' or dtype == 'timestamp':
             try:
                 # Convert column to datetime if not already
@@ -89,7 +110,7 @@ class ExecutionEngine:
                 
                 if op == 'before': return df[series < target]
                 if op == 'after': return df[series > target]
-                if op == '=': return df[series == target] # Exact match might be rare for timestamps
+                if op == '=': return df[series == target] 
             except:
                 pass
 
@@ -113,15 +134,30 @@ class ExecutionEngine:
         if other_df is None:
             return df
 
-        join_type = (cmd.config.joinType or 'left').lower()
+        # Fix: Map frontend 'FULL' to pandas 'outer'
+        join_type_map = {
+            'left': 'left',
+            'right': 'right',
+            'inner': 'inner',
+            'full': 'outer'
+        }
+        raw_type = (cmd.config.joinType or 'left').lower()
+        join_type = join_type_map.get(raw_type, 'left')
+        
         on_clause = cmd.config.on
         
         if on_clause and '=' in on_clause:
             left_on, right_on = [x.strip() for x in on_clause.split('=')]
-            return pd.merge(df, other_df, left_on=left_on, right_on=right_on, how=join_type)
+            # Check if columns exist to prevent crash
+            if left_on in df.columns and right_on in other_df.columns:
+                return pd.merge(df, other_df, left_on=left_on, right_on=right_on, how=join_type)
         elif on_clause:
-             return pd.merge(df, other_df, on=on_clause.strip(), how=join_type)
+             clean_on = on_clause.strip()
+             if clean_on in df.columns and clean_on in other_df.columns:
+                return pd.merge(df, other_df, on=clean_on, how=join_type)
         
+        # If no valid 'on' clause or columns missing, proceed with cross/index join or skip?
+        # For safety in this tool, we skip if keys are invalid to avoid explosion
         return df
 
     def _apply_sort(self, df: pd.DataFrame, cmd: Command) -> pd.DataFrame:
@@ -145,18 +181,21 @@ class ExecutionEngine:
 
         grouped = df.groupby(valid_cols)
         
-        if agg_func == 'sum':
-            res = grouped[field].sum().reset_index()
-        elif agg_func == 'mean':
-            res = grouped[field].mean().reset_index()
-        elif agg_func == 'max':
-            res = grouped[field].max().reset_index()
-        elif agg_func == 'min':
-            res = grouped[field].min().reset_index()
-        else:
-            res = grouped[field].count().reset_index()
+        # Simple single-column aggregation for now
+        if field in df.columns:
+            if agg_func == 'sum':
+                res = grouped[field].sum().reset_index()
+            elif agg_func == 'mean':
+                res = grouped[field].mean().reset_index()
+            elif agg_func == 'max':
+                res = grouped[field].max().reset_index()
+            elif agg_func == 'min':
+                res = grouped[field].min().reset_index()
+            else:
+                res = grouped[field].count().reset_index()
+            return res
             
-        return res
+        return df
 
     def _apply_select(self, df: pd.DataFrame, cmd: Command) -> pd.DataFrame:
         fields = cmd.config.fields
