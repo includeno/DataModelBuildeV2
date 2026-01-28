@@ -10,6 +10,40 @@ interface DataPreviewProps {
 }
 
 export const DataPreview: React.FC<DataPreviewProps> = ({ data, loading, onRefresh }) => {
+  const handleExportCsv = () => {
+    if (!data || !data.rows.length) return;
+
+    // Get headers
+    const headers = data.columns || Object.keys(data.rows[0]);
+    
+    // Convert rows to CSV format
+    const csvContent = [
+      headers.join(','), // Header row
+      ...data.rows.map(row => {
+        return headers.map(fieldName => {
+          let val = row[fieldName];
+          if (val === null || val === undefined) return '';
+          // Escape quotes and wrap in quotes if contains comma, quote or newline
+          val = String(val).replace(/"/g, '""');
+          if (val.search(/("|,|\n)/g) >= 0) {
+            val = `"${val}"`;
+          }
+          return val;
+        }).join(',');
+      })
+    ].join('\n');
+
+    // Create download link
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `export_${Date.now()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   if (loading) {
     return (
         <div className="flex-1 flex flex-col items-center justify-center bg-white h-full border-t border-gray-200">
@@ -31,7 +65,7 @@ export const DataPreview: React.FC<DataPreviewProps> = ({ data, loading, onRefre
     );
   }
 
-  const columns = Object.keys(data.rows[0]);
+  const columns = data.columns || Object.keys(data.rows[0]);
 
   return (
     <div className="flex flex-col h-full bg-white border-t border-gray-200">
@@ -50,7 +84,12 @@ export const DataPreview: React.FC<DataPreviewProps> = ({ data, loading, onRefre
             >
                 <RefreshCw className="w-4 h-4" />
             </button>
-            <Button variant="secondary" size="sm" icon={<Download className="w-3.5 h-3.5"/>}>
+            <Button 
+                variant="secondary" 
+                size="sm" 
+                icon={<Download className="w-3.5 h-3.5"/>}
+                onClick={handleExportCsv}
+            >
                 Export CSV
             </Button>
         </div>

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Command, CommandType, Dataset } from '../types';
 import { Button } from './Button';
-import { Trash2, Plus, GripVertical, Type, Hash, Calendar, Clock, CheckSquare, Code, AlertCircle, Map, ArrowDownAZ, ArrowUpAZ, Calculator, Database, ArrowRight } from 'lucide-react';
+import { Trash2, Plus, GripVertical, Type, Hash, Calendar, Clock, CheckSquare, Code, AlertCircle, Map, ArrowDownAZ, ArrowUpAZ, Calculator, Database, ArrowRight, Link } from 'lucide-react';
 
 interface CommandEditorProps {
   operationId: string;
@@ -100,15 +100,21 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
       if (c.id === id) {
         if (field === 'type') {
             const currentTable = c.config.mainTable;
+            // Provide intelligent defaults when switching types
+            let newConfig: any = { mainTable: currentTable };
+            
+            if (value === 'filter') {
+                newConfig = { ...newConfig, dataType: 'string', operator: '=', value: '' };
+            } else if (value === 'join') {
+                newConfig = { ...newConfig, joinType: 'left', on: '' };
+            } else if (value === 'sort') {
+                newConfig = { ...newConfig, ascending: true };
+            }
+
             return { 
                 ...c, 
                 type: value as CommandType, 
-                config: { 
-                    dataType: 'string', 
-                    operator: '=', 
-                    value: '',
-                    mainTable: currentTable 
-                } 
+                config: newConfig
             };
         }
         if (field.startsWith('config.')) {
@@ -335,6 +341,51 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                     </>
                 )}
 
+                {cmd.type === 'join' && (
+                    <>
+                        <div className="col-span-12 md:col-span-4">
+                            <label className="block text-xs font-medium text-gray-500 mb-1.5 flex items-center">
+                                <Link className="w-3 h-3 mr-1" /> Join With Table
+                            </label>
+                            <select 
+                                className={baseInputStyles}
+                                value={cmd.config.joinTable || ''}
+                                onChange={(e) => updateCommand(cmd.id, 'config.joinTable', e.target.value)}
+                            >
+                                <option value="" disabled>Select Table...</option>
+                                {datasets.filter(d => d.name !== cmd.config.mainTable).map(ds => (
+                                    <option key={ds.id} value={ds.name}>{ds.name}</option>
+                                ))}
+                                {datasets.length === 0 && <option value="" disabled>No other tables available</option>}
+                            </select>
+                        </div>
+                        <div className="col-span-6 md:col-span-3">
+                            <label className="block text-xs font-medium text-gray-500 mb-1.5">Join Type</label>
+                            <select 
+                                className={baseInputStyles}
+                                value={cmd.config.joinType?.toLowerCase() || 'left'}
+                                onChange={(e) => updateCommand(cmd.id, 'config.joinType', e.target.value)}
+                            >
+                                <option value="left">Left Join</option>
+                                <option value="inner">Inner Join</option>
+                                <option value="right">Right Join</option>
+                                <option value="full">Full Outer</option>
+                            </select>
+                        </div>
+                        <div className="col-span-12 md:col-span-5">
+                            <label className="block text-xs font-medium text-gray-500 mb-1.5">Match Condition (On)</label>
+                            <input 
+                                type="text"
+                                className={baseInputStyles}
+                                placeholder="e.g. id = user_id"
+                                value={cmd.config.on || ''}
+                                onChange={(e) => updateCommand(cmd.id, 'config.on', e.target.value)}
+                            />
+                            <p className="mt-1 text-[10px] text-gray-400">Format: column_in_source = column_in_target</p>
+                        </div>
+                    </>
+                )}
+
                 {/* Other types logic preserved but styled consistently */}
                 {cmd.type === 'sort' && (
                     <>
@@ -369,7 +420,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                 )}
                 
                 {/* Fallback for other complex types */}
-                {cmd.type !== 'filter' && cmd.type !== 'sort' && (
+                {cmd.type !== 'filter' && cmd.type !== 'sort' && cmd.type !== 'join' && (
                     <div className="col-span-12">
                         <textarea 
                              className="w-full text-xs font-mono border-gray-200 rounded-md bg-gray-50 text-gray-700 shadow-inner p-3 focus:outline-none focus:ring-1 focus:ring-blue-500"
