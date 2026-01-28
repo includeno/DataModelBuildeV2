@@ -6,6 +6,7 @@ import uuid
 from pathlib import Path
 import re
 import json
+import math
 
 from .models import ExecuteRequest
 from .storage import storage
@@ -34,9 +35,18 @@ def _build_session_path(session_id: str, dataset_id: str, filename: str) -> Path
     return storage.get_session_dir(session_id) / f"{dataset_id}__{safe_filename}"
 
 def _normalize_records(df: pd.DataFrame, limit: int):
-    df_clean = df.replace([np.inf, -np.inf], None)
-    df_clean = df_clean.where(pd.notnull(df_clean), None)
-    records = df_clean.head(limit).to_dict(orient='records')
+    def _sanitize_value(value):
+        if value is None or (isinstance(value, float) and math.isnan(value)):
+            return None
+        if isinstance(value, (float, np.floating)) and not math.isfinite(float(value)):
+            return None
+        if pd.isna(value):
+            return None
+        return value
+
+    df_preview = df.head(limit).copy()
+    df_preview = df_preview.applymap(_sanitize_value)
+    records = df_preview.to_dict(orient='records')
     return json.dumps(records, ensure_ascii=False, allow_nan=False)
 
 def _session_metadata():
