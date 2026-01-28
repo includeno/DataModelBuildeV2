@@ -14,6 +14,17 @@ export const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClos
   const [fileName, setFileName] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const parseRows = (rows: unknown): any[] => {
+    if (typeof rows === 'string') {
+      try {
+        const parsed = JSON.parse(rows);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+    return Array.isArray(rows) ? rows : [];
+  };
 
   if (!isOpen) return null;
 
@@ -73,7 +84,7 @@ export const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClos
             id: data.id,
             name: data.name,
             fields: data.fields,
-            rows: data.rows // Backend returns preview rows
+            rows: parseRows(data.rows) // Backend returns preview rows
         };
         
         onImport(newDataset);

@@ -270,6 +270,18 @@ const App: React.FC = () => {
       if (selectedNodeId === id) setSelectedNodeId('root');
   };
 
+  const normalizeRows = (rows: unknown): any[] => {
+    if (typeof rows === 'string') {
+      try {
+        const parsed = JSON.parse(rows);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+    return Array.isArray(rows) ? rows : [];
+  };
+
   // Execution (Connect to Backend)
   const executeOperation = async () => {
     setLoading(true);
@@ -289,7 +301,10 @@ const App: React.FC = () => {
         }
 
         const result: ExecutionResult = await response.json();
-        setPreviewData(result);
+        setPreviewData({
+          ...result,
+          rows: normalizeRows(result.rows)
+        });
         
         if (!isRightPanelOpen) setIsRightPanelOpen(true);
     } catch (err) {
