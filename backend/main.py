@@ -7,12 +7,14 @@ from pathlib import Path
 import re
 import json
 import math
+import logging
 
 from .models import ExecuteRequest
 from .storage import storage
 from .engine import ExecutionEngine
 
 app = FastAPI()
+logger = logging.getLogger(__name__)
 
 app.add_middleware(
     CORSMiddleware,
@@ -35,7 +37,20 @@ def _build_session_path(session_id: str, dataset_id: str, filename: str) -> Path
     return storage.get_session_dir(session_id) / f"{dataset_id}__{safe_filename}"
 
 def _normalize_records(df: pd.DataFrame, limit: int):
+    non_finite_tokens = {
+        "nan",
+        "nan(ind)",
+        "inf",
+        "+inf",
+        "-inf",
+        "infinity",
+        "+infinity",
+        "-infinity",
+    }
+
     def _sanitize_value(value):
+        if isinstance(value, str) and value.strip().lower() in non_finite_tokens:
+            return None
         if value is None or (isinstance(value, float) and math.isnan(value)):
             return None
         if isinstance(value, (float, np.floating)) and not math.isfinite(float(value)):
@@ -45,7 +60,7 @@ def _normalize_records(df: pd.DataFrame, limit: int):
         return value
 
     df_preview = df.head(limit).copy()
-    df_preview = df_preview.applymap(_sanitize_value)
+    df_preview = df_preview.apply(lambda series: series.map(_sanitize_value))
     records = df_preview.to_dict(orient='records')
     return json.dumps(records, ensure_ascii=False, allow_nan=False)
 
@@ -80,6 +95,7 @@ async def upload_file(file: UploadFile = File(...), session_id: str = Form(SESSI
             df = pd.read_csv(file_path)
         except Exception:
             file_path.unlink(missing_ok=True)
+            logger.warning("Failed to parse CSV upload", exc_info=True)
             return {"error": "Could not parse CSV"}
             
         name = file.filename
@@ -95,6 +111,7 @@ async def upload_file(file: UploadFile = File(...), session_id: str = Form(SESSI
             "totalCount": int(len(df))
         }
     except Exception as e:
+        logger.exception("Upload failed", exc_info=e)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/execute")
@@ -108,8 +125,7 @@ async def execute(req: ExecuteRequest):
             "totalCount": int(len(df))
         }
     except Exception as e:
-        # In production, log error
-        print(f"Execution Error: {e}")
+        logger.exception("Execution failed", exc_info=e)
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

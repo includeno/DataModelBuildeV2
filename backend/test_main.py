@@ -3,8 +3,8 @@ from fastapi.testclient import TestClient
 import pandas as pd
 import uuid
 import json
-from .main import app
-from .storage import storage
+from backend.main import app
+from backend.storage import storage
 
 client = TestClient(app)
 DEFAULT_SESSION_ID = "default"
@@ -47,20 +47,66 @@ def test_upload_invalid_csv():
     assert response.status_code == 200 
     assert "error" in response.json()
 
-def test_upload_inf_nan_values_serialized_as_null():
-    csv_content = "id,value\n1,1.5\n2,inf\n3,-inf\n4,NaN"
+@pytest.mark.parametrize(
+    "value",
+    [
+        "inf",
+        "-inf",
+        "NaN",
+        "nan",
+        "Infinity",
+        "-Infinity",
+        "1e309",
+        "-1e309",
+        "Inf",
+        "-Inf",
+        "INF",
+        "-INF",
+        "infinity",
+        "-infinity",
+        "NAN",
+        "nan(ind)",
+        "NaN",
+        "Infinity",
+        "-Infinity",
+        "1e10000",
+    ],
+)
+def test_upload_non_finite_values_serialized_as_null(value):
+    csv_content = f"id,value\n1,{value}"
     files = {"file": ("metrics.csv", csv_content, "text/csv")}
 
     response = client.post("/upload", files=files)
 
     assert response.status_code == 200
     data = response.json()
-    assert "rows" in data
     rows = json.loads(data["rows"])
-    assert rows[0]["value"] == 1.5
-    assert rows[1]["value"] is None
-    assert rows[2]["value"] is None
-    assert rows[3]["value"] is None
+    assert rows[0]["value"] is None
+
+def test_sessions_endpoint_returns_sessions():
+    df = pd.DataFrame({"id": [1], "value": [2.5]})
+    add_dataset_for_test("sample.csv", df)
+    response = client.get("/sessions")
+    assert response.status_code == 200
+    data = response.json()
+    assert "sessions" in data
+
+def test_execute_returns_stringified_rows():
+    df = pd.DataFrame({"id": [1, 2], "value": [1.0, 2.0]})
+    add_dataset_for_test("exec.csv", df)
+    tree = {
+        "id": "root",
+        "type": "operation",
+        "name": "Root",
+        "enabled": True,
+        "commands": [],
+        "children": []
+    }
+    response = client.post("/execute", json={"tree": tree, "targetNodeId": "root"})
+    assert response.status_code == 200
+    data = response.json()
+    rows = json.loads(data["rows"])
+    assert len(rows) == 2
 
 # --- ENGINE & LOGIC TESTS ---
 
