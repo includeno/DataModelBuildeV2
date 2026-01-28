@@ -2,6 +2,7 @@ from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.encoders import jsonable_encoder
 import pandas as pd
+import numpy as np
 import uuid
 from pathlib import Path
 import re
@@ -33,7 +34,8 @@ def _build_session_path(session_id: str, dataset_id: str, filename: str) -> Path
     return storage.get_session_dir(session_id) / f"{dataset_id}__{safe_filename}"
 
 def _normalize_records(df: pd.DataFrame, limit: int):
-    df_clean = df.where(pd.notnull(df), None)
+    df_clean = df.replace([np.inf, -np.inf], None)
+    df_clean = df_clean.where(pd.notnull(df_clean), None)
     records = df_clean.head(limit).to_dict(orient='records')
     return jsonable_encoder(records)
 
