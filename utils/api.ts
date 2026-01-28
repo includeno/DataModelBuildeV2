@@ -242,9 +242,11 @@ export const api = {
         if (config.isMock) {
             await new Promise(r => setTimeout(r, 1000));
             const file = formData.get('file') as File;
+            const name = formData.get('name') as string;
+            
             const newDs = {
                 id: `mock_table_${Date.now()}`,
-                name: file.name,
+                name: name || file.name,
                 fields: ["col1", "col2", "col3"],
                 rows: [{ col1: "A", col2: 100, col3: true }, { col1: "B", col2: 200, col3: false }],
                 totalCount: 2

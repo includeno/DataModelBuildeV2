@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 import io
 import uuid
-from typing import List
+from typing import List, Optional
 
 from models import ExecuteRequest, ExecuteSqlRequest
 from storage import storage
@@ -54,19 +54,33 @@ async def list_datasets(session_id: str):
 @app.post("/upload")
 async def upload_file(
     file: UploadFile = File(...), 
-    sessionId: str = Form(...)
+    sessionId: str = Form(...),
+    name: Optional[str] = Form(None)
 ):
     try:
         content = await file.read()
-        try:
-            df = pd.read_csv(io.BytesIO(content))
-        except:
-            return {"error": "Could not parse CSV"}
+        filename = file.filename.lower() if file.filename else ""
+        
+        if filename.endswith('.csv'):
+            try:
+                df = pd.read_csv(io.BytesIO(content))
+            except:
+                return {"error": "Could not parse CSV"}
+        elif filename.endswith('.xlsx') or filename.endswith('.xls'):
+            try:
+                df = pd.read_excel(io.BytesIO(content))
+            except:
+                return {"error": "Could not parse Excel file"}
+        else:
+             return {"error": "Unsupported file format. Please upload CSV or Excel."}
             
         # Clean col names
-        df.columns = [c.strip().replace(" ", "_") for c in df.columns]
+        df.columns = [str(c).strip().replace(" ", "_") for c in df.columns]
         
-        table_name = storage.add_dataset(sessionId, file.filename, df)
+        # Determine dataset name
+        dataset_name = name if name and name.strip() else (file.filename or "uploaded_file")
+        
+        table_name = storage.add_dataset(sessionId, dataset_name, df)
         
         # Get preview
         preview_rows = clean_df_for_json(df.head(50))
@@ -79,7 +93,8 @@ async def upload_file(
             "totalCount": len(df)
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Upload error: {e}")
+        return {"error": str(e)}
 
 @app.post("/execute")
 async def execute(req: ExecuteRequest):
