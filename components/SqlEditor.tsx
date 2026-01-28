@@ -293,7 +293,7 @@ export const SqlEditor: React.FC<SqlEditorProps> = ({ sessionId, apiConfig, targ
                                             #
                                         </th>
                                         {activeTab.result.columns?.map((col) => (
-                                            <th key={col} className="px-6 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider whitespace-nowrap">
+                                            <th key={col} className="px-6 py-3 text-left text-xs font-bold text-gray-600 tracking-wider whitespace-nowrap">
                                                 {col}
                                             </th>
                                         ))}

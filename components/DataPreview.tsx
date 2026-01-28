@@ -99,11 +99,11 @@ export const DataPreview: React.FC<DataPreviewProps> = ({ data, loading, onRefre
         <table className="min-w-full divide-y divide-gray-200 border-separate border-spacing-0">
           <thead className="bg-gray-50 sticky top-0 z-10">
             <tr>
-              <th className="sticky left-0 bg-gray-50 z-20 px-4 py-3 text-center text-[10px] font-bold text-gray-400 uppercase tracking-wider w-12 border-b border-gray-200">
+              <th className="sticky left-0 bg-gray-50 z-20 px-4 py-3 text-center text-[10px] font-bold text-gray-400 tracking-wider w-12 border-b border-gray-200">
                 #
               </th>
               {columns.map((col) => (
-                <th key={col} className="px-6 py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-wider whitespace-nowrap border-b border-gray-200">
+                <th key={col} className="px-6 py-3 text-left text-[10px] font-bold text-gray-500 tracking-wider whitespace-nowrap border-b border-gray-200">
                   {col}
                 </th>
               ))}
