@@ -2,6 +2,7 @@ import pandas as pd
 import duckdb
 import os
 import shutil
+import re
 from typing import List, Dict, Optional
 
 SESSIONS_DIR = "sessions"
@@ -46,8 +47,18 @@ class SessionStorage:
         self.create_session(session_id)
         db_path = self._get_db_path(session_id)
         
-        # Sanitize table name (simple version)
-        table_name = name.split('.')[0].replace(" ", "_").replace("-", "_")
+        # Sanitize table name: remove extension, replace bad chars, ensure starts with letter
+        base_name = os.path.splitext(name)[0]
+        # Replace non-alphanumeric chars with underscore
+        safe_name = re.sub(r'[^a-zA-Z0-9_]', '_', base_name)
+        
+        # Ensure it doesn't start with a number or is empty
+        if not safe_name:
+            table_name = "uploaded_table"
+        elif safe_name[0].isdigit():
+            table_name = f"t_{safe_name}"
+        else:
+            table_name = safe_name
         
         con = duckdb.connect(db_path)
         try:
