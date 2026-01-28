@@ -1,12 +1,14 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Body
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
+import numpy as np
 import io
 import uuid
+from typing import List
 
-from .models import ExecuteRequest
-from .storage import storage
-from .engine import ExecutionEngine
+from models import ExecuteRequest, ExecuteSqlRequest
+from storage import storage
+from engine import ExecutionEngine
 
 app = FastAPI()
 
@@ -20,8 +22,40 @@ app.add_middleware(
 
 engine = ExecutionEngine()
 
+def clean_df_for_json(df: pd.DataFrame) -> List[dict]:
+    """
+    Replace NaN, Infinity, -Infinity with None for valid JSON serialization.
+    """
+    # Replace infinite values with NaN
+    df = df.replace([np.inf, -np.inf], np.nan)
+    # Replace NaN with None
+    df = df.where(pd.notnull(df), None)
+    return df.to_dict(orient='records')
+
+@app.get("/sessions")
+async def list_sessions():
+    return storage.list_sessions()
+
+@app.post("/sessions")
+async def create_session():
+    new_id = f"sess_{uuid.uuid4().hex[:8]}"
+    storage.create_session(new_id)
+    return {"sessionId": new_id}
+
+@app.delete("/sessions/{session_id}")
+async def delete_session(session_id: str):
+    storage.delete_session(session_id)
+    return {"status": "ok"}
+
+@app.get("/sessions/{session_id}/datasets")
+async def list_datasets(session_id: str):
+    return storage.list_datasets(session_id)
+
 @app.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(
+    file: UploadFile = File(...), 
+    sessionId: str = Form(...)
+):
     try:
         content = await file.read()
         try:
@@ -29,19 +63,19 @@ async def upload_file(file: UploadFile = File(...)):
         except:
             return {"error": "Could not parse CSV"}
             
-        ds_id = str(uuid.uuid4())
-        name = file.filename
+        # Clean col names
+        df.columns = [c.strip().replace(" ", "_") for c in df.columns]
         
-        # Replace NaN with None for valid JSON serialization
-        df_clean = df.where(pd.notnull(df), None)
+        table_name = storage.add_dataset(sessionId, file.filename, df)
         
-        storage.add_dataset(name, df)
+        # Get preview
+        preview_rows = clean_df_for_json(df.head(50))
         
         return {
-            "id": ds_id,
-            "name": name,
+            "id": table_name,
+            "name": table_name,
             "fields": df.columns.tolist(),
-            "rows": df_clean.head(50).to_dict(orient='records'),
+            "rows": preview_rows,
             "totalCount": len(df)
         }
     except Exception as e:
@@ -50,19 +84,30 @@ async def upload_file(file: UploadFile = File(...)):
 @app.post("/execute")
 async def execute(req: ExecuteRequest):
     try:
-        df = engine.execute(req.tree, req.targetNodeId)
+        df = engine.execute(req.session_id, req.tree, req.targetNodeId)
         
-        # Clean up for JSON response
-        clean_df = df.where(pd.notnull(df), None)
+        clean_rows = clean_df_for_json(df.head(100))
         
         return {
-            "rows": clean_df.head(100).to_dict(orient='records'),
+            "rows": clean_rows,
             "totalCount": len(df)
         }
     except Exception as e:
-        # In production, log error
         print(f"Execution Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/query")
+async def execute_sql(req: ExecuteSqlRequest):
+    try:
+        df = storage.execute_sql(req.session_id, req.query)
+        clean_rows = clean_df_for_json(df)
+        return {
+            "rows": clean_rows,
+            "totalCount": len(df),
+            "columns": df.columns.tolist()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn

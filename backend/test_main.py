@@ -2,8 +2,8 @@ import pytest
 from fastapi.testclient import TestClient
 import pandas as pd
 import io
-from .main import app
-from .storage import storage
+from main import app
+from storage import storage
 
 client = TestClient(app)
 

@@ -1,14 +1,17 @@
 import React, { useState } from 'react';
 import { Upload, FileText, CheckCircle, X, AlertTriangle } from 'lucide-react';
-import { Dataset } from '../types';
+import { ApiConfig, Dataset } from '../types';
+import { api } from '../utils/api';
 
 interface DataImportModalProps {
   isOpen: boolean;
   onClose: () => void;
   onImport: (dataset: Dataset) => void;
+  sessionId: string;
+  apiConfig: ApiConfig;
 }
 
-export const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClose, onImport }) => {
+export const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClose, onImport, sessionId, apiConfig }) => {
   const [dragActive, setDragActive] = useState(false);
   const [fileName, setFileName] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -49,19 +52,10 @@ export const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClos
     
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('sessionId', sessionId);
 
     try {
-        // Assuming backend is running locally on port 8000
-        const response = await fetch('http://localhost:8000/upload', {
-            method: 'POST',
-            body: formData,
-        });
-
-        if (!response.ok) {
-            throw new Error(`Upload failed: ${response.statusText}`);
-        }
-
-        const data = await response.json();
+        const data = await api.upload(apiConfig, '/upload', formData);
         
         if (data.error) {
             throw new Error(data.error);
@@ -71,7 +65,8 @@ export const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClos
             id: data.id,
             name: data.name,
             fields: data.fields,
-            rows: data.rows // Backend returns preview rows
+            rows: data.rows,
+            totalCount: data.totalCount
         };
         
         onImport(newDataset);
@@ -98,6 +93,10 @@ export const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClos
         </div>
         
         <div className="p-6">
+            <div className="mb-4 text-xs text-center text-gray-400">
+                Server: {apiConfig.isMock ? 'Mock Mode' : apiConfig.baseUrl}
+            </div>
+
             <div 
                 className={`relative flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-xl transition-all duration-200 ${
                     dragActive 
@@ -120,7 +119,7 @@ export const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClos
                 {uploading ? (
                      <div className="flex flex-col items-center text-blue-600 animate-pulse">
                         <Upload className="w-8 h-8 mb-2" />
-                        <span className="text-sm font-semibold">Uploading to Backend...</span>
+                        <span className="text-sm font-semibold">Uploading...</span>
                      </div>
                 ) : fileName ? (
                     <div className="flex flex-col items-center text-green-600">
@@ -136,7 +135,7 @@ export const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClos
                             <FileText className="w-8 h-8 text-blue-600" />
                         </div>
                         <span className="text-sm font-medium text-gray-900">Click to upload</span>
-                        <span className="text-xs text-gray-500 mt-1">or drag and drop CSV</span>
+                        <span className="text-sm text-gray-500 mt-1">CSV will be stored in Session DB</span>
                     </div>
                 )}
             </div>

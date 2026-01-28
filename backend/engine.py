@@ -2,31 +2,35 @@ import pandas as pd
 import numpy as np
 import math
 from typing import List, Optional
-from .models import Command, OperationNode
-from .storage import storage
+from models import Command, OperationNode
+from storage import storage
 
 class ExecutionEngine:
-    def execute(self, tree: OperationNode, target_node_id: str) -> pd.DataFrame:
+    def execute(self, session_id: str, tree: OperationNode, target_node_id: str) -> pd.DataFrame:
         path = self._find_path_to_node(tree, target_node_id)
         if not path:
             raise ValueError("Target node not found in operation tree")
 
-        # Start with the first dataset available if no explicit source is defined
-        # In a real system, the root node might define the source
-        datasets = storage.list_datasets()
+        # Get available datasets from DuckDB
+        datasets = storage.list_datasets(session_id)
         if not datasets:
             return pd.DataFrame()
 
-        # Default source: the first uploaded dataset
-        initial_df = storage.get_dataset(datasets[0])
-        if initial_df is None:
+        # Logic: If the first node is just a "root", try to use the first available table
+        # In a more advanced system, the root node would explicitly select a "Source Table"
+        first_table = datasets[0]['name']
+        
+        # Load data from DuckDB into Pandas
+        # Optimization: We could push filters down to SQL here, but for now we load full
+        # to support the existing Python-lambda based transform architecture.
+        df = storage.get_full_dataset(session_id, first_table)
+        
+        if df is None:
             return pd.DataFrame()
-            
-        df = initial_df.copy()
 
         for node in path:
             if node.enabled:
-                df = self._apply_node_commands(df, node.commands)
+                df = self._apply_node_commands(df, node.commands, session_id)
         
         return df
 
@@ -40,14 +44,14 @@ class ExecutionEngine:
                     return [root] + path
         return None
 
-    def _apply_node_commands(self, df: pd.DataFrame, commands: List[Command]) -> pd.DataFrame:
+    def _apply_node_commands(self, df: pd.DataFrame, commands: List[Command], session_id: str) -> pd.DataFrame:
         sorted_cmds = sorted(commands, key=lambda x: x.order)
         for cmd in sorted_cmds:
             try:
                 if cmd.type == 'filter':
                     df = self._apply_filter(df, cmd)
                 elif cmd.type == 'join':
-                    df = self._apply_join(df, cmd)
+                    df = self._apply_join(df, cmd, session_id)
                 elif cmd.type == 'sort':
                     df = self._apply_sort(df, cmd)
                 elif cmd.type == 'aggregate':
@@ -58,7 +62,6 @@ class ExecutionEngine:
                     df = self._apply_transform(df, cmd)
             except Exception as e:
                 print(f"Error executing command {cmd.id} ({cmd.type}): {e}")
-                # Continue execution even if one command fails
                 continue
         return df
 
@@ -83,41 +86,33 @@ class ExecutionEngine:
                 if op == '!=': return df[df[field] != val]
             except:
                 pass
-        
         elif dtype == 'boolean':
-            try:
-                # Normalize boolean value from string or bool
+             try:
                 if isinstance(val, str):
                     bool_val = val.lower() == 'true'
                 else:
                     bool_val = bool(val)
                 
-                # Ensure column is boolean for comparison
-                series = df[field].astype(bool)
+                # Convert to boolean, handle object types
+                series = df[field].map({1: True, 0: False, 'True': True, 'False': False, True: True, False: False})
                 
                 if op == '=' or op == 'true' or op == 'false': 
-                    # Handle "is true" / "is false" operators which might not strictly use 'val'
                     if op == 'true': return df[series == True]
                     if op == 'false': return df[series == False]
                     return df[series == bool_val]
-                
                 if op == '!=': return df[series != bool_val]
-            except:
+             except:
                 pass
-
         elif dtype == 'date' or dtype == 'timestamp':
             try:
-                # Convert column to datetime if not already
                 series = pd.to_datetime(df[field], errors='coerce')
                 target = pd.to_datetime(val)
-                
                 if op == 'before': return df[series < target]
                 if op == 'after': return df[series > target]
                 if op == '=': return df[series == target] 
             except:
                 pass
-
-        else: # String and others
+        else: # String
             val = str(val)
             series = df[field].astype(str)
             if op == '=': return df[series == val]
@@ -128,30 +123,23 @@ class ExecutionEngine:
 
         return df
 
-    def _apply_join(self, df: pd.DataFrame, cmd: Command) -> pd.DataFrame:
+    def _apply_join(self, df: pd.DataFrame, cmd: Command, session_id: str) -> pd.DataFrame:
         target_name = cmd.config.joinTable
         if not target_name:
             return df
         
-        other_df = storage.get_dataset(target_name)
+        # Load the join target from DuckDB
+        other_df = storage.get_full_dataset(session_id, target_name)
         if other_df is None:
             return df
 
-        # Fix: Map frontend 'FULL' to pandas 'outer'
-        join_type_map = {
-            'left': 'left',
-            'right': 'right',
-            'inner': 'inner',
-            'full': 'outer'
-        }
+        join_type_map = {'left': 'left', 'right': 'right', 'inner': 'inner', 'full': 'outer'}
         raw_type = (cmd.config.joinType or 'left').lower()
         join_type = join_type_map.get(raw_type, 'left')
         
         on_clause = cmd.config.on
-        
         if on_clause and '=' in on_clause:
             left_on, right_on = [x.strip() for x in on_clause.split('=')]
-            # Check if columns exist to prevent crash
             if left_on in df.columns and right_on in other_df.columns:
                 return pd.merge(df, other_df, left_on=left_on, right_on=right_on, how=join_type)
         elif on_clause:
@@ -171,7 +159,7 @@ class ExecutionEngine:
     def _apply_aggregate(self, df: pd.DataFrame, cmd: Command) -> pd.DataFrame:
         group_cols = cmd.config.groupBy
         agg_func = cmd.config.aggFunc or 'count'
-        field = cmd.config.field # The field to aggregate on
+        field = cmd.config.field
 
         if not group_cols or not field:
             return df
@@ -213,28 +201,11 @@ class ExecutionEngine:
             return df
 
         try:
-            # RESTRICTED EVAL ENVIRONMENT
-            # Expose 'row', 'math', 'np' (numpy), 'pd' (pandas)
-            # This allows expressions like: row['salary'] * 1.2 or row['first_name'] + ' ' + row['last_name']
-            
-            allowed_globals = {
-                "math": math,
-                "np": np,
-                "len": len,
-                "str": str,
-                "int": int,
-                "float": float
-            }
-
+            allowed_globals = {"math": math, "np": np, "len": len, "str": str, "int": int, "float": float}
             def eval_wrapper(row):
-                # Provide row as local context
                 return eval(expression, {"__builtins__": None}, {**allowed_globals, "row": row})
-
-            # Apply row-wise
             df[output_field] = df.apply(eval_wrapper, axis=1)
         except Exception as e:
-            print(f"Transform expression failed for field '{output_field}': {e}")
-            # Optionally set nulls or let the error propagate up to the loop
             pass
             
         return df

@@ -1,12 +1,15 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Layers, Database, Play, Settings, GitBranch, Save, ChevronDown, ChevronRight, Plus, Upload, Trash2, Clock, Check, GripVertical, PanelRight } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Layers, Database, Play, Settings, GitBranch, Save, ChevronDown, ChevronRight, Plus, Trash2, Clock, Check, PanelRight, Terminal, Search, Server } from 'lucide-react';
 import { OperationTree } from './components/OperationTree';
 import { CommandEditor } from './components/CommandEditor';
 import { DataPreview } from './components/DataPreview';
 import { DataImportModal } from './components/DataImport';
 import { PathConditionsModal } from './components/PathConditionsModal';
+import { SqlEditor } from './components/SqlEditor';
+import { SettingsModal } from './components/SettingsModal';
 import { Button } from './components/Button';
-import { OperationNode, Dataset, ExecutionResult, Command, SessionMetadata } from './types';
+import { OperationNode, Dataset, ExecutionResult, Command, SessionMetadata, ApiConfig } from './types';
+import { api } from './utils/api';
 
 // --- INITIAL DATA ---
 const initialTree: OperationNode = {
@@ -19,50 +22,37 @@ const initialTree: OperationNode = {
     {
       id: 'op_1',
       type: 'operation',
-      name: 'High Value Customers',
+      name: 'Initial Analysis',
       enabled: true,
-      commands: [
-        { id: 'c1', type: 'filter', config: { field: 'salary', operator: '>', value: '50000', dataType: 'number' }, order: 1 }
-      ],
-      children: [
-         {
-             id: 'op_1_1',
-             type: 'operation',
-             name: 'Engineering Dept',
-             enabled: true,
-             commands: [
-                { id: 'c2', type: 'filter', config: { field: 'department', operator: '=', value: 'Engineering' }, order: 1 }
-             ]
-         },
-         {
-            id: 'op_1_2',
-            type: 'operation',
-            name: 'Advanced Analysis',
-            enabled: true,
-            commands: [],
-         }
-      ]
-    },
-    {
-      id: 'op_2',
-      type: 'operation',
-      name: 'HR Review',
-      enabled: false,
       commands: [],
+      children: []
     }
   ]
 };
 
-const generateSessionId = () => 'sess_' + Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+const DEFAULT_SERVERS = ['mockServer', 'http://localhost:8000'];
 
 const App: React.FC = () => {
   // --- STATE ---
+  
+  // Server Config
+  const [availableServers, setAvailableServers] = useState<string[]>(() => {
+    const saved = localStorage.getItem('availableServers');
+    return saved ? JSON.parse(saved) : DEFAULT_SERVERS;
+  });
+  const [currentServer, setCurrentServer] = useState<string>(() => {
+    return localStorage.getItem('currentServer') || 'mockServer';
+  });
+  
   // Session Management
-  const [sessions, setSessions] = useState<SessionMetadata[]>([
-    { sessionId: generateSessionId(), createdAt: new Date().toISOString() }
-  ]);
-  const [sessionId, setSessionId] = useState(sessions[0].sessionId);
+  const [sessions, setSessions] = useState<SessionMetadata[]>([]);
+  const [sessionId, setSessionId] = useState<string>('');
   const [isSessionMenuOpen, setIsSessionMenuOpen] = useState(false);
+
+  // View State (Workflow vs SQL)
+  const [currentView, setCurrentView] = useState<'workflow' | 'sql'>('workflow');
+  // Target table for SQL View Deep Linking
+  const [targetSqlTable, setTargetSqlTable] = useState<string | null>(null);
 
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [tree, setTree] = useState<OperationNode>(initialTree);
@@ -82,6 +72,53 @@ const App: React.FC = () => {
   const [isDataExpanded, setIsDataExpanded] = useState(true);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showPathModal, setShowPathModal] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+
+  // --- DERIVED STATE ---
+  const apiConfig: ApiConfig = useMemo(() => ({
+    baseUrl: currentServer,
+    isMock: currentServer === 'mockServer'
+  }), [currentServer]);
+
+  // --- EFFECTS ---
+  
+  // Save server config to local storage
+  useEffect(() => {
+    localStorage.setItem('availableServers', JSON.stringify(availableServers));
+    localStorage.setItem('currentServer', currentServer);
+  }, [availableServers, currentServer]);
+
+  // Fetch sessions when server changes
+  useEffect(() => {
+    fetchSessions();
+    setDatasets([]);
+    setSessionId('');
+    setPreviewData(null);
+    setTree(initialTree);
+  }, [apiConfig]); // Re-run when config changes
+
+  const fetchSessions = async () => {
+    try {
+        const data = await api.get(apiConfig, '/sessions');
+        setSessions(data);
+        if (data.length > 0) {
+            handleSelectSession(data[0].sessionId);
+        }
+    } catch (e) {
+        console.error("Failed to fetch sessions", e);
+        // If real fetch fails, don't crash, just show empty
+        setSessions([]);
+    }
+  };
+
+  const fetchDatasets = async (sessId: string) => {
+      try {
+          const data = await api.get(apiConfig, `/sessions/${sessId}/datasets`);
+          setDatasets(data);
+      } catch (e) {
+          console.error("Failed to fetch datasets", e);
+      }
+  };
 
   // --- RESIZING LOGIC ---
   useEffect(() => {
@@ -118,38 +155,72 @@ const App: React.FC = () => {
 
   // --- ACTIONS ---
 
-  // Session Actions
-  const handleCreateSession = () => {
-      const newId = generateSessionId();
-      const newSession: SessionMetadata = { sessionId: newId, createdAt: new Date().toISOString() };
-      setSessions(prev => [...prev, newSession]);
-      setSessionId(newId);
-      setIsSessionMenuOpen(false);
+  // Server Management
+  const handleAddServer = (url: string) => {
+      if (!availableServers.includes(url)) {
+          setAvailableServers([...availableServers, url]);
+          setCurrentServer(url);
+      }
   };
 
-  const handleDeleteSession = (e: React.MouseEvent, idToDelete: string) => {
+  const handleRemoveServer = (url: string) => {
+      setAvailableServers(availableServers.filter(s => s !== url));
+      if (currentServer === url) {
+          setCurrentServer('mockServer');
+      }
+  };
+
+  // Session Actions
+  const handleCreateSession = async () => {
+      try {
+        const data = await api.post(apiConfig, '/sessions', {});
+        const newSession = { sessionId: data.sessionId, createdAt: Date.now() }; // approximate
+        setSessions(prev => [newSession, ...prev]);
+        setSessionId(data.sessionId);
+        setDatasets([]); // Clear datasets for new session
+        setIsSessionMenuOpen(false);
+      } catch (e) {
+          console.error("Create session failed", e);
+      }
+  };
+
+  const handleDeleteSession = async (e: React.MouseEvent, idToDelete: string) => {
       e.stopPropagation();
-      const newSessions = sessions.filter(s => s.sessionId !== idToDelete);
-      setSessions(newSessions);
-      
-      if (idToDelete === sessionId) {
-          if (newSessions.length > 0) {
-              setSessionId(newSessions[newSessions.length - 1].sessionId);
-          } else {
-              handleCreateSession();
+      try {
+          await api.delete(apiConfig, `/sessions/${idToDelete}`);
+          const newSessions = sessions.filter(s => s.sessionId !== idToDelete);
+          setSessions(newSessions);
+          
+          if (idToDelete === sessionId) {
+              if (newSessions.length > 0) {
+                  handleSelectSession(newSessions[0].sessionId);
+              } else {
+                  setSessionId('');
+                  setDatasets([]);
+              }
           }
+      } catch (e) {
+          console.error("Delete failed", e);
       }
   };
 
   const handleSelectSession = (id: string) => {
       setSessionId(id);
+      fetchDatasets(id);
+      setPreviewData(null);
+      setTree(initialTree); // Reset tree on session switch
       setIsSessionMenuOpen(false);
   };
 
   // Dataset Management
   const handleImport = (dataset: Dataset) => {
-    setDatasets(prev => [...prev, dataset]);
+    setDatasets(prev => [dataset, ...prev]);
     setShowImportModal(false);
+  };
+
+  const handleOpenTableInSql = (tableName: string) => {
+      setTargetSqlTable(tableName);
+      setCurrentView('sql');
   };
 
   // Tree Management
@@ -225,26 +296,18 @@ const App: React.FC = () => {
   const executeOperation = async () => {
     setLoading(true);
     try {
-        const response = await fetch('http://localhost:8000/execute', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                tree: tree,
-                targetNodeId: selectedNodeId
-            })
+        const result: ExecutionResult = await api.post(apiConfig, '/execute', {
+            sessionId: sessionId,
+            tree: tree,
+            targetNodeId: selectedNodeId
         });
 
-        if (!response.ok) {
-            throw new Error(`Execution failed: ${response.statusText}`);
-        }
-
-        const result: ExecutionResult = await response.json();
         setPreviewData(result);
         
         if (!isRightPanelOpen) setIsRightPanelOpen(true);
-    } catch (err) {
+    } catch (err: any) {
         console.error("Execution error:", err);
-        alert("Failed to execute operation. Please ensure the backend is running on port 8000.");
+        alert(`Failed to execute operation: ${err.message}`);
     } finally {
         setLoading(false);
     }
@@ -261,18 +324,64 @@ const App: React.FC = () => {
       }
       return null;
   };
+  
+  // Find parent to inherit context
+  const findParentNode = (root: OperationNode, targetId: string): OperationNode | null => {
+      if (root.children) {
+          for (const child of root.children) {
+              if (child.id === targetId) return root;
+              const found = findParentNode(child, targetId);
+              if (found) return found;
+          }
+      }
+      return null;
+  };
+
+  // Extract last known data source from a node's commands
+  const getLastDataSource = (node: OperationNode): string | undefined => {
+      if (!node.commands || node.commands.length === 0) return undefined;
+      // Search backwards
+      for (let i = node.commands.length - 1; i >= 0; i--) {
+          const cmd = node.commands[i];
+          if (cmd.config.mainTable) return cmd.config.mainTable;
+      }
+      return undefined;
+  };
 
   const selectedNode = selectedNodeId === 'root' ? tree : (tree.children ? findNode(tree.children, selectedNodeId) : null);
+  
+  // Calculate inherited datasource
+  const parentNode = selectedNode ? findParentNode(tree, selectedNode.id) : null;
+  const inheritedDataSource = parentNode ? getLastDataSource(parentNode) : undefined;
+
+  const switchToSql = () => setCurrentView('sql');
+  const switchToWorkflow = () => setCurrentView('workflow');
 
   return (
     <div className="flex flex-col h-screen bg-gray-100 overflow-hidden text-gray-800">
-      <DataImportModal isOpen={showImportModal} onClose={() => setShowImportModal(false)} onImport={handleImport} />
+      <DataImportModal 
+          isOpen={showImportModal} 
+          onClose={() => setShowImportModal(false)} 
+          onImport={handleImport}
+          sessionId={sessionId}
+          apiConfig={apiConfig}
+      />
       
       <PathConditionsModal 
           isOpen={showPathModal}
           onClose={() => setShowPathModal(false)}
           tree={tree}
           targetNodeId={selectedNodeId}
+      />
+
+      <SettingsModal 
+          isOpen={showSettingsModal}
+          onClose={() => setShowSettingsModal(false)}
+          servers={availableServers}
+          currentServer={currentServer}
+          onSelectServer={setCurrentServer}
+          onAddServer={handleAddServer}
+          onRemoveServer={handleRemoveServer}
       />
       
       {/* Click outside handler for session menu */}
@@ -293,11 +402,12 @@ const App: React.FC = () => {
           <div className="relative">
               <button 
                   onClick={() => setIsSessionMenuOpen(!isSessionMenuOpen)}
+                  disabled={!sessionId && sessions.length === 0 && !apiConfig.isMock}
                   className="flex items-center justify-between space-x-2 bg-white border border-gray-300 hover:border-blue-400 hover:bg-gray-50 text-gray-900 px-3 py-1.5 rounded-md shadow-sm transition-all text-sm min-w-[180px]"
               >
                   <div className="flex items-center overflow-hidden">
                       <span className="text-gray-400 mr-2 text-xs uppercase font-semibold">Session</span>
-                      <span className="font-medium truncate">{sessionId}</span>
+                      <span className="font-medium truncate">{sessionId || 'No Session'}</span>
                   </div>
                   <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${isSessionMenuOpen ? 'rotate-180' : ''}`} />
               </button>
@@ -340,6 +450,9 @@ const App: React.FC = () => {
                                   </div>
                               </div>
                           ))}
+                          {sessions.length === 0 && (
+                             <div className="p-3 text-center text-sm text-gray-400 italic">No active sessions</div>
+                          )}
                       </div>
                       
                       <div className="p-2 border-t border-gray-100 bg-gray-50/50 rounded-b-lg">
@@ -356,77 +469,105 @@ const App: React.FC = () => {
           </div>
         </div>
 
+        {/* VIEW SWITCHER TABS */}
+        <div className="flex items-center bg-gray-100 p-1 rounded-lg">
+             <button 
+                onClick={switchToWorkflow}
+                className={`flex items-center px-3 py-1.5 text-sm font-medium rounded-md transition-all ${currentView === 'workflow' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+             >
+                <Layers className="w-4 h-4 mr-2" /> Workflow
+             </button>
+             <button 
+                onClick={switchToSql}
+                className={`flex items-center px-3 py-1.5 text-sm font-medium rounded-md transition-all ${currentView === 'sql' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+             >
+                <Terminal className="w-4 h-4 mr-2" /> SQL Studio
+             </button>
+        </div>
+
         <div className="flex items-center space-x-3">
-            <div className="text-xs text-gray-500 mr-2 hidden sm:block">
-                {datasets.length} Datasets Loaded
-            </div>
-            <Button variant="secondary" size="sm" icon={<Save className="w-4 h-4" />}>
-                Save
-            </Button>
-            <Button variant="primary" size="sm" icon={<Play className="w-4 h-4" />} onClick={executeOperation}>
-                Run Analysis
-            </Button>
-            
-            <div className="h-6 w-px bg-gray-300 mx-2 hidden sm:block" />
-            
-            <button
-                onClick={() => setIsRightPanelOpen(!isRightPanelOpen)}
-                className={`p-2 rounded-md transition-colors ${isRightPanelOpen ? 'bg-blue-100 text-blue-700' : 'text-gray-500 hover:bg-gray-100'}`}
-                title={isRightPanelOpen ? "Hide Preview" : "Show Preview"}
-            >
-                <PanelRight className="w-5 h-5" />
-            </button>
+             {/* Settings Button (Server Config) */}
+             <button 
+                onClick={() => setShowSettingsModal(true)}
+                className={`flex items-center px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
+                    apiConfig.isMock 
+                    ? 'bg-yellow-50 text-yellow-700 border-yellow-200 hover:bg-yellow-100' 
+                    : 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100'
+                }`}
+                title="Configure Server"
+             >
+                <Server className="w-3 h-3 mr-1.5" />
+                {apiConfig.isMock ? 'Mock Server' : 'Localhost'}
+             </button>
+
+            {currentView === 'workflow' && (
+                <>
+                    <div className="h-6 w-px bg-gray-300 mx-2 hidden sm:block" />
+                    <Button variant="primary" size="sm" icon={<Play className="w-4 h-4" />} onClick={executeOperation} disabled={!sessionId}>
+                        Run Analysis
+                    </Button>
+                    <button
+                        onClick={() => setIsRightPanelOpen(!isRightPanelOpen)}
+                        className={`p-2 rounded-md transition-colors ${isRightPanelOpen ? 'bg-blue-100 text-blue-700' : 'text-gray-500 hover:bg-gray-100'}`}
+                        title={isRightPanelOpen ? "Hide Preview" : "Show Preview"}
+                    >
+                        <PanelRight className="w-5 h-5" />
+                    </button>
+                </>
+            )}
         </div>
       </header>
 
       {/* 2. MAIN LAYOUT */}
       <div className="flex flex-1 overflow-hidden">
         
-        {/* LEFT SIDEBAR (RESIZABLE) */}
+        {/* LEFT SIDEBAR (RESIZABLE) - Shared between views or mainly for nav/data */}
         <aside 
             className="bg-white border-r border-gray-200 flex flex-col transition-none z-10 shrink-0"
             style={{ width: sidebarWidth }}
         >
           
-          {/* Operations Section */}
-          <div className={`flex flex-col transition-all duration-300 ${isOpsExpanded ? 'flex-1 min-h-0' : 'flex-none'}`}>
-             <div 
-                className="p-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center cursor-pointer hover:bg-gray-100 select-none"
-                onClick={() => setIsOpsExpanded(!isOpsExpanded)}
-             >
-                <div className="flex items-center space-x-2">
-                    {isOpsExpanded ? <ChevronDown className="w-4 h-4 text-gray-500"/> : <ChevronRight className="w-4 h-4 text-gray-500"/>}
-                    <span className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Operations</span>
-                </div>
-                <button onClick={(e) => { e.stopPropagation(); handleAddChild('root'); }} className="p-1 hover:bg-gray-200 rounded text-blue-600">
-                    <Layers className="w-4 h-4" />
-                </button>
-             </div>
-             
-             {isOpsExpanded && (
-                <div className="flex-1 overflow-y-auto p-2">
-                    {tree.children?.map(node => (
-                        <OperationTree 
-                            key={node.id} 
-                            node={node} 
-                            selectedId={selectedNodeId} 
-                            onSelect={setSelectedNodeId}
-                            onToggleEnabled={handleToggleEnabled}
-                            onAddChild={handleAddChild}
-                            onDelete={handleDeleteNode}
-                        />
-                    ))}
-                    {(!tree.children || tree.children.length === 0) && (
-                        <div className="text-center mt-10 text-gray-400 text-sm p-4">
-                            No operations yet.
-                        </div>
-                    )}
-                </div>
-             )}
-          </div>
+          {/* Operations Section (Only in Workflow) */}
+          {currentView === 'workflow' && (
+              <div className={`flex flex-col transition-all duration-300 ${isOpsExpanded ? 'flex-1 min-h-0' : 'flex-none'}`}>
+                 <div 
+                    className="p-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center cursor-pointer hover:bg-gray-100 select-none"
+                    onClick={() => setIsOpsExpanded(!isOpsExpanded)}
+                 >
+                    <div className="flex items-center space-x-2">
+                        {isOpsExpanded ? <ChevronDown className="w-4 h-4 text-gray-500"/> : <ChevronRight className="w-4 h-4 text-gray-500"/>}
+                        <span className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Operations</span>
+                    </div>
+                    <button onClick={(e) => { e.stopPropagation(); handleAddChild('root'); }} className="p-1 hover:bg-gray-200 rounded text-blue-600">
+                        <Layers className="w-4 h-4" />
+                    </button>
+                 </div>
+                 
+                 {isOpsExpanded && (
+                    <div className="flex-1 overflow-y-auto p-2">
+                        {tree.children?.map(node => (
+                            <OperationTree 
+                                key={node.id} 
+                                node={node} 
+                                selectedId={selectedNodeId} 
+                                onSelect={setSelectedNodeId}
+                                onToggleEnabled={handleToggleEnabled}
+                                onAddChild={handleAddChild}
+                                onDelete={handleDeleteNode}
+                            />
+                        ))}
+                        {(!tree.children || tree.children.length === 0) && (
+                            <div className="text-center mt-10 text-gray-400 text-sm p-4">
+                                No operations yet.
+                            </div>
+                        )}
+                    </div>
+                 )}
+              </div>
+          )}
 
-          {/* Data Sources Section */}
-          <div className={`flex flex-col border-t border-gray-200 transition-all duration-300 ${!isOpsExpanded ? 'flex-1' : (isDataExpanded ? 'h-1/3' : 'flex-none')}`}>
+          {/* Data Sources Section (Always Visible or Conditional) */}
+          <div className={`flex flex-col border-t border-gray-200 transition-all duration-300 ${currentView === 'sql' ? 'flex-1' : (!isOpsExpanded ? 'flex-1' : (isDataExpanded ? 'h-1/3' : 'flex-none'))}`}>
              <div 
                  className="p-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center cursor-pointer hover:bg-gray-100 select-none"
                  onClick={() => setIsDataExpanded(!isDataExpanded)}
@@ -439,6 +580,7 @@ const App: React.FC = () => {
                     onClick={(e) => { e.stopPropagation(); setShowImportModal(true); }}
                     className="p-1 hover:bg-blue-100 rounded text-blue-600 transition-colors"
                     title="Upload Dataset"
+                    disabled={!sessionId}
                  >
                     <Plus className="w-4 h-4" />
                  </button>
@@ -446,19 +588,34 @@ const App: React.FC = () => {
              
              {isDataExpanded && (
                  <div className="flex-1 overflow-y-auto p-2 bg-white">
-                    {datasets.length === 0 ? (
+                    {!sessionId ? (
                         <div className="flex flex-col items-center justify-center h-full text-center p-4 text-gray-400 italic text-xs">
-                           Empty
+                           Create a session to manage data.
+                        </div>
+                    ) : datasets.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center h-full text-center p-4 text-gray-400 italic text-xs">
+                           No tables found in Session DB. <br/> Import CSV to start.
                         </div>
                     ) : (
                         <div className="space-y-1">
                             {datasets.map(ds => (
-                                <div key={ds.id} className="flex items-center px-2 py-1.5 bg-white hover:bg-gray-100 rounded-md text-sm transition-colors cursor-pointer group">
-                                    <Database className="w-3.5 h-3.5 text-gray-400 mr-2" />
-                                    <div className="flex-1 min-w-0">
-                                        <div className="font-medium text-gray-700 truncate">{ds.name}</div>
+                                <div 
+                                    key={ds.id} 
+                                    onClick={() => handleOpenTableInSql(ds.name)}
+                                    className="flex items-center px-2 py-1.5 bg-white hover:bg-blue-50 cursor-pointer rounded-md text-sm transition-colors group justify-between"
+                                >
+                                    <div className="flex items-center min-w-0">
+                                        <Database className="w-3.5 h-3.5 text-gray-400 mr-2 shrink-0 group-hover:text-blue-500" />
+                                        <div className="font-medium text-gray-700 truncate group-hover:text-blue-700" title={ds.name}>{ds.name}</div>
+                                        <div className="text-[10px] text-gray-400 ml-2 shrink-0">{ds.totalCount} rows</div>
                                     </div>
-                                    <div className="text-[10px] text-gray-400 ml-2">{ds.rows.length} rows</div>
+                                    <button 
+                                        onClick={(e) => { e.stopPropagation(); handleOpenTableInSql(ds.name); }}
+                                        className="p-1 text-gray-300 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                                        title="Query Table"
+                                    >
+                                        <Search className="w-3.5 h-3.5" />
+                                    </button>
                                 </div>
                             ))}
                         </div>
@@ -479,49 +636,65 @@ const App: React.FC = () => {
         {/* CENTER & RIGHT CONTENT AREA */}
         <main className="flex-1 flex min-w-0">
             
-            {/* MIDDLE: COMMAND EDITOR (FLEX-1) */}
-            <div className="flex-1 flex flex-col bg-gray-50/50 min-w-[300px]">
-                {selectedNode && selectedNode.id !== 'root' ? (
-                    <CommandEditor 
-                        operationId={selectedNode.id}
-                        operationName={selectedNode.name}
-                        commands={selectedNode.commands} 
-                        datasets={datasets}
-                        onUpdateCommands={handleUpdateCommands}
-                        onUpdateName={handleUpdateName}
-                        onViewPath={() => setShowPathModal(true)}
+            {currentView === 'sql' ? (
+                // SQL VIEW
+                <div className="flex-1 h-full overflow-hidden">
+                    <SqlEditor 
+                        sessionId={sessionId} 
+                        apiConfig={apiConfig} 
+                        targetTable={targetSqlTable}
+                        onClearTarget={() => setTargetSqlTable(null)}
                     />
-                ) : (
-                    <div className="flex-1 flex flex-col items-center justify-center text-gray-400 bg-gray-50">
-                        <Settings className="w-12 h-12 mb-4 opacity-20" />
-                        <p className="font-medium">Configuration Panel</p>
-                        <p className="text-sm mt-2 opacity-70">Select an operation to edit commands.</p>
+                </div>
+            ) : (
+                // WORKFLOW VIEW
+                <>
+                    {/* MIDDLE: COMMAND EDITOR (FLEX-1) */}
+                    <div className="flex-1 flex flex-col bg-gray-50/50 min-w-[300px]">
+                        {selectedNode && selectedNode.id !== 'root' ? (
+                            <CommandEditor 
+                                operationId={selectedNode.id}
+                                operationName={selectedNode.name}
+                                commands={selectedNode.commands} 
+                                datasets={datasets}
+                                inheritedDataSource={inheritedDataSource}
+                                onUpdateCommands={handleUpdateCommands}
+                                onUpdateName={handleUpdateName}
+                                onViewPath={() => setShowPathModal(true)}
+                            />
+                        ) : (
+                            <div className="flex-1 flex flex-col items-center justify-center text-gray-400 bg-gray-50">
+                                <Settings className="w-12 h-12 mb-4 opacity-20" />
+                                <p className="font-medium">Configuration Panel</p>
+                                <p className="text-sm mt-2 opacity-70">Select an operation to edit commands.</p>
+                            </div>
+                        )}
                     </div>
-                )}
-            </div>
 
-             {/* RESIZER HANDLER (RIGHT) */}
-             {isRightPanelOpen && (
-                 <div 
-                    className={`w-1 hover:w-1.5 bg-gray-200 hover:bg-blue-400 cursor-col-resize z-20 flex flex-col justify-center items-center transition-all ${isResizingRight ? 'bg-blue-500 w-1.5' : ''}`}
-                    onMouseDown={() => setIsResizingRight(true)}
-                >
-                    <div className="h-8 w-0.5 bg-gray-400 rounded-full" />
-                </div>
-            )}
+                     {/* RESIZER HANDLER (RIGHT) */}
+                     {isRightPanelOpen && (
+                         <div 
+                            className={`w-1 hover:w-1.5 bg-gray-200 hover:bg-blue-400 cursor-col-resize z-20 flex flex-col justify-center items-center transition-all ${isResizingRight ? 'bg-blue-500 w-1.5' : ''}`}
+                            onMouseDown={() => setIsResizingRight(true)}
+                        >
+                            <div className="h-8 w-0.5 bg-gray-400 rounded-full" />
+                        </div>
+                    )}
 
-            {/* RIGHT: DATA PREVIEW (RESIZABLE) */}
-            {isRightPanelOpen && (
-                <div 
-                    className="flex flex-col bg-white shrink-0"
-                    style={{ width: rightPanelWidth }}
-                >
-                    <DataPreview 
-                        data={previewData} 
-                        loading={loading}
-                        onRefresh={executeOperation}
-                    />
-                </div>
+                    {/* RIGHT: DATA PREVIEW (RESIZABLE) */}
+                    {isRightPanelOpen && (
+                        <div 
+                            className="flex flex-col bg-white shrink-0"
+                            style={{ width: rightPanelWidth }}
+                        >
+                            <DataPreview 
+                                data={previewData} 
+                                loading={loading}
+                                onRefresh={executeOperation}
+                            />
+                        </div>
+                    )}
+                </>
             )}
         </main>
 

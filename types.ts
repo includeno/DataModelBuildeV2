@@ -34,14 +34,21 @@ export interface Dataset {
   name: string;
   rows: any[];
   fields: string[];
+  totalCount?: number;
 }
 
 export interface SessionMetadata {
-  createdAt: string;
+  createdAt: number; // changed to timestamp number
   sessionId: string;
 }
 
 export interface ExecutionResult {
   rows: any[];
   totalCount: number;
+  columns?: string[];
+}
+
+export interface ApiConfig {
+  baseUrl: string;
+  isMock: boolean;
 }

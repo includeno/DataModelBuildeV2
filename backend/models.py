@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Any, Optional, Dict, Union
 
 class CommandConfig(BaseModel):
@@ -19,6 +19,10 @@ class CommandConfig(BaseModel):
     groupBy: Optional[List[str]] = None
     aggFunc: Optional[str] = None # sum, mean, count
     
+    # Transform
+    outputField: Optional[str] = None
+    expression: Optional[str] = None
+    
     dataType: Optional[str] = None
 
 class Command(BaseModel):
@@ -38,5 +42,10 @@ class OperationNode(BaseModel):
 OperationNode.update_forward_refs()
 
 class ExecuteRequest(BaseModel):
+    session_id: str = Field(..., alias="sessionId")
     tree: OperationNode
     targetNodeId: str
+
+class ExecuteSqlRequest(BaseModel):
+    session_id: str = Field(..., alias="sessionId")
+    query: str
