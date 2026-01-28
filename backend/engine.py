@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import math
+import datetime
 from typing import List, Optional
 from models import Command, OperationNode
 from storage import storage
@@ -201,11 +202,29 @@ class ExecutionEngine:
             return df
 
         try:
-            allowed_globals = {"math": math, "np": np, "len": len, "str": str, "int": int, "float": float}
+            # Enhanced context for eval
+            allowed_globals = {
+                "math": math, 
+                "np": np, 
+                "pd": pd,
+                "datetime": datetime,
+                "len": len, 
+                "str": str, 
+                "int": int, 
+                "float": float,
+                "round": round,
+                "abs": abs
+            }
+            
             def eval_wrapper(row):
+                # row is a pandas Series
                 return eval(expression, {"__builtins__": None}, {**allowed_globals, "row": row})
+            
             df[output_field] = df.apply(eval_wrapper, axis=1)
         except Exception as e:
+            print(f"Transform Error: {e}")
+            # Optionally set the column to None or error string to debug
+            # df[output_field] = f"Error: {str(e)}"
             pass
             
         return df

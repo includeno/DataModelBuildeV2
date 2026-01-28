@@ -1,7 +1,7 @@
 import React from 'react';
 import { Command, CommandType, Dataset } from '../types';
 import { Button } from './Button';
-import { Trash2, Plus, GripVertical, Type, Hash, Calendar, Clock, CheckSquare, Code, AlertCircle, Map, ArrowDownAZ, ArrowUpAZ, Calculator, Database, ArrowRight, Link } from 'lucide-react';
+import { Trash2, Plus, GripVertical, Type, Hash, Calendar, Clock, CheckSquare, Code, AlertCircle, Map, ArrowDownAZ, ArrowUpAZ, Calculator, Database, ArrowRight, Link, FunctionSquare, Sparkles } from 'lucide-react';
 
 interface CommandEditorProps {
   operationId: string;
@@ -61,6 +61,16 @@ const OPERATORS: Record<string, { value: string; label: string }[]> = {
     ]
 };
 
+const TRANSFORM_SNIPPETS = [
+    { label: 'To Uppercase', code: "str(row['col_name']).upper()", type: 'string' },
+    { label: 'Concat Strings', code: "row['first'] + ' ' + row['last']", type: 'string' },
+    { label: 'Math Add', code: "row['price'] + 100", type: 'number' },
+    { label: 'Multiply Cols', code: "row['price'] * row['qty']", type: 'number' },
+    { label: 'Round Number', code: "round(row['val'], 2)", type: 'number' },
+    { label: 'Logic (If/Else)', code: "'High' if row['val'] > 100 else 'Low'", type: 'logic' },
+    { label: 'Parse Date', code: "pd.to_datetime(row['date_str'])", type: 'date' },
+];
+
 export const CommandEditor: React.FC<CommandEditorProps> = ({ 
   operationId, 
   operationName, 
@@ -109,6 +119,8 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                 newConfig = { ...newConfig, joinType: 'left', on: '' };
             } else if (value === 'sort') {
                 newConfig = { ...newConfig, ascending: true };
+            } else if (value === 'transform') {
+                newConfig = { ...newConfig, outputField: 'new_column', expression: '' };
             }
 
             return { 
@@ -145,6 +157,10 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
           return c;
       });
       onUpdateCommands(operationId, updated);
+  };
+
+  const insertSnippet = (cmdId: string, currentExpression: string, snippet: string) => {
+      updateCommand(cmdId, 'config.expression', (currentExpression || '') + snippet);
   };
 
   const allFields = Array.from(new Set(datasets.flatMap(d => d.fields)));
@@ -236,7 +252,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                         <option value="filter">Filter</option>
                         <option value="join">Join Table</option>
                         <option value="sort">Sort Data</option>
-                        <option value="transform">Add Column (Transform)</option>
+                        <option value="transform">Calculate / Transform</option>
                         <option value="aggregate">Group & Aggregate</option>
                     </select>
                     
@@ -386,6 +402,49 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                     </>
                 )}
 
+                {cmd.type === 'transform' && (
+                    <>
+                        <div className="col-span-12 md:col-span-4">
+                            <label className="block text-xs font-medium text-gray-500 mb-1.5 flex items-center">
+                                <FunctionSquare className="w-3 h-3 mr-1" /> Output Column Name
+                            </label>
+                            <input 
+                                type="text"
+                                className={baseInputStyles}
+                                placeholder="e.g. total_price"
+                                value={cmd.config.outputField || ''}
+                                onChange={(e) => updateCommand(cmd.id, 'config.outputField', e.target.value)}
+                            />
+                        </div>
+                        <div className="col-span-12 md:col-span-8">
+                             <label className="block text-xs font-medium text-gray-500 mb-1.5 flex items-center justify-between">
+                                <span className="flex items-center"><Sparkles className="w-3 h-3 mr-1 text-purple-500"/> Expression (Python-syntax)</span>
+                                <span className="text-[10px] text-gray-400 font-normal">Use row['col'] to access values</span>
+                            </label>
+                            <textarea 
+                                className="w-full text-sm font-mono border border-gray-200 rounded-md bg-gray-50 focus:ring-2 focus:ring-blue-100 focus:border-blue-500 p-2 min-h-[80px]"
+                                placeholder="e.g. row['price'] * row['quantity']"
+                                value={cmd.config.expression || ''}
+                                onChange={(e) => updateCommand(cmd.id, 'config.expression', e.target.value)}
+                            />
+                            
+                            <div className="mt-2 flex flex-wrap gap-2">
+                                {TRANSFORM_SNIPPETS.map((snip, i) => (
+                                    <button
+                                        key={i}
+                                        onClick={() => insertSnippet(cmd.id, cmd.config.expression || '', snip.code)}
+                                        className="text-[10px] px-2 py-1 bg-white border border-gray-200 rounded-full text-gray-600 hover:border-blue-300 hover:text-blue-600 transition-colors flex items-center"
+                                        title={snip.code}
+                                    >
+                                        <Plus className="w-2 h-2 mr-1" />
+                                        {snip.label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    </>
+                )}
+
                 {/* Other types logic preserved but styled consistently */}
                 {cmd.type === 'sort' && (
                     <>
@@ -420,7 +479,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                 )}
                 
                 {/* Fallback for other complex types */}
-                {cmd.type !== 'filter' && cmd.type !== 'sort' && cmd.type !== 'join' && (
+                {cmd.type !== 'filter' && cmd.type !== 'sort' && cmd.type !== 'join' && cmd.type !== 'transform' && (
                     <div className="col-span-12">
                         <textarea 
                              className="w-full text-xs font-mono border-gray-200 rounded-md bg-gray-50 text-gray-700 shadow-inner p-3 focus:outline-none focus:ring-1 focus:ring-blue-500"
