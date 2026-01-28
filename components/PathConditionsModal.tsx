@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, ArrowDown, Filter, GitCommit, ListFilter } from 'lucide-react';
+import { X, ArrowDown, Filter, GitCommit, ListFilter, Link, ArrowDownAZ, FunctionSquare, Calculator, Sparkles } from 'lucide-react';
 import { OperationNode, Command } from '../types';
 
 interface PathConditionsModalProps {
@@ -26,6 +26,85 @@ export const PathConditionsModal: React.FC<PathConditionsModalProps> = ({ isOpen
   };
 
   const path = findPath(tree, targetNodeId, []) || [];
+
+  const renderCommand = (cmd: Command) => {
+      switch (cmd.type) {
+          case 'filter':
+              return (
+                  <div key={cmd.id} className="flex items-center text-sm bg-gray-50 border border-gray-100 rounded px-3 py-2 text-gray-700">
+                      <Filter className="w-3.5 h-3.5 text-gray-400 mr-2.5 shrink-0" />
+                      <span className="font-mono text-xs truncate flex items-center flex-wrap gap-1">
+                          <span className="font-semibold text-gray-600">{cmd.config.field || '...'}</span>
+                          <span className="text-blue-500 font-bold">{cmd.config.operator}</span>
+                          <span className="font-semibold text-gray-900 bg-white px-1.5 py-0.5 rounded border border-gray-200">
+                              {typeof cmd.config.value === 'object' ? JSON.stringify(cmd.config.value) : cmd.config.value}
+                          </span>
+                      </span>
+                  </div>
+              );
+          case 'join':
+              return (
+                   <div key={cmd.id} className="flex items-center text-sm bg-purple-50 border border-purple-100 rounded px-3 py-2 text-purple-900">
+                      <Link className="w-3.5 h-3.5 text-purple-400 mr-2.5 shrink-0" />
+                      <span className="font-mono text-xs truncate flex items-center flex-wrap gap-1">
+                          <span className="font-bold">{cmd.config.joinType?.toUpperCase() || 'LEFT'} JOIN</span>
+                          <span className="bg-white px-1 rounded border border-purple-100">{cmd.config.joinTable}</span>
+                          <span className="text-purple-600">ON</span>
+                          <span className="italic text-gray-600">{cmd.config.on}</span>
+                      </span>
+                  </div>
+              );
+          case 'transform':
+               return (
+                   <div key={cmd.id} className="flex items-center text-sm bg-indigo-50 border border-indigo-100 rounded px-3 py-2 text-indigo-900">
+                      <FunctionSquare className="w-3.5 h-3.5 text-indigo-400 mr-2.5 shrink-0" />
+                      <span className="font-mono text-xs truncate flex items-center flex-wrap gap-1">
+                          <span className="text-gray-500">Set</span>
+                          <span className="font-bold text-indigo-700">{cmd.config.outputField || 'new_column'}</span>
+                          <span className="text-gray-400">=</span>
+                          <code className="bg-white px-1.5 py-0.5 rounded border border-indigo-100 text-gray-600 font-mono" title={cmd.config.expression}>
+                              {cmd.config.expression || 'expression...'}
+                          </code>
+                      </span>
+                  </div>
+              );
+          case 'sort':
+               return (
+                   <div key={cmd.id} className="flex items-center text-sm bg-yellow-50 border border-yellow-100 rounded px-3 py-2 text-yellow-900">
+                      <ArrowDownAZ className="w-3.5 h-3.5 text-yellow-500 mr-2.5 shrink-0" />
+                      <span className="font-mono text-xs truncate flex items-center gap-1">
+                          <span>Sort by</span>
+                          <span className="font-bold">{cmd.config.field}</span>
+                          <span className="text-gray-500 bg-white px-1 rounded border border-yellow-100">
+                              {cmd.config.ascending === false ? 'DESC' : 'ASC'}
+                          </span>
+                      </span>
+                  </div>
+              );
+           case 'aggregate':
+               return (
+                   <div key={cmd.id} className="flex items-center text-sm bg-orange-50 border border-orange-100 rounded px-3 py-2 text-orange-900">
+                      <Calculator className="w-3.5 h-3.5 text-orange-400 mr-2.5 shrink-0" />
+                      <span className="font-mono text-xs truncate flex items-center gap-1">
+                          <span className="font-bold uppercase">{cmd.config.aggFunc}</span>
+                          <span>of</span>
+                          <span className="font-semibold">{cmd.config.field}</span>
+                          <span className="text-gray-500">by</span>
+                          <span className="bg-white px-1 rounded border border-orange-100">
+                              {Array.isArray(cmd.config.groupBy) ? cmd.config.groupBy.join(', ') : cmd.config.groupBy}
+                          </span>
+                      </span>
+                  </div>
+              );
+          default:
+              return (
+                  <div key={cmd.id} className="flex items-center text-sm bg-gray-50 border border-gray-100 rounded px-3 py-2 text-gray-500">
+                       <Sparkles className="w-3.5 h-3.5 text-gray-400 mr-2.5 shrink-0" />
+                       <span className="text-xs font-mono truncate">{JSON.stringify(cmd.config)}</span>
+                  </div>
+              );
+      }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
@@ -83,20 +162,9 @@ export const PathConditionsModal: React.FC<PathConditionsModalProps> = ({ isOpen
                                     
                                     <div className="p-4 space-y-2">
                                         {node.commands.length === 0 ? (
-                                            <div className="text-xs text-gray-400 italic pl-1">No filters applied (Pass-through)</div>
+                                            <div className="text-xs text-gray-400 italic pl-1">No operations applied (Pass-through)</div>
                                         ) : (
-                                            node.commands.map(cmd => (
-                                                <div key={cmd.id} className="flex items-center text-sm bg-gray-50 border border-gray-100 rounded px-3 py-2 text-gray-700">
-                                                    <Filter className="w-3.5 h-3.5 text-gray-400 mr-2.5 shrink-0" />
-                                                    <span className="font-mono text-xs truncate flex items-center flex-wrap gap-1">
-                                                        <span className="font-semibold text-gray-600">{cmd.config.field || '...'}</span>
-                                                        <span className="text-blue-500 font-bold">{cmd.config.operator}</span>
-                                                        <span className="font-semibold text-gray-900 bg-white px-1.5 py-0.5 rounded border border-gray-200">
-                                                            {typeof cmd.config.value === 'object' ? JSON.stringify(cmd.config.value) : cmd.config.value}
-                                                        </span>
-                                                    </span>
-                                                </div>
-                                            ))
+                                            node.commands.map(cmd => renderCommand(cmd))
                                         )}
                                     </div>
                                 </div>
