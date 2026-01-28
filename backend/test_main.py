@@ -2,6 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 import pandas as pd
 import uuid
+import json
 from .main import app
 from .storage import storage
 
@@ -45,6 +46,21 @@ def test_upload_invalid_csv():
     # The current implementation catches parse errors and returns JSON with error key
     assert response.status_code == 200 
     assert "error" in response.json()
+
+def test_upload_inf_nan_values_serialized_as_null():
+    csv_content = "id,value\n1,1.5\n2,inf\n3,-inf\n4,NaN"
+    files = {"file": ("metrics.csv", csv_content, "text/csv")}
+
+    response = client.post("/upload", files=files)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert "rows" in data
+    rows = json.loads(data["rows"])
+    assert rows[0]["value"] == 1.5
+    assert rows[1]["value"] is None
+    assert rows[2]["value"] is None
+    assert rows[3]["value"] is None
 
 # --- ENGINE & LOGIC TESTS ---
 
