@@ -6,9 +6,10 @@ interface DataImportModalProps {
   isOpen: boolean;
   onClose: () => void;
   onImport: (dataset: Dataset) => void;
+  sessionId: string;
 }
 
-export const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClose, onImport }) => {
+export const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClose, onImport, sessionId }) => {
   const [dragActive, setDragActive] = useState(false);
   const [fileName, setFileName] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -49,6 +50,7 @@ export const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClos
     
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('session_id', sessionId);
 
     try {
         // Assuming backend is running locally on port 8000

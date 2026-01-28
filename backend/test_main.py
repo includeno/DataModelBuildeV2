@@ -1,11 +1,20 @@
 import pytest
 from fastapi.testclient import TestClient
 import pandas as pd
-import io
+import uuid
 from .main import app
 from .storage import storage
 
 client = TestClient(app)
+DEFAULT_SESSION_ID = "default"
+
+def add_dataset_for_test(name: str, df: pd.DataFrame, session_id: str = DEFAULT_SESSION_ID) -> None:
+    dataset_id = str(uuid.uuid4())
+    session_dir = storage.get_session_dir(session_id)
+    session_dir.mkdir(parents=True, exist_ok=True)
+    file_path = session_dir / f"{dataset_id}__{name}"
+    df.to_csv(file_path, index=False)
+    storage.add_dataset(session_id, dataset_id, name, df, file_path)
 
 @pytest.fixture(autouse=True)
 def clean_storage():
@@ -45,7 +54,7 @@ def test_execute_flow_simple_filter():
         "id": [1, 2, 3, 4],
         "val": [10, 20, 30, 40]
     })
-    storage.add_dataset("data.csv", df)
+    add_dataset_for_test("data.csv", df)
 
     # 2. Define Operation Tree
     tree = {
@@ -85,7 +94,7 @@ def test_execute_nested_operations():
         "group": ["A", "A", "B", "B"],
         "score": [10, 90, 20, 80]
     })
-    storage.add_dataset("scores.csv", df)
+    add_dataset_for_test("scores.csv", df)
 
     tree = {
         "id": "root",
@@ -135,8 +144,8 @@ def test_execute_join_operation():
     df_orders = pd.DataFrame({"order_id": [101, 102], "uid": [1, 2], "amount": [500, 300]})
     
     # Add users first (default source)
-    storage.add_dataset("users.csv", df_users)
-    storage.add_dataset("orders.csv", df_orders)
+    add_dataset_for_test("users.csv", df_users)
+    add_dataset_for_test("orders.csv", df_orders)
 
     tree = {
         "id": "root",
@@ -170,7 +179,7 @@ def test_execute_join_operation():
 
 def test_execute_sort_operation():
     df = pd.DataFrame({"val": [3, 1, 2]})
-    storage.add_dataset("sort_test.csv", df)
+    add_dataset_for_test("sort_test.csv", df)
 
     tree = {
         "id": "root",
@@ -198,7 +207,7 @@ def test_execute_aggregation_operation():
         "dept": ["IT", "IT", "HR", "HR"],
         "salary": [100, 200, 150, 150]
     })
-    storage.add_dataset("agg_test.csv", df)
+    add_dataset_for_test("agg_test.csv", df)
 
     tree = {
         "id": "root",
@@ -233,7 +242,7 @@ def test_execute_aggregation_operation():
 
 def test_execute_target_not_found():
     df = pd.DataFrame({"a": [1]})
-    storage.add_dataset("a.csv", df)
+    add_dataset_for_test("a.csv", df)
     
     tree = {
         "id": "root",

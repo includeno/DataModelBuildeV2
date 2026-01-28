@@ -65,6 +65,7 @@ const App: React.FC = () => {
   const [isSessionMenuOpen, setIsSessionMenuOpen] = useState(false);
 
   const [datasets, setDatasets] = useState<Dataset[]>([]);
+  const [sessionDatasets, setSessionDatasets] = useState<Record<string, Dataset[]>>({});
   const [tree, setTree] = useState<OperationNode>(initialTree);
   const [selectedNodeId, setSelectedNodeId] = useState<string>('op_1');
   const [previewData, setPreviewData] = useState<ExecutionResult | null>(null);
@@ -116,6 +117,40 @@ const App: React.FC = () => {
     };
   }, [isResizingSidebar, isResizingRight]);
 
+  useEffect(() => {
+    const loadSessions = async () => {
+      try {
+        const response = await fetch('http://localhost:8000/sessions');
+        if (!response.ok) {
+          throw new Error(`Failed to fetch sessions: ${response.statusText}`);
+        }
+        const data = await response.json();
+        if (data.sessions && data.sessions.length > 0) {
+          const loadedSessions = data.sessions.map((s: any) => ({
+            sessionId: s.sessionId,
+            createdAt: new Date().toISOString()
+          }));
+          const datasetsMap: Record<string, Dataset[]> = {};
+          data.sessions.forEach((s: any) => {
+            datasetsMap[s.sessionId] = (s.datasets || []).map((d: any) => ({
+              id: d.id,
+              name: d.name,
+              fields: d.fields || [],
+              rows: []
+            }));
+          });
+          setSessions(loadedSessions);
+          setSessionDatasets(datasetsMap);
+          setSessionId(loadedSessions[0].sessionId);
+          setDatasets(datasetsMap[loadedSessions[0].sessionId] || []);
+        }
+      } catch (err) {
+        console.warn("Failed to load sessions from backend:", err);
+      }
+    };
+    loadSessions();
+  }, []);
+
   // --- ACTIONS ---
 
   // Session Actions
@@ -123,6 +158,8 @@ const App: React.FC = () => {
       const newId = generateSessionId();
       const newSession: SessionMetadata = { sessionId: newId, createdAt: new Date().toISOString() };
       setSessions(prev => [...prev, newSession]);
+      setSessionDatasets(prev => ({ ...prev, [newId]: [] }));
+      setDatasets([]);
       setSessionId(newId);
       setIsSessionMenuOpen(false);
   };
@@ -131,10 +168,17 @@ const App: React.FC = () => {
       e.stopPropagation();
       const newSessions = sessions.filter(s => s.sessionId !== idToDelete);
       setSessions(newSessions);
+      setSessionDatasets(prev => {
+          const updated = { ...prev };
+          delete updated[idToDelete];
+          return updated;
+      });
       
       if (idToDelete === sessionId) {
           if (newSessions.length > 0) {
-              setSessionId(newSessions[newSessions.length - 1].sessionId);
+              const nextSessionId = newSessions[newSessions.length - 1].sessionId;
+              setSessionId(nextSessionId);
+              setDatasets(sessionDatasets[nextSessionId] || []);
           } else {
               handleCreateSession();
           }
@@ -143,12 +187,17 @@ const App: React.FC = () => {
 
   const handleSelectSession = (id: string) => {
       setSessionId(id);
+      setDatasets(sessionDatasets[id] || []);
       setIsSessionMenuOpen(false);
   };
 
   // Dataset Management
   const handleImport = (dataset: Dataset) => {
     setDatasets(prev => [...prev, dataset]);
+    setSessionDatasets(prev => ({
+      ...prev,
+      [sessionId]: [...(prev[sessionId] || []), dataset]
+    }));
     setShowImportModal(false);
   };
 
@@ -230,7 +279,8 @@ const App: React.FC = () => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 tree: tree,
-                targetNodeId: selectedNodeId
+                targetNodeId: selectedNodeId,
+                sessionId: sessionId
             })
         });
 
@@ -266,7 +316,12 @@ const App: React.FC = () => {
 
   return (
     <div className="flex flex-col h-screen bg-gray-100 overflow-hidden text-gray-800">
-      <DataImportModal isOpen={showImportModal} onClose={() => setShowImportModal(false)} onImport={handleImport} />
+      <DataImportModal
+        isOpen={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        onImport={handleImport}
+        sessionId={sessionId}
+      />
       
       <PathConditionsModal 
           isOpen={showPathModal}
