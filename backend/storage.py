@@ -3,6 +3,7 @@ import duckdb
 import os
 import shutil
 import re
+import json
 from typing import List, Dict, Optional
 
 SESSIONS_DIR = "sessions"
@@ -140,5 +141,19 @@ class SessionStorage:
             return None
         finally:
             con.close()
+            
+    def save_session_state(self, session_id: str, state: Dict):
+        path = self._get_session_path(session_id)
+        if not os.path.exists(path):
+            self.create_session(session_id)
+        with open(os.path.join(path, "state.json"), "w") as f:
+            json.dump(state, f, indent=2)
+
+    def get_session_state(self, session_id: str) -> Optional[Dict]:
+        path = os.path.join(self._get_session_path(session_id), "state.json")
+        if os.path.exists(path):
+            with open(path, "r") as f:
+                return json.load(f)
+        return None
 
 storage = SessionStorage()

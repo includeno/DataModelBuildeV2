@@ -51,6 +51,16 @@ async def delete_session(session_id: str):
 async def list_datasets(session_id: str):
     return storage.list_datasets(session_id)
 
+@app.get("/sessions/{session_id}/state")
+async def get_session_state(session_id: str):
+    state = storage.get_session_state(session_id)
+    return state or {}
+
+@app.post("/sessions/{session_id}/state")
+async def save_session_state(session_id: str, state: dict = Body(...)):
+    storage.save_session_state(session_id, state)
+    return {"status": "ok"}
+
 @app.post("/upload")
 async def upload_file(
     file: UploadFile = File(...), 

@@ -53,6 +53,9 @@ const MOCK_SESSIONS: SessionMetadata[] = [
     { sessionId: "mock-session-archive", createdAt: Date.now() - 86400000 }
 ];
 
+// Memory store for mock session states
+const MOCK_SESSION_STATES: Record<string, any> = {};
+
 // --- MOCK ENGINE LOGIC ---
 
 const findPathToNode = (root: OperationNode, targetId: string): OperationNode[] | null => {
@@ -176,6 +179,14 @@ export const api = {
             await new Promise(r => setTimeout(r, 400)); // Simulate latency
             if (endpoint === '/sessions') return MOCK_SESSIONS;
             if (endpoint.includes('/datasets')) return MOCK_DATASETS;
+            
+            // Mock state endpoint
+            if (endpoint.match(/\/sessions\/.*\/state/)) {
+                const parts = endpoint.split('/');
+                const sessId = parts[2];
+                return MOCK_SESSION_STATES[sessId] || {};
+            }
+
             return {};
         }
         
@@ -192,6 +203,14 @@ export const api = {
             if (endpoint === '/execute') {
                 const { tree, targetNodeId } = body;
                 return executeMockLogic(tree, targetNodeId);
+            }
+
+            // Mock state save
+            if (endpoint.match(/\/sessions\/.*\/state/)) {
+                const parts = endpoint.split('/');
+                const sessId = parts[2];
+                MOCK_SESSION_STATES[sessId] = body;
+                return { status: "ok" };
             }
 
             if (endpoint === '/query') {

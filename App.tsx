@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { DataImportModal } from './components/DataImport';
 import { PathConditionsModal } from './components/PathConditionsModal';
 import { SettingsModal } from './components/SettingsModal';
@@ -44,6 +44,7 @@ const App: React.FC = () => {
   // Session Management
   const [sessions, setSessions] = useState<SessionMetadata[]>([]);
   const [sessionId, setSessionId] = useState<string>('');
+  const [isSessionLoading, setIsSessionLoading] = useState(false); // To prevent auto-save during load
 
   // View State (Workflow vs SQL)
   const [currentView, setCurrentView] = useState<'workflow' | 'sql'>('workflow');
@@ -91,6 +92,18 @@ const App: React.FC = () => {
     setTree(initialTree);
   }, [apiConfig]); // Re-run when config changes
 
+  // Auto-Save Tree Effect
+  useEffect(() => {
+    if (!sessionId || isSessionLoading) return;
+
+    const timer = setTimeout(() => {
+        api.post(apiConfig, `/sessions/${sessionId}/state`, tree)
+           .catch(e => console.error("Auto-save failed", e));
+    }, 1000); // 1s debounce
+
+    return () => clearTimeout(timer);
+  }, [tree, sessionId, apiConfig, isSessionLoading]);
+
   const fetchSessions = async () => {
     try {
         const data = await api.get(apiConfig, '/sessions');
@@ -113,6 +126,20 @@ const App: React.FC = () => {
           setDatasets(data);
       } catch (e) {
           console.error("Failed to fetch datasets", e);
+      }
+  };
+
+  const fetchSessionState = async (sessId: string) => {
+      try {
+          const state = await api.get(apiConfig, `/sessions/${sessId}/state`);
+          if (state && state.id) {
+              setTree(state);
+          } else {
+              setTree(initialTree);
+          }
+      } catch (e) {
+          console.error("Failed to fetch session state", e);
+          setTree(initialTree);
       }
   };
 
@@ -173,8 +200,7 @@ const App: React.FC = () => {
         if (data && data.sessionId) {
              const newSession = { sessionId: data.sessionId, createdAt: Date.now() }; 
              setSessions(prev => [newSession, ...prev]);
-             setSessionId(data.sessionId);
-             setDatasets([]); 
+             handleSelectSession(data.sessionId);
         }
       } catch (e) {
           console.error("Create session failed", e);
@@ -195,6 +221,7 @@ const App: React.FC = () => {
               } else {
                   setSessionId('');
                   setDatasets([]);
+                  setTree(initialTree);
               }
           }
       } catch (e) {
@@ -202,11 +229,18 @@ const App: React.FC = () => {
       }
   };
 
-  const handleSelectSession = (id: string) => {
+  const handleSelectSession = async (id: string) => {
+      setIsSessionLoading(true); // Lock auto-save
       setSessionId(id);
-      fetchDatasets(id);
+      
+      // Load Data
+      await Promise.all([
+        fetchDatasets(id),
+        fetchSessionState(id)
+      ]);
+      
       setPreviewData(null);
-      setTree(initialTree);
+      setIsSessionLoading(false); // Unlock auto-save
   };
 
   // Dataset Management
