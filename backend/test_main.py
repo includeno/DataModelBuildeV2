@@ -1,11 +1,21 @@
 import pytest
 from fastapi.testclient import TestClient
 import pandas as pd
-import io
-from .main import app
-from .storage import storage
+import uuid
+import json
+from backend.main import app
+from backend.storage import storage
 
 client = TestClient(app)
+DEFAULT_SESSION_ID = "default"
+
+def add_dataset_for_test(name: str, df: pd.DataFrame, session_id: str = DEFAULT_SESSION_ID) -> None:
+    dataset_id = str(uuid.uuid4())
+    session_dir = storage.get_session_dir(session_id)
+    session_dir.mkdir(parents=True, exist_ok=True)
+    file_path = session_dir / f"{dataset_id}__{name}"
+    df.to_csv(file_path, index=False)
+    storage.add_dataset(session_id, dataset_id, name, df, file_path)
 
 @pytest.fixture(autouse=True)
 def clean_storage():
@@ -37,6 +47,67 @@ def test_upload_invalid_csv():
     assert response.status_code == 200 
     assert "error" in response.json()
 
+@pytest.mark.parametrize(
+    "value",
+    [
+        "inf",
+        "-inf",
+        "NaN",
+        "nan",
+        "Infinity",
+        "-Infinity",
+        "1e309",
+        "-1e309",
+        "Inf",
+        "-Inf",
+        "INF",
+        "-INF",
+        "infinity",
+        "-infinity",
+        "NAN",
+        "nan(ind)",
+        "NaN",
+        "Infinity",
+        "-Infinity",
+        "1e10000",
+    ],
+)
+def test_upload_non_finite_values_serialized_as_null(value):
+    csv_content = f"id,value\n1,{value}"
+    files = {"file": ("metrics.csv", csv_content, "text/csv")}
+
+    response = client.post("/upload", files=files)
+
+    assert response.status_code == 200
+    data = response.json()
+    rows = json.loads(data["rows"])
+    assert rows[0]["value"] is None
+
+def test_sessions_endpoint_returns_sessions():
+    df = pd.DataFrame({"id": [1], "value": [2.5]})
+    add_dataset_for_test("sample.csv", df)
+    response = client.get("/sessions")
+    assert response.status_code == 200
+    data = response.json()
+    assert "sessions" in data
+
+def test_execute_returns_stringified_rows():
+    df = pd.DataFrame({"id": [1, 2], "value": [1.0, 2.0]})
+    add_dataset_for_test("exec.csv", df)
+    tree = {
+        "id": "root",
+        "type": "operation",
+        "name": "Root",
+        "enabled": True,
+        "commands": [],
+        "children": []
+    }
+    response = client.post("/execute", json={"tree": tree, "targetNodeId": "root"})
+    assert response.status_code == 200
+    data = response.json()
+    rows = json.loads(data["rows"])
+    assert len(rows) == 2
+
 # --- ENGINE & LOGIC TESTS ---
 
 def test_execute_flow_simple_filter():
@@ -45,7 +116,7 @@ def test_execute_flow_simple_filter():
         "id": [1, 2, 3, 4],
         "val": [10, 20, 30, 40]
     })
-    storage.add_dataset("data.csv", df)
+    add_dataset_for_test("data.csv", df)
 
     # 2. Define Operation Tree
     tree = {
@@ -85,7 +156,7 @@ def test_execute_nested_operations():
         "group": ["A", "A", "B", "B"],
         "score": [10, 90, 20, 80]
     })
-    storage.add_dataset("scores.csv", df)
+    add_dataset_for_test("scores.csv", df)
 
     tree = {
         "id": "root",
@@ -135,8 +206,8 @@ def test_execute_join_operation():
     df_orders = pd.DataFrame({"order_id": [101, 102], "uid": [1, 2], "amount": [500, 300]})
     
     # Add users first (default source)
-    storage.add_dataset("users.csv", df_users)
-    storage.add_dataset("orders.csv", df_orders)
+    add_dataset_for_test("users.csv", df_users)
+    add_dataset_for_test("orders.csv", df_orders)
 
     tree = {
         "id": "root",
@@ -170,7 +241,7 @@ def test_execute_join_operation():
 
 def test_execute_sort_operation():
     df = pd.DataFrame({"val": [3, 1, 2]})
-    storage.add_dataset("sort_test.csv", df)
+    add_dataset_for_test("sort_test.csv", df)
 
     tree = {
         "id": "root",
@@ -198,7 +269,7 @@ def test_execute_aggregation_operation():
         "dept": ["IT", "IT", "HR", "HR"],
         "salary": [100, 200, 150, 150]
     })
-    storage.add_dataset("agg_test.csv", df)
+    add_dataset_for_test("agg_test.csv", df)
 
     tree = {
         "id": "root",
@@ -233,7 +304,7 @@ def test_execute_aggregation_operation():
 
 def test_execute_target_not_found():
     df = pd.DataFrame({"a": [1]})
-    storage.add_dataset("a.csv", df)
+    add_dataset_for_test("a.csv", df)
     
     tree = {
         "id": "root",

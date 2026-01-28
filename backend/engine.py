@@ -6,19 +6,19 @@ from .models import Command, OperationNode
 from .storage import storage
 
 class ExecutionEngine:
-    def execute(self, tree: OperationNode, target_node_id: str) -> pd.DataFrame:
+    def execute(self, tree: OperationNode, target_node_id: str, session_id: str) -> pd.DataFrame:
         path = self._find_path_to_node(tree, target_node_id)
         if not path:
             raise ValueError("Target node not found in operation tree")
 
         # Start with the first dataset available if no explicit source is defined
         # In a real system, the root node might define the source
-        datasets = storage.list_datasets()
+        datasets = storage.list_datasets(session_id)
         if not datasets:
             return pd.DataFrame()
 
         # Default source: the first uploaded dataset
-        initial_df = storage.get_dataset(datasets[0])
+        initial_df = storage.get_dataset(session_id, datasets[0])
         if initial_df is None:
             return pd.DataFrame()
             
@@ -26,7 +26,7 @@ class ExecutionEngine:
 
         for node in path:
             if node.enabled:
-                df = self._apply_node_commands(df, node.commands)
+                df = self._apply_node_commands(df, node.commands, session_id)
         
         return df
 
@@ -40,14 +40,14 @@ class ExecutionEngine:
                     return [root] + path
         return None
 
-    def _apply_node_commands(self, df: pd.DataFrame, commands: List[Command]) -> pd.DataFrame:
+    def _apply_node_commands(self, df: pd.DataFrame, commands: List[Command], session_id: str) -> pd.DataFrame:
         sorted_cmds = sorted(commands, key=lambda x: x.order)
         for cmd in sorted_cmds:
             try:
                 if cmd.type == 'filter':
                     df = self._apply_filter(df, cmd)
                 elif cmd.type == 'join':
-                    df = self._apply_join(df, cmd)
+                    df = self._apply_join(df, cmd, session_id)
                 elif cmd.type == 'sort':
                     df = self._apply_sort(df, cmd)
                 elif cmd.type == 'aggregate':
@@ -128,12 +128,12 @@ class ExecutionEngine:
 
         return df
 
-    def _apply_join(self, df: pd.DataFrame, cmd: Command) -> pd.DataFrame:
+    def _apply_join(self, df: pd.DataFrame, cmd: Command, session_id: str) -> pd.DataFrame:
         target_name = cmd.config.joinTable
         if not target_name:
             return df
         
-        other_df = storage.get_dataset(target_name)
+        other_df = storage.get_dataset(session_id, target_name)
         if other_df is None:
             return df
 

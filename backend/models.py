@@ -40,3 +40,4 @@ OperationNode.update_forward_refs()
 class ExecuteRequest(BaseModel):
     tree: OperationNode
     targetNodeId: str
+    sessionId: Optional[str] = None
