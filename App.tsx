@@ -103,11 +103,15 @@ const App: React.FC = () => {
         setSessions(data);
         if (data.length > 0) {
             handleSelectSession(data[0].sessionId);
+        } else {
+             // If no sessions, ensure ID is clear so UI prompts to create one
+             setSessionId('');
         }
     } catch (e) {
         console.error("Failed to fetch sessions", e);
         // If real fetch fails, don't crash, just show empty
         setSessions([]);
+        setSessionId('');
     }
   };
 
@@ -174,13 +178,17 @@ const App: React.FC = () => {
   const handleCreateSession = async () => {
       try {
         const data = await api.post(apiConfig, '/sessions', {});
-        const newSession = { sessionId: data.sessionId, createdAt: Date.now() }; // approximate
-        setSessions(prev => [newSession, ...prev]);
-        setSessionId(data.sessionId);
-        setDatasets([]); // Clear datasets for new session
-        setIsSessionMenuOpen(false);
+        // Ensure we handle the response correctly
+        if (data && data.sessionId) {
+             const newSession = { sessionId: data.sessionId, createdAt: Date.now() }; 
+             setSessions(prev => [newSession, ...prev]);
+             setSessionId(data.sessionId);
+             setDatasets([]); 
+             setIsSessionMenuOpen(false);
+        }
       } catch (e) {
           console.error("Create session failed", e);
+          alert("Failed to create session. Ensure backend is running.");
       }
   };
 
@@ -402,12 +410,15 @@ const App: React.FC = () => {
           <div className="relative">
               <button 
                   onClick={() => setIsSessionMenuOpen(!isSessionMenuOpen)}
-                  disabled={!sessionId && sessions.length === 0 && !apiConfig.isMock}
-                  className="flex items-center justify-between space-x-2 bg-white border border-gray-300 hover:border-blue-400 hover:bg-gray-50 text-gray-900 px-3 py-1.5 rounded-md shadow-sm transition-all text-sm min-w-[180px]"
+                  className={`flex items-center justify-between space-x-2 bg-white border hover:bg-gray-50 text-gray-900 px-3 py-1.5 rounded-md shadow-sm transition-all text-sm min-w-[180px] ${
+                    !sessionId ? 'border-blue-400 ring-1 ring-blue-100' : 'border-gray-300'
+                  }`}
               >
                   <div className="flex items-center overflow-hidden">
                       <span className="text-gray-400 mr-2 text-xs uppercase font-semibold">Session</span>
-                      <span className="font-medium truncate">{sessionId || 'No Session'}</span>
+                      <span className={`font-medium truncate ${!sessionId ? 'text-blue-600' : ''}`}>
+                        {sessionId || 'Create Session'}
+                      </span>
                   </div>
                   <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${isSessionMenuOpen ? 'rotate-180' : ''}`} />
               </button>
@@ -451,7 +462,7 @@ const App: React.FC = () => {
                               </div>
                           ))}
                           {sessions.length === 0 && (
-                             <div className="p-3 text-center text-sm text-gray-400 italic">No active sessions</div>
+                             <div className="p-3 text-center text-sm text-gray-400 italic">No active sessions found.<br/>Create one to start.</div>
                           )}
                       </div>
                       
