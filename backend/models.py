@@ -1,3 +1,4 @@
+
 from pydantic import BaseModel, Field
 from typing import List, Any, Optional, Dict, Union
 
@@ -45,7 +46,11 @@ class ExecuteRequest(BaseModel):
     session_id: str = Field(..., alias="sessionId")
     tree: OperationNode
     targetNodeId: str
+    page: int = 1
+    pageSize: int = 50
 
 class ExecuteSqlRequest(BaseModel):
     session_id: str = Field(..., alias="sessionId")
     query: str
+    page: int = 1
+    pageSize: int = 50

@@ -1,3 +1,4 @@
+
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Body
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
@@ -31,6 +32,11 @@ def clean_df_for_json(df: pd.DataFrame) -> List[dict]:
     # Replace NaN with None
     df = df.where(pd.notnull(df), None)
     return df.to_dict(orient='records')
+
+def paginate_df(df: pd.DataFrame, page: int, page_size: int) -> pd.DataFrame:
+    start = (page - 1) * page_size
+    end = start + page_size
+    return df.iloc[start:end]
 
 @app.get("/sessions")
 async def list_sessions():
@@ -111,11 +117,16 @@ async def execute(req: ExecuteRequest):
     try:
         df = engine.execute(req.session_id, req.tree, req.targetNodeId)
         
-        clean_rows = clean_df_for_json(df.head(100))
+        total_count = len(df)
+        paginated_df = paginate_df(df, req.page, req.pageSize)
+        clean_rows = clean_df_for_json(paginated_df)
         
         return {
             "rows": clean_rows,
-            "totalCount": len(df)
+            "totalCount": total_count,
+            "columns": df.columns.tolist(),
+            "page": req.page,
+            "pageSize": req.pageSize
         }
     except Exception as e:
         print(f"Execution Error: {e}")
@@ -125,11 +136,17 @@ async def execute(req: ExecuteRequest):
 async def execute_sql(req: ExecuteSqlRequest):
     try:
         df = storage.execute_sql(req.session_id, req.query)
-        clean_rows = clean_df_for_json(df)
+        
+        total_count = len(df)
+        paginated_df = paginate_df(df, req.page, req.pageSize)
+        clean_rows = clean_df_for_json(paginated_df)
+        
         return {
             "rows": clean_rows,
-            "totalCount": len(df),
-            "columns": df.columns.tolist()
+            "totalCount": total_count,
+            "columns": df.columns.tolist(),
+            "page": req.page,
+            "pageSize": req.pageSize
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

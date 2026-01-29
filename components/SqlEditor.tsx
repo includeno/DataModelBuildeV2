@@ -1,8 +1,10 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { Play, Plus, X, Clock, CheckCircle, XCircle, Table as TableIcon, History, Terminal, Copy, Database } from 'lucide-react';
 import { Button } from './Button';
 import { ExecutionResult, ApiConfig } from '../types';
 import { api } from '../utils/api';
+import { DataPreview } from './DataPreview';
 
 interface SqlEditorProps {
   sessionId: string;
@@ -56,7 +58,7 @@ export const SqlEditor: React.FC<SqlEditorProps> = ({ sessionId, apiConfig, targ
   }, [targetTable, onClearTarget]);
 
   const handleOpenTable = (tableName: string) => {
-      const newQuery = `SELECT * FROM ${tableName} LIMIT 100;`;
+      const newQuery = `SELECT * FROM ${tableName}`; // Removed LIMIT to rely on pagination
       
       // Always update the active tab with the new table context and query
       // Instead of creating a new tab.
@@ -107,14 +109,19 @@ export const SqlEditor: React.FC<SqlEditorProps> = ({ sessionId, apiConfig, targ
     setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, ...updates } : t));
   };
 
-  const executeQuery = async () => {
+  const executeQuery = async (page: number = 1) => {
     if (!activeTab.query.trim()) return;
     
-    updateActiveTab({ loading: true, error: null, result: null });
+    updateActiveTab({ loading: true, error: null }); // Keep result if just paging? Maybe clear for clarity.
     const startTime = performance.now();
     
     try {
-        const data = await api.post(apiConfig, '/query', { sessionId, query: activeTab.query });
+        const data = await api.post(apiConfig, '/query', { 
+            sessionId, 
+            query: activeTab.query,
+            page: page,
+            pageSize: 50
+        });
         const duration = Math.round(performance.now() - startTime);
         
         updateActiveTab({ 
@@ -123,8 +130,10 @@ export const SqlEditor: React.FC<SqlEditorProps> = ({ sessionId, apiConfig, targ
             executionTime: duration 
         });
 
-        // Add to history
-        addToHistory(activeTab.query, 'success', duration, data.totalCount);
+        // Add to history only on first page execution to avoid clutter
+        if (page === 1) {
+            addToHistory(activeTab.query, 'success', duration, data.totalCount);
+        }
 
     } catch (err: any) {
         const duration = Math.round(performance.now() - startTime);
@@ -133,8 +142,9 @@ export const SqlEditor: React.FC<SqlEditorProps> = ({ sessionId, apiConfig, targ
             error: err.message 
         });
         
-        // Add to history
-        addToHistory(activeTab.query, 'error', duration, undefined, err.message);
+        if (page === 1) {
+            addToHistory(activeTab.query, 'error', duration, undefined, err.message);
+        }
     }
   };
 
@@ -160,9 +170,6 @@ export const SqlEditor: React.FC<SqlEditorProps> = ({ sessionId, apiConfig, targ
   // Format timestamp
   const formatTime = (ms: number) => new Date(ms).toLocaleTimeString();
 
-  // Determine what to show in the breadcrumb/header area
-  // If a table is active, show ONLY the table name.
-  // If no table is active, show the environment (e.g. "Mock DB" or "DuckDB").
   const activeTable = activeTab.dataSource;
   const headerText = activeTable || (apiConfig.isMock ? 'Mock DB' : 'DuckDB');
 
@@ -232,7 +239,7 @@ export const SqlEditor: React.FC<SqlEditorProps> = ({ sessionId, apiConfig, targ
                         variant="primary" 
                         size="sm" 
                         icon={<Play className="w-3 h-3" />}
-                        onClick={executeQuery}
+                        onClick={() => executeQuery(1)}
                         disabled={activeTab.loading || !activeTab.query}
                         className={activeTab.loading ? 'opacity-80' : ''}
                     >
@@ -251,7 +258,7 @@ export const SqlEditor: React.FC<SqlEditorProps> = ({ sessionId, apiConfig, targ
                 <div className="h-[40%] bg-[#1e1e1e] flex flex-col shrink-0 relative border-b border-gray-700">
                     <textarea
                         className="flex-1 w-full h-full p-4 font-mono text-sm resize-none focus:outline-none bg-[#1e1e1e] text-[#d4d4d4] leading-relaxed selection:bg-[#264f78]"
-                        placeholder="-- Enter your SQL query here&#10;SELECT * FROM table_name LIMIT 10;"
+                        placeholder="-- Enter your SQL query here&#10;SELECT * FROM table_name;"
                         value={activeTab.query}
                         onChange={(e) => updateActiveTab({ query: e.target.value })}
                         spellCheck={false}
@@ -267,57 +274,22 @@ export const SqlEditor: React.FC<SqlEditorProps> = ({ sessionId, apiConfig, targ
 
                 {/* RESULTS TABLE */}
                 <div className="flex-1 overflow-auto bg-gray-50 relative">
-                    {activeTab.loading && (
-                        <div className="absolute inset-0 flex items-center justify-center bg-white/50 z-10 backdrop-blur-[1px]">
-                            <div className="flex flex-col items-center">
-                                <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mb-2" />
-                                <span className="text-xs text-blue-600 font-medium">Executing SQL...</span>
-                            </div>
-                        </div>
-                    )}
-                    
                     {!activeTab.loading && !activeTab.result && !activeTab.error && (
                         <div className="flex flex-col items-center justify-center h-full text-gray-400">
                             <TableIcon className="w-12 h-12 mb-3 opacity-20" />
                             <p className="text-sm">Results will appear here</p>
                         </div>
                     )}
-
-                    {!activeTab.loading && activeTab.result && (
-                        <div className="bg-white min-h-full min-w-full inline-block align-middle">
-                            <table className="min-w-full divide-y divide-gray-200 border-b border-gray-200">
-                                <thead className="bg-gray-50 sticky top-0 shadow-sm">
-                                    <tr>
-                                        {/* Row Number Column */}
-                                        <th className="px-3 py-2 text-center text-xs font-semibold text-gray-400 bg-gray-50 w-12 border-r border-gray-200">
-                                            #
-                                        </th>
-                                        {activeTab.result.columns?.map((col) => (
-                                            <th key={col} className="px-6 py-3 text-left text-xs font-bold text-gray-600 tracking-wider whitespace-nowrap">
-                                                {col}
-                                            </th>
-                                        ))}
-                                    </tr>
-                                </thead>
-                                <tbody className="bg-white divide-y divide-gray-100">
-                                    {activeTab.result.rows.map((row, idx) => (
-                                        <tr key={idx} className="hover:bg-blue-50/50 transition-colors">
-                                            <td className="px-3 py-2 text-center text-xs text-gray-400 border-r border-gray-100 bg-gray-50/30">
-                                                {idx + 1}
-                                            </td>
-                                            {activeTab.result!.columns?.map((col) => (
-                                                <td key={`${idx}-${col}`} className="px-6 py-2 text-sm text-gray-700 whitespace-nowrap font-mono text-[13px]">
-                                                    {row[col] === null ? <span className="text-gray-300 italic">null</span> : String(row[col])}
-                                                </td>
-                                            ))}
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                            <div className="sticky bottom-0 bg-white border-t border-gray-200 p-2 text-xs text-gray-500 font-medium flex justify-between px-4">
-                                <span>Total Rows: {activeTab.result.totalCount}</span>
-                                <span>Fetched: {activeTab.result.rows.length}</span>
-                            </div>
+                    
+                    {/* Reusing DataPreview logic for pagination and rendering */}
+                    {(activeTab.result || activeTab.loading) && (
+                        <div className="h-full">
+                            <DataPreview 
+                                data={activeTab.result}
+                                loading={activeTab.loading}
+                                onRefresh={() => executeQuery(activeTab.result?.page || 1)}
+                                onPageChange={(newPage) => executeQuery(newPage)}
+                            />
                         </div>
                     )}
                 </div>

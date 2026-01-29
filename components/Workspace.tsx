@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Settings } from 'lucide-react';
 import { CommandEditor } from './CommandEditor';
@@ -22,7 +23,7 @@ interface WorkspaceProps {
   onRightPanelResizeStart: () => void;
   previewData: ExecutionResult | null;
   loading: boolean;
-  onRefreshPreview: () => void;
+  onRefreshPreview: (page?: number) => void;
 }
 
 export const Workspace: React.FC<WorkspaceProps> = ({
@@ -102,7 +103,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                         <DataPreview 
                             data={previewData} 
                             loading={loading}
-                            onRefresh={onRefreshPreview}
+                            onRefresh={() => onRefreshPreview(previewData?.page || 1)}
+                            onPageChange={(page) => onRefreshPreview(page)}
                         />
                     </div>
                 )}

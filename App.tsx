@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { DataImportModal } from './components/DataImport';
 import { PathConditionsModal } from './components/PathConditionsModal';
@@ -324,13 +325,15 @@ const App: React.FC = () => {
   };
 
   // Execution (Connect to Backend)
-  const executeOperation = async () => {
+  const executeOperation = async (page: number = 1) => {
     setLoading(true);
     try {
         const result: ExecutionResult = await api.post(apiConfig, '/execute', {
             sessionId: sessionId,
             tree: tree,
-            targetNodeId: selectedNodeId
+            targetNodeId: selectedNodeId,
+            page: page,
+            pageSize: 50
         });
 
         setPreviewData(result);
@@ -342,6 +345,39 @@ const App: React.FC = () => {
     } finally {
         setLoading(false);
     }
+  };
+
+  // Import / Export Operations
+  const handleExportOperations = () => {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(tree, null, 2));
+    const downloadAnchorNode = document.createElement('a');
+    downloadAnchorNode.setAttribute("href", dataStr);
+    downloadAnchorNode.setAttribute("download", `operations_${sessionId}_${Date.now()}.json`);
+    document.body.appendChild(downloadAnchorNode);
+    downloadAnchorNode.click();
+    downloadAnchorNode.remove();
+  };
+
+  const handleImportOperations = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        try {
+            const text = e.target?.result as string;
+            const importedTree = JSON.parse(text);
+            
+            // Basic validation check
+            if (!importedTree.id || importedTree.type !== 'operation') {
+                throw new Error("Invalid operation file format");
+            }
+
+            setTree(importedTree);
+            // Auto save triggers via effect
+        } catch (err) {
+            console.error("Import failed", err);
+            alert("Failed to import operations. Invalid file format.");
+        }
+    };
+    reader.readAsText(file);
   };
 
   // Helpers
@@ -424,7 +460,7 @@ const App: React.FC = () => {
         onSessionDelete={handleDeleteSession}
         onViewChange={setCurrentView}
         onSettingsOpen={() => setShowSettingsModal(true)}
-        onExecute={executeOperation}
+        onExecute={() => executeOperation(1)}
         onToggleRightPanel={() => setIsRightPanelOpen(!isRightPanelOpen)}
       />
 
@@ -445,6 +481,8 @@ const App: React.FC = () => {
           onDeleteNode={handleDeleteNode}
           onImportClick={() => setShowImportModal(true)}
           onOpenTableInSql={handleOpenTableInSql}
+          onExportOperations={handleExportOperations}
+          onImportOperations={handleImportOperations}
         />
 
         {/* RESIZER HANDLER (LEFT) */}
@@ -473,7 +511,7 @@ const App: React.FC = () => {
             onRightPanelResizeStart={() => setIsResizingRight(true)}
             previewData={previewData}
             loading={loading}
-            onRefreshPreview={executeOperation}
+            onRefreshPreview={(page) => executeOperation(page || 1)}
         />
 
       </div>

@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { ChevronDown, ChevronRight, Layers, Plus, Database, Search } from 'lucide-react';
+
+import React, { useRef } from 'react';
+import { ChevronDown, ChevronRight, Layers, Plus, Database, Search, Download, Upload } from 'lucide-react';
 import { OperationTree } from './OperationTree';
 import { OperationNode, Dataset } from '../types';
 
@@ -16,6 +17,8 @@ interface SidebarProps {
   onDeleteNode: (id: string) => void;
   onImportClick: () => void;
   onOpenTableInSql: (tableName: string) => void;
+  onExportOperations?: () => void;
+  onImportOperations?: (file: File) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -30,10 +33,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onAddChild,
   onDeleteNode,
   onImportClick,
-  onOpenTableInSql
+  onOpenTableInSql,
+  onExportOperations,
+  onImportOperations
 }) => {
-  const [isOpsExpanded, setIsOpsExpanded] = useState(true);
-  const [isDataExpanded, setIsDataExpanded] = useState(true);
+  const [isOpsExpanded, setIsOpsExpanded] = React.useState(true);
+  const [isDataExpanded, setIsDataExpanded] = React.useState(true);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (e.target.files && e.target.files[0] && onImportOperations) {
+          onImportOperations(e.target.files[0]);
+      }
+      // Reset input
+      if (fileInputRef.current) fileInputRef.current.value = '';
+  };
 
   return (
     <aside 
@@ -45,16 +59,56 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {currentView === 'workflow' && (
           <div className={`flex flex-col transition-all duration-300 ${isOpsExpanded ? 'flex-1 min-h-0' : 'flex-none'}`}>
              <div 
-                className="p-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center cursor-pointer hover:bg-gray-100 select-none"
-                onClick={() => setIsOpsExpanded(!isOpsExpanded)}
+                className="p-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center select-none"
              >
-                <div className="flex items-center space-x-2">
+                <div 
+                    className="flex items-center space-x-2 cursor-pointer"
+                    onClick={() => setIsOpsExpanded(!isOpsExpanded)}
+                >
                     {isOpsExpanded ? <ChevronDown className="w-4 h-4 text-gray-500"/> : <ChevronRight className="w-4 h-4 text-gray-500"/>}
                     <span className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Operations</span>
                 </div>
-                <button onClick={(e) => { e.stopPropagation(); onAddChild('root'); }} className="p-1 hover:bg-gray-200 rounded text-blue-600">
-                    <Layers className="w-4 h-4" />
-                </button>
+                
+                <div className="flex items-center space-x-1">
+                     {/* Import/Export Buttons */}
+                     {onExportOperations && (
+                         <button 
+                            onClick={(e) => { e.stopPropagation(); onExportOperations(); }}
+                            className="p-1 hover:bg-gray-200 rounded text-gray-500" 
+                            title="Export Operations"
+                         >
+                            <Download className="w-3.5 h-3.5" />
+                         </button>
+                     )}
+                     {onImportOperations && (
+                         <>
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
+                                className="p-1 hover:bg-gray-200 rounded text-gray-500" 
+                                title="Import Operations"
+                            >
+                                <Upload className="w-3.5 h-3.5" />
+                            </button>
+                            <input 
+                                type="file" 
+                                ref={fileInputRef} 
+                                className="hidden" 
+                                accept=".json" 
+                                onChange={handleFileChange} 
+                            />
+                         </>
+                     )}
+                    
+                    <div className="h-3 w-px bg-gray-300 mx-1"></div>
+
+                    <button 
+                        onClick={(e) => { e.stopPropagation(); onAddChild('root'); }} 
+                        className="p-1 hover:bg-gray-200 rounded text-blue-600"
+                        title="Add Root Operation"
+                    >
+                        <Layers className="w-4 h-4" />
+                    </button>
+                </div>
              </div>
              
              {isOpsExpanded && (

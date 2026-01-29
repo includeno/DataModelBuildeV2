@@ -1,5 +1,6 @@
+
 import React from 'react';
-import { Download, RefreshCw, Table as TableIcon } from 'lucide-react';
+import { Download, RefreshCw, Table as TableIcon, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from './Button';
 import { ExecutionResult } from '../types';
 
@@ -7,9 +8,10 @@ interface DataPreviewProps {
   data: ExecutionResult | null;
   loading: boolean;
   onRefresh: () => void;
+  onPageChange?: (newPage: number) => void;
 }
 
-export const DataPreview: React.FC<DataPreviewProps> = ({ data, loading, onRefresh }) => {
+export const DataPreview: React.FC<DataPreviewProps> = ({ data, loading, onRefresh, onPageChange }) => {
   const handleExportCsv = () => {
     if (!data || !data.rows.length) return;
 
@@ -66,6 +68,9 @@ export const DataPreview: React.FC<DataPreviewProps> = ({ data, loading, onRefre
   }
 
   const columns = data.columns || Object.keys(data.rows[0]);
+  const page = data.page || 1;
+  const pageSize = data.pageSize || 50;
+  const totalPages = Math.ceil(data.totalCount / pageSize);
 
   return (
     <div className="flex flex-col h-full bg-white border-t border-gray-200">
@@ -113,7 +118,7 @@ export const DataPreview: React.FC<DataPreviewProps> = ({ data, loading, onRefre
             {data.rows.map((row, idx) => (
               <tr key={idx} className="hover:bg-blue-50/40 transition-colors group">
                 <td className="sticky left-0 bg-white group-hover:bg-blue-50/40 px-4 py-2.5 text-center text-xs text-gray-400 border-r border-gray-100 font-mono">
-                  {idx + 1}
+                  {(page - 1) * pageSize + idx + 1}
                 </td>
                 {columns.map((col) => (
                   <td key={`${idx}-${col}`} className="px-6 py-2.5 text-sm text-gray-700 whitespace-nowrap font-medium">
@@ -126,9 +131,32 @@ export const DataPreview: React.FC<DataPreviewProps> = ({ data, loading, onRefre
         </table>
       </div>
       
-      <div className="px-5 py-2 border-t border-gray-200 bg-white text-xs text-gray-400 flex justify-between items-center">
-         <span>Displaying first {Math.min(data.rows.length, 100)} rows</span>
-         <span className="font-mono">Page 1</span>
+      {/* Pagination Footer */}
+      <div className="px-5 py-2 border-t border-gray-200 bg-white text-xs text-gray-500 flex justify-between items-center">
+         <div className="flex items-center space-x-4">
+             <span>Page {page} of {totalPages || 1}</span>
+             <span className="text-gray-300">|</span>
+             <span>{Math.min((page - 1) * pageSize + 1, data.totalCount)} - {Math.min(page * pageSize, data.totalCount)} displayed</span>
+         </div>
+         
+         {onPageChange && totalPages > 1 && (
+            <div className="flex items-center space-x-1">
+                <button 
+                    onClick={() => onPageChange(page - 1)}
+                    disabled={page <= 1}
+                    className="p-1 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                    <ChevronLeft className="w-4 h-4" />
+                </button>
+                <button 
+                    onClick={() => onPageChange(page + 1)}
+                    disabled={page >= totalPages}
+                    className="p-1 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                    <ChevronRight className="w-4 h-4" />
+                </button>
+            </div>
+         )}
       </div>
     </div>
   );

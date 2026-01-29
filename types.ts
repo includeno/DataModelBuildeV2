@@ -1,3 +1,4 @@
+
 export type CommandType = 'filter' | 'join' | 'transform' | 'aggregate' | 'sort' | 'pivot' | 'export' | 'custom';
 
 export interface CommandConfig {
@@ -46,6 +47,8 @@ export interface ExecutionResult {
   rows: any[];
   totalCount: number;
   columns?: string[];
+  page: number;
+  pageSize: number;
 }
 
 export interface ApiConfig {

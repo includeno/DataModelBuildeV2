@@ -1,3 +1,4 @@
+
 import { ApiConfig, Dataset, ExecutionResult, SessionMetadata, OperationNode, Command } from "../types";
 
 // --- MOCK DATA GENERATORS ---
@@ -69,7 +70,7 @@ const findPathToNode = (root: OperationNode, targetId: string): OperationNode[] 
     return null;
 };
 
-const executeMockLogic = (tree: OperationNode, targetNodeId: string): ExecutionResult => {
+const executeMockLogic = (tree: OperationNode, targetNodeId: string): any => {
     const path = findPathToNode(tree, targetNodeId);
     if (!path) throw new Error("Target node not found in tree");
 
@@ -107,7 +108,7 @@ const executeMockLogic = (tree: OperationNode, targetNodeId: string): ExecutionR
         }
     }
 
-    // 3. Format Result
+    // 3. Format Result (Return full data here, allow caller to paginate)
     const columns = currentData.length > 0 ? Object.keys(currentData[0]) : (sourceDataset?.fields || []);
     return {
         rows: currentData,
@@ -201,8 +202,19 @@ export const api = {
             if (endpoint === '/sessions') return { sessionId: `mock-sess-${Date.now()}` };
             
             if (endpoint === '/execute') {
-                const { tree, targetNodeId } = body;
-                return executeMockLogic(tree, targetNodeId);
+                const { tree, targetNodeId, page = 1, pageSize = 50 } = body;
+                const fullResult = executeMockLogic(tree, targetNodeId);
+                
+                const start = (page - 1) * pageSize;
+                const end = start + pageSize;
+                
+                return {
+                    rows: fullResult.rows.slice(start, end),
+                    totalCount: fullResult.totalCount,
+                    columns: fullResult.columns,
+                    page,
+                    pageSize
+                };
             }
 
             // Mock state save
@@ -216,21 +228,27 @@ export const api = {
             if (endpoint === '/query') {
                 // Simple mock SQL parser for "SELECT * FROM table"
                 const query = body.query?.toLowerCase() || "";
+                const { page = 1, pageSize = 50 } = body;
+                
                 if (query.includes("select") && query.includes("from")) {
                     const parts = query.split("from");
                     if (parts.length > 1) {
                         const tableName = parts[1].trim().split(" ")[0].replace(";", "");
                         const dataset = MOCK_DATASETS.find(d => d.name === tableName);
                         if (dataset) {
+                            const start = (page - 1) * pageSize;
+                            const end = start + pageSize;
                             return {
-                                rows: dataset.rows.slice(0, 100),
+                                rows: dataset.rows.slice(start, end),
                                 totalCount: dataset.totalCount,
-                                columns: dataset.fields
+                                columns: dataset.fields,
+                                page,
+                                pageSize
                             };
                         }
                     }
                 }
-                return { rows: [], totalCount: 0, columns: [] };
+                return { rows: [], totalCount: 0, columns: [], page, pageSize };
             }
             return {};
         }
