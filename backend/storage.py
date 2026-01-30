@@ -1,9 +1,11 @@
+
 import pandas as pd
 import duckdb
 import os
 import shutil
 import re
 import json
+import time
 from typing import List, Dict, Optional
 
 SESSIONS_DIR = "sessions"
@@ -23,6 +25,32 @@ class SessionStorage:
         path = self._get_session_path(session_id)
         if not os.path.exists(path):
             os.makedirs(path)
+            # Initialize default metadata
+            self.save_session_metadata(session_id, {
+                "displayName": "",
+                "settings": {
+                    "cascadeDisable": False
+                }
+            })
+
+    def get_session_metadata(self, session_id: str) -> Dict:
+        path = os.path.join(self._get_session_path(session_id), "metadata.json")
+        if os.path.exists(path):
+            try:
+                with open(path, "r") as f:
+                    return json.load(f)
+            except:
+                pass
+        return {"displayName": "", "settings": {"cascadeDisable": False}}
+
+    def save_session_metadata(self, session_id: str, metadata: Dict):
+        path = os.path.join(self._get_session_path(session_id), "metadata.json")
+        # Merge with existing to prevent data loss if partial update
+        current = self.get_session_metadata(session_id)
+        current.update(metadata)
+        
+        with open(path, "w") as f:
+            json.dump(current, f, indent=2)
 
     def list_sessions(self) -> List[Dict]:
         sessions = []
@@ -30,10 +58,13 @@ class SessionStorage:
             for name in os.listdir(SESSIONS_DIR):
                 path = os.path.join(SESSIONS_DIR, name)
                 if os.path.isdir(path):
-                    # In a real app, read metadata.json for creation time
+                    # Get metadata for display name
+                    meta = self.get_session_metadata(name)
+                    
                     sessions.append({
                         "sessionId": name,
-                        "createdAt": os.path.getctime(path) # Returns timestamp
+                        "displayName": meta.get("displayName", ""),
+                        "createdAt": os.path.getctime(path) * 1000 # Convert to ms for JS
                     })
         # Sort by newest
         sessions.sort(key=lambda x: x["createdAt"], reverse=True)

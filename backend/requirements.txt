@@ -1,3 +1,4 @@
+
 fastapi
 uvicorn
 pandas
@@ -7,3 +8,4 @@ httpx
 duckdb
 numpy
 openpyxl
+simpleeval

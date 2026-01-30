@@ -1,6 +1,6 @@
 
-import React, { useRef } from 'react';
-import { ChevronDown, ChevronRight, Layers, Plus, Database, Search, Download, Upload } from 'lucide-react';
+import React, { useRef, useState } from 'react';
+import { ChevronDown, ChevronRight, Layers, Plus, Database, Search, Download, Upload, Settings, FoldVertical, UnfoldVertical } from 'lucide-react';
 import { OperationTree } from './OperationTree';
 import { OperationNode, Dataset } from '../types';
 
@@ -19,6 +19,8 @@ interface SidebarProps {
   onOpenTableInSql: (tableName: string) => void;
   onExportOperations?: () => void;
   onImportOperations?: (file: File) => void;
+  onAnalyzeOverlap?: (nodeId: string) => void;
+  onOpenSchema?: (name: string) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -35,84 +37,51 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onImportClick,
   onOpenTableInSql,
   onExportOperations,
-  onImportOperations
+  onImportOperations,
+  onAnalyzeOverlap,
+  onOpenSchema
 }) => {
-  const [isOpsExpanded, setIsOpsExpanded] = React.useState(true);
-  const [isDataExpanded, setIsDataExpanded] = React.useState(true);
+  const [isOpsExpanded, setIsOpsExpanded] = useState(true);
+  const [isDataExpanded, setIsDataExpanded] = useState(true);
+  const [expandAllCounter, setExpandAllCounter] = useState(0); // For simple trigger
+  const [collapseAllCounter, setCollapseAllCounter] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       if (e.target.files && e.target.files[0] && onImportOperations) {
           onImportOperations(e.target.files[0]);
       }
-      // Reset input
       if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   return (
     <aside 
-        className="bg-white border-r border-gray-200 flex flex-col transition-none z-10 shrink-0"
+        className="bg-white border-r border-gray-200 flex flex-col transition-none z-10 shrink-0 h-full"
         style={{ width: width }}
     >
-      
-      {/* Operations Section (Only in Workflow) */}
+      {/* Operations Section */}
       {currentView === 'workflow' && (
           <div className={`flex flex-col transition-all duration-300 ${isOpsExpanded ? 'flex-1 min-h-0' : 'flex-none'}`}>
-             <div 
-                className="p-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center select-none"
-             >
-                <div 
-                    className="flex items-center space-x-2 cursor-pointer"
-                    onClick={() => setIsOpsExpanded(!isOpsExpanded)}
-                >
+             <div className="p-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center select-none shrink-0">
+                <div className="flex items-center space-x-2 cursor-pointer" onClick={() => setIsOpsExpanded(!isOpsExpanded)}>
                     {isOpsExpanded ? <ChevronDown className="w-4 h-4 text-gray-500"/> : <ChevronRight className="w-4 h-4 text-gray-500"/>}
-                    <span className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Operations</span>
+                    <span className="text-xs font-bold text-gray-600 uppercase tracking-wider">Operations</span>
                 </div>
                 
                 <div className="flex items-center space-x-1">
-                     {/* Import/Export Buttons */}
-                     {onExportOperations && (
-                         <button 
-                            onClick={(e) => { e.stopPropagation(); onExportOperations(); }}
-                            className="p-1 hover:bg-gray-200 rounded text-gray-500" 
-                            title="Export Operations"
-                         >
-                            <Download className="w-3.5 h-3.5" />
-                         </button>
+                     {isOpsExpanded && (
+                         <div className="flex items-center bg-white border border-gray-200 rounded-md p-0.5 shadow-sm mr-1">
+                             <button onClick={() => setCollapseAllCounter(c => c + 1)} className="p-1 hover:bg-gray-100 rounded text-gray-400" title="Collapse All"><FoldVertical className="w-3 h-3" /></button>
+                             <button onClick={() => setExpandAllCounter(c => c + 1)} className="p-1 hover:bg-gray-100 rounded text-gray-400" title="Expand All"><UnfoldVertical className="w-3 h-3" /></button>
+                         </div>
                      )}
-                     {onImportOperations && (
-                         <>
-                            <button 
-                                onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
-                                className="p-1 hover:bg-gray-200 rounded text-gray-500" 
-                                title="Import Operations"
-                            >
-                                <Upload className="w-3.5 h-3.5" />
-                            </button>
-                            <input 
-                                type="file" 
-                                ref={fileInputRef} 
-                                className="hidden" 
-                                accept=".json" 
-                                onChange={handleFileChange} 
-                            />
-                         </>
-                     )}
-                    
-                    <div className="h-3 w-px bg-gray-300 mx-1"></div>
-
-                    <button 
-                        onClick={(e) => { e.stopPropagation(); onAddChild('root'); }} 
-                        className="p-1 hover:bg-gray-200 rounded text-blue-600"
-                        title="Add Root Operation"
-                    >
-                        <Layers className="w-4 h-4" />
-                    </button>
+                     {onExportOperations && <button onClick={(e) => { e.stopPropagation(); onExportOperations(); }} className="p-1 hover:bg-gray-200 rounded text-gray-500" title="Export"><Download className="w-3.5 h-3.5" /></button>}
+                     <button onClick={(e) => { e.stopPropagation(); onAddChild('root'); }} className="p-1 hover:bg-blue-100 rounded text-blue-600" title="Add Root Operation"><Layers className="w-4 h-4" /></button>
                 </div>
              </div>
              
              {isOpsExpanded && (
-                <div className="flex-1 overflow-y-auto p-2">
+                <div className="flex-1 overflow-auto py-2">
                     {tree.children?.map(node => (
                         <OperationTree 
                             key={node.id} 
@@ -122,68 +91,47 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             onToggleEnabled={onToggleEnabled}
                             onAddChild={onAddChild}
                             onDelete={onDeleteNode}
+                            onAnalyzeOverlap={onAnalyzeOverlap}
+                            expandTrigger={expandAllCounter}
+                            collapseTrigger={collapseAllCounter}
                         />
                     ))}
                     {(!tree.children || tree.children.length === 0) && (
-                        <div className="text-center mt-10 text-gray-400 text-sm p-4">
-                            No operations yet.
-                        </div>
+                        <div className="text-center mt-10 text-gray-400 text-sm p-4 italic">No operations yet.</div>
                     )}
                 </div>
              )}
           </div>
       )}
 
-      {/* Data Sources Section (Always Visible or Conditional) */}
-      <div className={`flex flex-col border-t border-gray-200 transition-all duration-300 ${currentView === 'sql' ? 'flex-1' : (!isOpsExpanded ? 'flex-1' : (isDataExpanded ? 'h-1/3' : 'flex-none'))}`}>
-         <div 
-             className="p-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center cursor-pointer hover:bg-gray-100 select-none"
-             onClick={() => setIsDataExpanded(!isDataExpanded)}
-         >
+      {/* Data Sources Section */}
+      <div className={`flex flex-col border-t border-gray-200 bg-white transition-all duration-300 ${currentView === 'sql' ? 'flex-1' : (!isOpsExpanded ? 'flex-1' : (isDataExpanded ? 'min-h-[160px] h-1/4 max-h-[300px]' : 'flex-none'))}`}>
+         <div className="p-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center cursor-pointer hover:bg-gray-100 select-none shrink-0" onClick={() => setIsDataExpanded(!isDataExpanded)}>
              <div className="flex items-center space-x-2">
                  {isDataExpanded ? <ChevronDown className="w-4 h-4 text-gray-500"/> : <ChevronRight className="w-4 h-4 text-gray-500"/>}
-                 <span className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Data Sources</span>
+                 <span className="text-xs font-bold text-gray-600 uppercase tracking-wider">Data Sources</span>
              </div>
-             <button 
-                onClick={(e) => { e.stopPropagation(); onImportClick(); }}
-                className="p-1 hover:bg-blue-100 rounded text-blue-600 transition-colors"
-                title="Upload Dataset"
-                disabled={!sessionId}
-             >
-                <Plus className="w-4 h-4" />
-             </button>
+             <button onClick={(e) => { e.stopPropagation(); onImportClick(); }} className="p-1 hover:bg-blue-100 rounded text-blue-600 transition-colors" title="Import Dataset"><Plus className="w-4 h-4" /></button>
          </div>
          
          {isDataExpanded && (
-             <div className="flex-1 overflow-y-auto p-2 bg-white">
+             <div className="flex-1 overflow-y-auto p-2">
                 {!sessionId ? (
-                    <div className="flex flex-col items-center justify-center h-full text-center p-4 text-gray-400 italic text-xs">
-                       Create a session to manage data.
-                    </div>
+                    <div className="flex flex-col items-center justify-center h-full text-center p-4 text-gray-400 italic text-xs">Create a session to manage data.</div>
                 ) : datasets.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-full text-center p-4 text-gray-400 italic text-xs">
-                       No tables found in Session DB. <br/> Import CSV to start.
-                    </div>
+                    <div className="flex flex-col items-center justify-center h-full text-center p-4 text-gray-400 italic text-xs">No tables found.<br/>Import CSV to start.</div>
                 ) : (
-                    <div className="space-y-1">
+                    <div className="space-y-0.5">
                         {datasets.map(ds => (
-                            <div 
-                                key={ds.id} 
-                                onClick={() => onOpenTableInSql(ds.name)}
-                                className="flex items-center px-2 py-1.5 bg-white hover:bg-blue-50 cursor-pointer rounded-md text-sm transition-colors group justify-between"
-                            >
-                                <div className="flex items-center min-w-0">
-                                    <Database className="w-3.5 h-3.5 text-gray-400 mr-2 shrink-0 group-hover:text-blue-500" />
-                                    <div className="font-medium text-gray-700 truncate group-hover:text-blue-700" title={ds.name}>{ds.name}</div>
-                                    <div className="text-[10px] text-gray-400 ml-2 shrink-0">{ds.totalCount} rows</div>
+                            <div key={ds.id} className="flex items-center px-2 py-1 bg-white hover:bg-blue-50 rounded-md text-sm transition-colors group justify-between border border-transparent hover:border-blue-100">
+                                <div className="flex items-center min-w-0 cursor-pointer flex-1" onClick={() => onOpenTableInSql(ds.name)}>
+                                    <Database className="w-3 h-3 text-gray-400 mr-2 shrink-0 group-hover:text-blue-500" />
+                                    <div className="font-medium text-gray-700 truncate group-hover:text-blue-700 text-xs" title={ds.name}>{ds.name}</div>
                                 </div>
-                                <button 
-                                    onClick={(e) => { e.stopPropagation(); onOpenTableInSql(ds.name); }}
-                                    className="p-1 text-gray-300 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                                    title="Query Table"
-                                >
-                                    <Search className="w-3.5 h-3.5" />
-                                </button>
+                                <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity space-x-1">
+                                    <button onClick={(e) => { e.stopPropagation(); onOpenTableInSql(ds.name); }} className="p-1 text-gray-300 hover:text-blue-600" title="Query"><Search className="w-3 h-3" /></button>
+                                    <button onClick={(e) => { e.stopPropagation(); onOpenSchema && onOpenSchema(ds.name); }} className="p-1 text-gray-300 hover:text-gray-600" title="Settings"><Settings className="w-3 h-3" /></button>
+                                </div>
                             </div>
                         ))}
                     </div>

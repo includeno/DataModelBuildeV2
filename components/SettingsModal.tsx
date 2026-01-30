@@ -1,5 +1,6 @@
+
 import React, { useState } from 'react';
-import { X, Server, Plus, Trash2, Check } from 'lucide-react';
+import { X, Server, Plus, Trash2 } from 'lucide-react';
 import { Button } from './Button';
 
 interface SettingsModalProps {
@@ -19,7 +20,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   currentServer,
   onSelectServer,
   onAddServer,
-  onRemoveServer
+  onRemoveServer,
 }) => {
   const [newUrl, setNewUrl] = useState('');
 
@@ -38,58 +39,61 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gray-50">
           <div className="flex items-center space-x-2">
             <Server className="w-5 h-5 text-blue-600" />
-            <h3 className="text-lg font-bold text-gray-900">Server Configuration</h3>
+            <h3 className="text-lg font-bold text-gray-900">App Settings</h3>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="p-6">
-            <p className="text-sm text-gray-600 mb-4">
-                Select the backend server to connect to. Use <b>Mock Server</b> for offline frontend testing.
-            </p>
+        <div className="p-6 space-y-8">
+            {/* Server Configuration */}
+            <div>
+                <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3 flex items-center">
+                    <Server className="w-4 h-4 mr-1.5" /> Server Connection
+                </h4>
+                <p className="text-sm text-gray-600 mb-4">
+                    Select the backend server to connect to. Use <b>Mock Server</b> for offline testing.
+                </p>
 
-            <div className="space-y-3 mb-6">
-                {servers.map((server) => {
-                    const isSelected = server === currentServer;
-                    const isSystem = server === 'mockServer' || server === 'http://localhost:8000';
-                    const displayLabel = server === 'mockServer' ? 'Mock Server (Offline)' : server;
+                <div className="space-y-3 mb-4">
+                    {servers.map((server) => {
+                        const isSelected = server === currentServer;
+                        const isSystem = server === 'mockServer' || server === 'http://localhost:8000';
+                        const displayLabel = server === 'mockServer' ? 'Mock Server (Offline)' : server;
 
-                    return (
-                        <div 
-                            key={server}
-                            onClick={() => onSelectServer(server)}
-                            className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all ${
-                                isSelected 
-                                ? 'border-blue-500 bg-blue-50 shadow-sm' 
-                                : 'border-gray-200 hover:border-blue-300 hover:bg-gray-50'
-                            }`}
-                        >
-                            <div className="flex items-center space-x-3">
-                                <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${isSelected ? 'border-blue-600' : 'border-gray-400'}`}>
-                                    {isSelected && <div className="w-2 h-2 rounded-full bg-blue-600" />}
+                        return (
+                            <div 
+                                key={server}
+                                onClick={() => onSelectServer(server)}
+                                className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all ${
+                                    isSelected 
+                                    ? 'border-blue-500 bg-blue-50 shadow-sm' 
+                                    : 'border-gray-200 hover:border-blue-300 hover:bg-gray-50'
+                                }`}
+                            >
+                                <div className="flex items-center space-x-3">
+                                    <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${isSelected ? 'border-blue-600' : 'border-gray-400'}`}>
+                                        {isSelected && <div className="w-2 h-2 rounded-full bg-blue-600" />}
+                                    </div>
+                                    <span className={`text-sm font-medium ${isSelected ? 'text-blue-900' : 'text-gray-700'}`}>
+                                        {displayLabel}
+                                    </span>
                                 </div>
-                                <span className={`text-sm font-medium ${isSelected ? 'text-blue-900' : 'text-gray-700'}`}>
-                                    {displayLabel}
-                                </span>
+
+                                {!isSystem && (
+                                    <button 
+                                        onClick={(e) => { e.stopPropagation(); onRemoveServer(server); }}
+                                        className="p-1.5 text-gray-400 hover:text-red-500 rounded-md hover:bg-red-50 transition-colors"
+                                    >
+                                        <Trash2 className="w-4 h-4" />
+                                    </button>
+                                )}
                             </div>
+                        );
+                    })}
+                </div>
 
-                            {!isSystem && (
-                                <button 
-                                    onClick={(e) => { e.stopPropagation(); onRemoveServer(server); }}
-                                    className="p-1.5 text-gray-400 hover:text-red-500 rounded-md hover:bg-red-50 transition-colors"
-                                >
-                                    <Trash2 className="w-4 h-4" />
-                                </button>
-                            )}
-                        </div>
-                    );
-                })}
-            </div>
-
-            <div className="pt-4 border-t border-gray-100">
-                <label className="block text-xs font-semibold text-gray-500 uppercase mb-2">Add Custom Server</label>
                 <div className="flex space-x-2">
                     <input 
                         type="text" 

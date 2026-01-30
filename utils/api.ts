@@ -1,7 +1,16 @@
 
-import { ApiConfig, Dataset, ExecutionResult, SessionMetadata, OperationNode, Command } from "../types";
+import { ApiConfig, Dataset, ExecutionResult, SessionMetadata, OperationNode, Command, DataType, MappingRule, FilterGroup, FilterCondition, FieldInfo } from "../types";
 
 // --- MOCK DATA GENERATORS ---
+
+const inferType = (val: any): DataType => {
+    if (val === null || val === undefined) return 'string';
+    if (typeof val === 'number') return 'number';
+    if (typeof val === 'boolean') return 'boolean';
+    if (typeof val === 'object') return 'json';
+    if (typeof val === 'string' && !isNaN(Date.parse(val)) && val.includes('-')) return 'date';
+    return 'string';
+};
 
 const generateEmployees = (count: number) => {
     const depts = ["Engineering", "HR", "Sales", "Marketing", "Finance"];
@@ -13,7 +22,8 @@ const generateEmployees = (count: number) => {
             dept: depts[i % depts.length],
             salary: 50000 + (i * 1000) % 100000,
             active: i % 5 !== 0,
-            hire_date: new Date(2020, i % 12, (i % 28) + 1).toISOString().split('T')[0]
+            hire_date: new Date(2020, i % 12, (i % 28) + 1).toISOString().split('T')[0],
+            metadata: { level: i % 3, performance: "A" } 
         });
     }
     return rows;
@@ -24,7 +34,7 @@ const generateSales = (count: number) => {
     for (let i = 1; i <= count; i++) {
         rows.push({
             order_id: 1000 + i,
-            uid: (i % 20) + 1, // Connects to employee ids 1-20
+            uid: (i % 20) + 1, 
             amount: Math.round(Math.random() * 1000),
             date: new Date(2023, i % 12, (i % 28) + 1).toISOString()
         });
@@ -32,30 +42,47 @@ const generateSales = (count: number) => {
     return rows;
 };
 
+// Fix: Updated return type to Record<string, FieldInfo> to match Dataset interface requirements.
+const generateFieldTypes = (rows: any[]): Record<string, FieldInfo> => {
+    if (rows.length === 0) return {};
+    const types: Record<string, FieldInfo> = {};
+    const sample = rows[0];
+    Object.keys(sample).forEach(key => {
+        // Fix: Wrapped the inferred DataType into a FieldInfo object.
+        types[key] = { type: inferType(sample[key]) };
+    });
+    return types;
+};
+
+const empRows = generateEmployees(50);
+const salesRows = generateSales(150);
+
 const MOCK_DATASETS: Dataset[] = [
     { 
         id: "mock_employees", 
         name: "employees.csv", 
         totalCount: 50, 
-        fields: ["id", "name", "dept", "salary", "active", "hire_date"], 
-        rows: generateEmployees(50) 
+        fields: ["id", "name", "dept", "salary", "active", "hire_date", "metadata"], 
+        fieldTypes: generateFieldTypes(empRows),
+        rows: empRows 
     },
     { 
         id: "mock_sales", 
         name: "sales_data.csv", 
         totalCount: 150, 
         fields: ["order_id", "uid", "amount", "date"], 
-        rows: generateSales(150) 
+        fieldTypes: generateFieldTypes(salesRows),
+        rows: salesRows 
     }
 ];
 
 const MOCK_SESSIONS: SessionMetadata[] = [
-    { sessionId: "mock-session-demo", createdAt: Date.now() - 100000 },
-    { sessionId: "mock-session-archive", createdAt: Date.now() - 86400000 }
+    { sessionId: "mock-session-demo", displayName: "Demo Session", createdAt: Date.now() - 100000 },
+    { sessionId: "mock-session-archive", displayName: "", createdAt: Date.now() - 86400000 }
 ];
 
-// Memory store for mock session states
 const MOCK_SESSION_STATES: Record<string, any> = {};
+const MOCK_SESSION_METADATA: Record<string, any> = {};
 
 // --- MOCK ENGINE LOGIC ---
 
@@ -70,80 +97,104 @@ const findPathToNode = (root: OperationNode, targetId: string): OperationNode[] 
     return null;
 };
 
+const evaluateCondition = (row: any, cond: FilterCondition, variables: Record<string, any[]>): boolean => {
+    const val = row[cond.field];
+    const target = cond.value;
+    
+    switch (cond.operator) {
+        case '=': return String(val) == String(target); 
+        case '!=': return String(val) != String(target);
+        case '>': return Number(val) > Number(target);
+        case '>=': return Number(val) >= Number(target);
+        case '<': return Number(val) < Number(target);
+        case '<=': return Number(val) <= Number(target);
+        case 'contains': return String(val).toLowerCase().includes(String(target).toLowerCase());
+        case 'not_contains': return !String(val).toLowerCase().includes(String(target).toLowerCase());
+        case 'starts_with': return String(val).startsWith(String(target));
+        case 'ends_with': return String(val).endsWith(String(target));
+        case 'is_empty': return val === '' || val === null || val === undefined;
+        case 'is_not_empty': return val !== '' && val !== null && val !== undefined;
+        case 'is_true': return val === true;
+        case 'is_false': return val === false;
+        case 'has_key': return typeof val === 'object' && val !== null && String(target) in val;
+        case 'in_variable': return (variables[String(target)] || []).includes(val);
+        case 'not_in_variable': return !(variables[String(target)] || []).includes(val);
+        default: return true;
+    }
+};
+
+const evaluateFilterGroup = (row: any, group: FilterGroup, variables: Record<string, any[]>): boolean => {
+    if (!group.conditions || group.conditions.length === 0) return true;
+
+    if (group.logicalOperator === 'AND') {
+        return group.conditions.every(item => {
+            if (item.type === 'group') return evaluateFilterGroup(row, item, variables);
+            return evaluateCondition(row, item, variables);
+        });
+    } else {
+        return group.conditions.some(item => {
+            if (item.type === 'group') return evaluateFilterGroup(row, item, variables);
+            return evaluateCondition(row, item, variables);
+        });
+    }
+};
+
 const executeMockLogic = (tree: OperationNode, targetNodeId: string): any => {
     const path = findPathToNode(tree, targetNodeId);
     if (!path) throw new Error("Target node not found in tree");
 
-    // 1. Determine Initial Data Source
-    // Look for the first command that specifies a mainTable, or default to the first dataset
     let currentData: any[] = [];
-    
-    // Find the first data source used in the path
-    let sourceName = "";
-    for (const node of path) {
-        if (node.commands) {
-            for (const cmd of node.commands) {
-                if (cmd.config.mainTable) {
-                    sourceName = cmd.config.mainTable;
-                    break;
-                }
-            }
-        }
-        if (sourceName) break;
-    }
+    let hasLoadedSource = false;
+    let variables: Record<string, any[]> = {};
 
-    if (!sourceName && MOCK_DATASETS.length > 0) {
-        sourceName = MOCK_DATASETS[0].name;
-    }
-
-    const sourceDataset = MOCK_DATASETS.find(d => d.name === sourceName);
-    currentData = sourceDataset ? [...sourceDataset.rows] : [];
-
-    // 2. Apply Commands
     for (const node of path) {
         if (!node.enabled) continue;
 
         for (const cmd of node.commands) {
-            currentData = applyMockCommand(currentData, cmd);
+            if (cmd.type === 'source' || (cmd.type !== 'join' && cmd.type !== 'group' && cmd.config.mainTable)) {
+                const tableName = cmd.config.mainTable;
+                const ds = MOCK_DATASETS.find(d => d.name === tableName);
+                if (ds) {
+                    currentData = [...ds.rows];
+                    hasLoadedSource = true;
+                }
+            } else {
+                if (!hasLoadedSource && currentData.length === 0) {
+                     if (MOCK_DATASETS.length > 0) {
+                        currentData = [...MOCK_DATASETS[0].rows];
+                        hasLoadedSource = true;
+                     }
+                }
+                
+                if (cmd.config.dataSource && cmd.config.dataSource !== 'stream') {
+                    const ds = MOCK_DATASETS.find(d => d.name === cmd.config.dataSource);
+                    if (ds) currentData = [...ds.rows];
+                }
+
+                if (cmd.type === 'save') {
+                    const { field, value: varName, distinct } = cmd.config;
+                    if (field && varName && currentData.length > 0) {
+                        let extracted = currentData.map(r => r[field]);
+                        if (distinct !== false) extracted = Array.from(new Set(extracted));
+                        variables[String(varName)] = extracted;
+                    }
+                } else {
+                    currentData = applyMockCommand(currentData, cmd, variables);
+                }
+            }
         }
     }
 
-    // 3. Format Result (Return full data here, allow caller to paginate)
-    const columns = currentData.length > 0 ? Object.keys(currentData[0]) : (sourceDataset?.fields || []);
-    return {
-        rows: currentData,
-        totalCount: currentData.length,
-        columns: columns
-    };
+    const columns = currentData.length > 0 ? Object.keys(currentData[0]) : [];
+    return { rows: currentData, totalCount: currentData.length, columns: columns };
 };
 
-const applyMockCommand = (data: any[], cmd: Command): any[] => {
+const applyMockCommand = (data: any[], cmd: Command, variables: Record<string, any[]>): any[] => {
     const { config } = cmd;
 
     if (cmd.type === 'filter') {
-        if (!config.field) return data;
-        return data.filter(row => {
-            const val = row[config.field!];
-            const target = config.value;
-            
-            // Simple type coercion
-            const numVal = Number(val);
-            const rowNum = Number(val);
-
-            switch (config.operator) {
-                case '=': return String(val) == String(target); // loose equality for mock
-                case '!=': return String(val) != String(target);
-                case '>': return val > target;
-                case '>=': return val >= target;
-                case '<': return val < target;
-                case '<=': return val <= target;
-                case 'contains': return String(val).toLowerCase().includes(String(target).toLowerCase());
-                case 'not_contains': return !String(val).toLowerCase().includes(String(target).toLowerCase());
-                case 'starts_with': return String(val).startsWith(String(target));
-                case 'ends_with': return String(val).endsWith(String(target));
-                default: return true;
-            }
-        });
+        if (!config.filterRoot) return data;
+        return data.filter(row => evaluateFilterGroup(row, config.filterRoot!, variables));
     }
 
     if (cmd.type === 'sort') {
@@ -158,39 +209,106 @@ const applyMockCommand = (data: any[], cmd: Command): any[] => {
     }
 
     if (cmd.type === 'transform') {
-        // Simple mock transform for demo
-        if (config.outputField) {
-            return data.map(row => ({
-                ...row,
-                [config.outputField!]: "Calculated"
-            }));
+        const mappings = config.mappings || [];
+        if (mappings.length > 0) {
+            return data.map(row => {
+                const newRow = { ...row };
+                mappings.forEach(m => {
+                    const { expression, outputField } = m;
+                    if (outputField && expression) {
+                        try {
+                            const keys = Object.keys(row);
+                            const values = Object.values(row);
+                            const func = new Function(...keys, `return ${expression}`);
+                            newRow[outputField] = func(...values);
+                        } catch (e) { newRow[outputField] = "Calc Error"; }
+                    }
+                });
+                return newRow;
+            });
         }
     }
 
-    // Join, Aggregate not fully implemented in mock
+    if (cmd.type === 'group') {
+        const groupFields = config.groupByFields || [];
+        const aggregations = config.aggregations || [];
+        if (groupFields.length === 0 && aggregations.length === 0) return data;
+
+        const groups: Record<string, any[]> = {};
+        data.forEach(row => {
+            const key = groupFields.map(f => String(row[f])).join('|');
+            if (!groups[key]) groups[key] = [];
+            groups[key].push(row);
+        });
+
+        let result = Object.entries(groups).map(([key, rows]) => {
+            const resultRow: any = {};
+            const keyParts = key.split('|');
+            groupFields.forEach((f, i) => { resultRow[f] = rows[0][f]; });
+            aggregations.forEach(agg => {
+                const { field, func, alias } = agg;
+                const fieldName = alias || `${func}_${field}`;
+                if (func === 'count') resultRow[fieldName] = rows.length;
+                else if (field && field !== '*') {
+                    const values = rows.map(r => Number(r[field])).filter(v => !isNaN(v));
+                    if (values.length === 0) resultRow[fieldName] = 0;
+                    else {
+                        switch (func) {
+                            case 'sum': resultRow[fieldName] = values.reduce((a, b) => a + b, 0); break;
+                            case 'mean': resultRow[fieldName] = values.reduce((a, b) => a + b, 0) / values.length; break;
+                            case 'min': resultRow[fieldName] = Math.min(...values); break;
+                            case 'max': resultRow[fieldName] = Math.max(...values); break;
+                            default: resultRow[fieldName] = rows.length;
+                        }
+                    }
+                }
+            });
+            return resultRow;
+        });
+
+        const having = config.havingConditions || [];
+        if (having.length > 0) {
+            result = result.filter(row => {
+                return having.every(cond => {
+                    const val = row[cond.metricAlias];
+                    const target = cond.value;
+                    const op = cond.operator;
+                    const numVal = Number(val);
+                    const numTarget = Number(target);
+                    if (!isNaN(numVal) && !isNaN(numTarget)) {
+                        if (op === '=') return numVal == numTarget;
+                        if (op === '!=') return numVal != numTarget;
+                        if (op === '>') return numVal > numTarget;
+                        if (op === '>=') return numVal >= numTarget;
+                        if (op === '<') return numVal < numTarget;
+                        if (op === '<=') return numVal <= numTarget;
+                    }
+                    const sVal = String(val).toLowerCase();
+                    const sTarget = String(target).toLowerCase();
+                    if (op === '=') return sVal == sTarget;
+                    if (op === '!=') return sVal != sTarget;
+                    if (op === 'contains') return sVal.includes(sTarget);
+                    return true;
+                });
+            });
+        }
+        return result;
+    }
     return data;
 };
-
 
 // --- API EXPORT ---
 
 export const api = {
     async get(config: ApiConfig, endpoint: string) {
         if (config.isMock) {
-            await new Promise(r => setTimeout(r, 400)); // Simulate latency
+            await new Promise(r => setTimeout(r, 400));
             if (endpoint === '/sessions') return MOCK_SESSIONS;
-            if (endpoint.includes('/datasets')) return MOCK_DATASETS;
-            
-            // Mock state endpoint
-            if (endpoint.match(/\/sessions\/.*\/state/)) {
-                const parts = endpoint.split('/');
-                const sessId = parts[2];
-                return MOCK_SESSION_STATES[sessId] || {};
-            }
-
+            if (endpoint.includes('/datasets')) return [...MOCK_DATASETS];
+            if (endpoint.match(/\/sessions\/.*\/state/)) return MOCK_SESSION_STATES[endpoint.split('/')[2]] || {};
+            if (endpoint.match(/\/sessions\/.*\/metadata/)) return MOCK_SESSION_METADATA[endpoint.split('/')[2]] || { displayName: "", settings: { cascadeDisable: false, panelPosition: 'right' }};
             return {};
         }
-        
         const res = await fetch(`${config.baseUrl}${endpoint}`);
         if (!res.ok) throw new Error(`API Error: ${res.statusText}`);
         return res.json();
@@ -200,55 +318,40 @@ export const api = {
         if (config.isMock) {
             await new Promise(r => setTimeout(r, 600));
             if (endpoint === '/sessions') return { sessionId: `mock-sess-${Date.now()}` };
-            
+            if (endpoint.match(/\/sessions\/.*\/datasets\/update/)) {
+                 const { datasetId, fieldTypes } = body;
+                 const ds = MOCK_DATASETS.find(d => d.id === datasetId || d.name === datasetId);
+                 if (ds) ds.fieldTypes = fieldTypes;
+                 return { status: "ok" };
+            }
             if (endpoint === '/execute') {
                 const { tree, targetNodeId, page = 1, pageSize = 50 } = body;
                 const fullResult = executeMockLogic(tree, targetNodeId);
-                
                 const start = (page - 1) * pageSize;
-                const end = start + pageSize;
-                
-                return {
-                    rows: fullResult.rows.slice(start, end),
-                    totalCount: fullResult.totalCount,
-                    columns: fullResult.columns,
-                    page,
-                    pageSize
-                };
+                return { rows: fullResult.rows.slice(start, start + pageSize), totalCount: fullResult.totalCount, columns: fullResult.columns, page, pageSize };
             }
-
-            // Mock state save
-            if (endpoint.match(/\/sessions\/.*\/state/)) {
-                const parts = endpoint.split('/');
-                const sessId = parts[2];
-                MOCK_SESSION_STATES[sessId] = body;
+            if (endpoint === '/analyze') return { report: ["⚠️ Mock Analysis: Overlap detected in 2 branches."] };
+            if (endpoint.match(/\/sessions\/.*\/state/)) { MOCK_SESSION_STATES[endpoint.split('/')[2]] = body; return { status: "ok" }; }
+            if (endpoint.match(/\/sessions\/.*\/metadata/)) {
+                const sessId = endpoint.split('/')[2];
+                const current = MOCK_SESSION_METADATA[sessId] || {};
+                MOCK_SESSION_METADATA[sessId] = { ...current, ...body };
+                const listIdx = MOCK_SESSIONS.findIndex(s => s.sessionId === sessId);
+                if (listIdx >= 0 && body.displayName !== undefined) MOCK_SESSIONS[listIdx].displayName = body.displayName;
                 return { status: "ok" };
             }
-
             if (endpoint === '/query') {
-                // Simple mock SQL parser for "SELECT * FROM table"
-                const query = body.query?.toLowerCase() || "";
-                const { page = 1, pageSize = 50 } = body;
-                
-                if (query.includes("select") && query.includes("from")) {
-                    const parts = query.split("from");
-                    if (parts.length > 1) {
-                        const tableName = parts[1].trim().split(" ")[0].replace(";", "");
-                        const dataset = MOCK_DATASETS.find(d => d.name === tableName);
-                        if (dataset) {
-                            const start = (page - 1) * pageSize;
-                            const end = start + pageSize;
-                            return {
-                                rows: dataset.rows.slice(start, end),
-                                totalCount: dataset.totalCount,
-                                columns: dataset.fields,
-                                page,
-                                pageSize
-                            };
-                        }
+                const { query = "", page = 1, pageSize = 50 } = body;
+                const match = query.match(/select \* from (.*)/i);
+                if (match) {
+                    const tableName = match[1].trim();
+                    const ds = MOCK_DATASETS.find(d => d.name === tableName);
+                    if (ds) {
+                        const start = (page - 1) * pageSize;
+                        return { rows: ds.rows.slice(start, start + pageSize), totalCount: ds.totalCount, columns: ds.fields, page, pageSize };
                     }
                 }
-                return { rows: [], totalCount: 0, columns: [], page, pageSize };
+                return { rows: [], totalCount: 0, columns: [], page: 1, pageSize: 50 };
             }
             return {};
         }
@@ -258,18 +361,30 @@ export const api = {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body)
         });
-        if (!res.ok) {
-            const err = await res.json();
-            throw new Error(err.detail || `API Error: ${res.statusText}`);
-        }
+        if (!res.ok) { const err = await res.json(); throw new Error(err.detail || `API Error: ${res.statusText}`); }
         return res.json();
     },
 
+    async export(config: ApiConfig, endpoint: string, body: any) {
+        if (config.isMock) return;
+        const res = await fetch(`${config.baseUrl}${endpoint}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        if (!res.ok) throw new Error("Export failed");
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `export_${Date.now()}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+    },
+
     async delete(config: ApiConfig, endpoint: string) {
-        if (config.isMock) {
-            await new Promise(r => setTimeout(r, 300));
-            return { status: "ok" };
-        }
+        if (config.isMock) return { status: "ok" };
         const res = await fetch(`${config.baseUrl}${endpoint}`, { method: 'DELETE' });
         if (!res.ok) throw new Error(`API Error: ${res.statusText}`);
         return res.json();
@@ -280,22 +395,13 @@ export const api = {
             await new Promise(r => setTimeout(r, 1000));
             const file = formData.get('file') as File;
             const name = formData.get('name') as string;
-            
-            const newDs = {
-                id: `mock_table_${Date.now()}`,
-                name: name || file.name,
-                fields: ["col1", "col2", "col3"],
-                rows: [{ col1: "A", col2: 100, col3: true }, { col1: "B", col2: 200, col3: false }],
-                totalCount: 2
-            };
+            const rows = [{ col1: "A", col2: 100, col3: true }, { col1: "B", col2: 200, col3: false }];
+            // Fix: Ensured the generateFieldTypes call is compatible with the Dataset.fieldTypes requirement.
+            const newDs: Dataset = { id: `mock_table_${Date.now()}`, name: name || file.name, fields: ["col1", "col2", "col3"], rows: rows, fieldTypes: generateFieldTypes(rows), totalCount: 2 };
             MOCK_DATASETS.push(newDs);
             return newDs;
         }
-
-        const res = await fetch(`${config.baseUrl}${endpoint}`, {
-            method: 'POST',
-            body: formData,
-        });
+        const res = await fetch(`${config.baseUrl}${endpoint}`, { method: 'POST', body: formData });
         if (!res.ok) throw new Error(`Upload Error: ${res.statusText}`);
         return res.json();
     }

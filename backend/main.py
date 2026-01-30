@@ -1,13 +1,14 @@
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Body
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 import numpy as np
 import io
 import uuid
-from typing import List, Optional
+from typing import List, Optional, Dict
 
-from models import ExecuteRequest, ExecuteSqlRequest
+from models import ExecuteRequest, ExecuteSqlRequest, AnalyzeRequest
 from storage import storage
 from engine import ExecutionEngine
 
@@ -29,9 +30,12 @@ def clean_df_for_json(df: pd.DataFrame) -> List[dict]:
     """
     # Replace infinite values with NaN
     df = df.replace([np.inf, -np.inf], np.nan)
-    # Replace NaN with None
+    
+    # Preprocessing to handle NaNs (restored as requested)
     df = df.where(pd.notnull(df), None)
-    return df.to_dict(orient='records')
+    
+    # Final cleanup and serialization
+    return df.replace({np.nan: None}).to_dict(orient='records')
 
 def paginate_df(df: pd.DataFrame, page: int, page_size: int) -> pd.DataFrame:
     start = (page - 1) * page_size
@@ -65,6 +69,15 @@ async def get_session_state(session_id: str):
 @app.post("/sessions/{session_id}/state")
 async def save_session_state(session_id: str, state: dict = Body(...)):
     storage.save_session_state(session_id, state)
+    return {"status": "ok"}
+
+@app.get("/sessions/{session_id}/metadata")
+async def get_session_metadata(session_id: str):
+    return storage.get_session_metadata(session_id)
+
+@app.post("/sessions/{session_id}/metadata")
+async def update_session_metadata(session_id: str, metadata: dict = Body(...)):
+    storage.save_session_metadata(session_id, metadata)
     return {"status": "ok"}
 
 @app.post("/upload")
@@ -130,6 +143,32 @@ async def execute(req: ExecuteRequest):
         }
     except Exception as e:
         print(f"Execution Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/export")
+async def export_data(req: ExecuteRequest):
+    try:
+        # Execute logic to get full dataframe (ignoring pagination params in req for fetching, 
+        # but using them if we wanted to slice. Here we want full.)
+        df = engine.execute(req.session_id, req.tree, req.targetNodeId)
+        
+        stream = io.StringIO()
+        df.to_csv(stream, index=False)
+        
+        response = StreamingResponse(iter([stream.getvalue()]), media_type="text/csv")
+        response.headers["Content-Disposition"] = "attachment; filename=export_full.csv"
+        return response
+    except Exception as e:
+        print(f"Export Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/analyze")
+async def analyze_overlap(req: AnalyzeRequest):
+    try:
+        report = engine.calculate_overlap(req.session_id, req.tree, req.parentNodeId)
+        return {"report": report}
+    except Exception as e:
+        print(f"Analysis Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/query")
