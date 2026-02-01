@@ -1,5 +1,5 @@
 
-export type CommandType = 'filter' | 'join' | 'transform' | 'group' | 'sort' | 'pivot' | 'export' | 'source' | 'custom' | 'save' | 'multi_table' | 'view';
+export type CommandType = 'filter' | 'join' | 'transform' | 'group' | 'sort' | 'pivot' | 'export' | 'source' | 'custom' | 'save' | 'multi_table' | 'view' | 'define_variable';
 
 export type OperationType = 'dataset' | 'process' | 'setup';
 
@@ -68,6 +68,11 @@ export interface CommandConfig {
   distinct?: boolean; 
   mainTable?: string;
   alias?: string; // Added for Source commands to define output alias
+
+  // Variable Definition (Setup Node)
+  variableName?: string;
+  variableType?: 'text' | 'list';
+  variableValue?: string | string[];
 
   // Join configs
   joinTargetType?: 'table' | 'node'; 

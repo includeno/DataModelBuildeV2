@@ -170,7 +170,7 @@ class ExecutionEngine:
                      df = storage.get_full_dataset(session_id, source)
                 
                 # Legacy fallback for Source Type
-                if cmd.type == 'source' or (cmd.type not in ['join', 'group', 'multi_table', 'view'] and cmd.config.mainTable):
+                if cmd.type == 'source' or (cmd.type not in ['join', 'group', 'multi_table', 'view', 'define_variable'] and cmd.config.mainTable):
                     table_name = cmd.config.mainTable
                     if table_name:
                         df = storage.get_full_dataset(session_id, table_name)
@@ -184,7 +184,7 @@ class ExecutionEngine:
                     # If dataSource was 'stream' (default), it's a pass-through.
                     pass 
 
-                # 3. Variable Save Logic
+                # 3. Variable Logic
                 if cmd.type == 'save' and df is not None:
                      field, var_name = cmd.config.field, cmd.config.value
                      is_distinct = cmd.config.distinct if cmd.config.distinct is not None else True
@@ -193,6 +193,11 @@ class ExecutionEngine:
                              variables[str(var_name)] = df[field].unique().tolist()
                          else:
                              variables[str(var_name)] = df[field].tolist()
+                elif cmd.type == 'define_variable':
+                    v_name = cmd.config.variableName
+                    v_val = cmd.config.variableValue
+                    if v_name:
+                        variables[v_name] = v_val
                 
                 # 4. Processing Logic (Skip if df is None)
                 if df is not None:
@@ -261,16 +266,35 @@ class ExecutionEngine:
             return pd.Series([True] * len(df), index=df.index)
 
         series = df[field]
+        
+        # Variable Resolution in Value
+        target_val = val
+        if isinstance(target_val, str) and target_val.startswith('{') and target_val.endswith('}'):
+            var_name = target_val[1:-1]
+            if var_name in variables:
+                target_val = variables[var_name]
+
         if op == 'in_variable':
-            target_list = variables.get(str(val), [])
+            # Support direct variable name reference OR resolved list from above
+            target_list = []
+            if isinstance(target_val, list):
+                target_list = target_val
+            else:
+                target_list = variables.get(str(target_val), [])
             return series.isin(target_list)
+            
         if op == 'not_in_variable':
-            target_list = variables.get(str(val), [])
+            target_list = []
+            if isinstance(target_val, list):
+                target_list = target_val
+            else:
+                target_list = variables.get(str(target_val), [])
             return ~series.isin(target_list)
 
         try:
-             if cond.get('dataType') == 'number' or isinstance(val, (int, float)):
-                 v = float(val)
+             # Use resolved target_val
+             if cond.get('dataType') == 'number' or isinstance(target_val, (int, float)):
+                 v = float(target_val)
                  if op == '>': return series > v
                  if op == '>=': return series >= v
                  if op == '<': return series < v
@@ -278,7 +302,7 @@ class ExecutionEngine:
                  if op == '=': return series == v
                  if op == '!=': return series != v
              else:
-                 v = str(val)
+                 v = str(target_val)
                  s_str = series.astype(str)
                  if op == '=': return s_str == v
                  if op == '!=': return s_str != v
@@ -309,10 +333,18 @@ class ExecutionEngine:
         try:
             if on_clause and '=' in on_clause:
                 left_on, right_on = [x.strip() for x in on_clause.split('=')]
+                # Strip table prefixes if present
+                if '.' in left_on: left_on = left_on.split('.')[-1]
+                if '.' in right_on: right_on = right_on.split('.')[-1]
+                
                 return pd.merge(df, target_df, left_on=left_on, right_on=right_on, how=join_type, suffixes=('', suffix))
             elif on_clause:
-                return pd.merge(df, target_df, on=on_clause.strip(), how=join_type, suffixes=('', suffix))
-        except: pass
+                col = on_clause.strip()
+                if '.' in col: col = col.split('.')[-1]
+                return pd.merge(df, target_df, on=col, how=join_type, suffixes=('', suffix))
+        except Exception as e:
+            print(f"Join Error: {e}")
+            pass
         return df
 
     def _apply_group(self, df: pd.DataFrame, cmd: Command, session_id: str) -> pd.DataFrame:

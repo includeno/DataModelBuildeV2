@@ -2,7 +2,7 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { Command, CommandType, Dataset, OperationType, AggregationConfig, OperationNode, DataType, HavingCondition, MappingRule, FilterGroup, FilterCondition, SubTableConfig, FieldInfo } from '../types';
 import { Button } from './Button';
-import { Trash2, Plus, GripVertical, Type, Hash, Calendar, Clock, CheckCircle, Code, Database, Play, Layers, Braces, Save, Share2, ArrowRight, AlertCircle, Filter as FilterIcon, Table, Calculator, List, Check, Wand2, Info, ChevronRight, ChevronDown, Split, LayoutDashboard, AlertTriangle, Settings2, ArrowRightLeft, Eye } from 'lucide-react';
+import { Trash2, Plus, GripVertical, Type, Hash, Calendar, Clock, CheckCircle, Code, Database, Play, Layers, Braces, Save, Share2, ArrowRight, AlertCircle, Filter as FilterIcon, Table, Calculator, List, Check, Wand2, Info, ChevronRight, ChevronDown, Split, LayoutDashboard, AlertTriangle, Settings2, ArrowRightLeft, Eye, Variable } from 'lucide-react';
 
 interface CommandEditorProps {
   operationId: string;
@@ -112,6 +112,10 @@ const findAncestorVariables = (root: OperationNode, currentId: string): string[]
             node.commands.forEach(cmd => {
                 if (cmd.type === 'save' && cmd.config.value) {
                     vars.push(String(cmd.config.value));
+                }
+                // Also capture definition variables from setup nodes
+                if (cmd.type === 'define_variable' && cmd.config.variableName) {
+                    vars.push(cmd.config.variableName);
                 }
             });
             return true;
@@ -473,6 +477,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
   // -- Setup Mode Handler --
   if (operationType === 'setup') {
       const sourceCommands = commands.filter(c => c.type === 'source');
+      const variableCommands = commands.filter(c => c.type === 'define_variable');
       
       const handleAddSource = () => {
           const newCmd: Command = {
@@ -483,6 +488,20 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                   alias: '',
                   linkId: `link_${Date.now()}_${Math.random().toString(36).substr(2, 5)}` // Generate stable Link ID
               }, 
+              order: commands.length + 1
+          };
+          onUpdateCommands(operationId, [...commands, newCmd]);
+      };
+
+      const handleAddVariable = () => {
+          const newCmd: Command = {
+              id: `cmd_var_${Date.now()}`,
+              type: 'define_variable',
+              config: {
+                  variableName: '',
+                  variableType: 'text',
+                  variableValue: ''
+              },
               order: commands.length + 1
           };
           onUpdateCommands(operationId, [...commands, newCmd]);
@@ -507,42 +526,65 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
           handleUpdateSourceCmd(cmdId, updates);
       };
 
-      const handleRemoveSourceCmd = (cmdId: string) => {
+      const handleRemoveCmd = (cmdId: string) => {
           const updated = commands.filter(c => c.id !== cmdId);
           onUpdateCommands(operationId, updated);
       };
 
       const getValidationErrors = (cmd: Command, index: number) => {
           const errors: string[] = [];
-          const currentTable = cmd.config.mainTable;
-          const currentAlias = cmd.config.alias;
+          if (cmd.type === 'source') {
+              const currentTable = cmd.config.mainTable;
+              const currentAlias = cmd.config.alias;
 
-          // 1. Duplicate Data Source Check
-          if (currentTable) {
-              const isDuplicateTable = sourceCommands.some((c, idx) => 
-                  idx !== index && c.config.mainTable === currentTable
-              );
-              if (isDuplicateTable) errors.push("This table is already selected.");
-          }
+              // 1. Duplicate Data Source Check (handled mostly by dropdown filter now, but keep as fallback)
+              if (currentTable) {
+                  const isDuplicateTable = sourceCommands.some((c, idx) => 
+                      idx !== index && c.config.mainTable === currentTable
+                  );
+                  if (isDuplicateTable) errors.push("This table is already selected.");
+              }
 
-          // 2. Duplicate Alias Check
-          if (currentAlias) {
-              const isDuplicateAlias = sourceCommands.some((c, idx) => 
-                  idx !== index && c.config.alias === currentAlias
-              );
-              if (isDuplicateAlias) errors.push("Alias name must be unique.");
-          }
+              // 2. Duplicate Alias Check
+              if (currentAlias) {
+                  const isDuplicateAlias = sourceCommands.some((c, idx) => 
+                      idx !== index && c.config.alias === currentAlias
+                  );
+                  if (isDuplicateAlias) errors.push("Alias name must be unique.");
+              }
 
-          // 3. Alias vs Table Name Check
-          if (currentAlias) {
-              // Check against all available datasets to ensure no shadowing
-              const isConflictWithDataset = datasets.some(d => d.name === currentAlias);
-              if (isConflictWithDataset && currentAlias !== currentTable) {
-                   // It's okay if alias == mainTable (default case), but warn if it shadows ANOTHER table
-                   errors.push(`Alias matches another dataset '${currentAlias}'.`);
+              // 3. Alias vs Table Name Check
+              if (currentAlias) {
+                  const isConflictWithDataset = datasets.some(d => d.name === currentAlias);
+                  if (isConflictWithDataset && currentAlias !== currentTable) {
+                       errors.push(`Alias matches another dataset '${currentAlias}'.`);
+                  }
               }
           }
+          return errors;
+      };
 
+      const getVariableValidationErrors = (cmd: Command) => {
+          const errors: string[] = [];
+          if (cmd.type === 'define_variable') {
+              const name = cmd.config.variableName;
+              if (!name) return errors;
+
+              // Check against Dataset Names
+              if (datasets.some(d => d.name === name)) {
+                  errors.push("Conflict with dataset name.");
+              }
+
+              // Check against Source Aliases
+              if (sourceCommands.some(c => c.config.alias === name)) {
+                  errors.push("Conflict with source alias.");
+              }
+
+              // Check against Other Variable Names
+              if (variableCommands.some(c => c.id !== cmd.id && c.config.variableName === name)) {
+                  errors.push("Variable name must be unique.");
+              }
+          }
           return errors;
       };
 
@@ -573,32 +615,33 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                 </div>
             </div>
             
-            <div className="p-8 max-w-3xl mx-auto w-full">
-                <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                    <div className="p-6 space-y-6">
-                        <div className="relative pt-2">
-                            <div className="relative flex justify-start">
-                                <span className="text-sm font-bold text-gray-700 uppercase tracking-wider">Configured Sources</span>
-                            </div>
+            <div className="p-8 max-w-6xl mx-auto w-full">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Source Configuration */}
+                    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-fit">
+                        <div className="p-6 pb-2 border-b border-gray-100">
+                            <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wider flex items-center">
+                                <Database className="w-4 h-4 mr-2 text-blue-500" />
+                                Configured Sources
+                            </h3>
                         </div>
-
-                        <div className="space-y-3">
+                        <div className="p-6 space-y-4">
                             {sourceCommands.map((cmd, idx) => {
                                 const errors = getValidationErrors(cmd, idx);
                                 const hasError = errors.length > 0;
-
-                                // Filter out datasets that are already used by OTHER source commands in this setup node
-                                const usedTables = sourceCommands
-                                    .filter((c, i) => i !== idx && c.config.mainTable)
-                                    .map(c => c.config.mainTable);
-                                const availableDatasets = datasets.filter(d => !usedTables.includes(d.name));
+                                
+                                // Determine available datasets: Exclude ones used by other source commands
+                                const availableDatasets = datasets.filter(d => 
+                                    !sourceCommands.some(otherCmd => 
+                                        otherCmd.id !== cmd.id && otherCmd.config.mainTable === d.name
+                                    )
+                                );
 
                                 return (
                                 <div key={cmd.id} className={`flex flex-col p-4 bg-gray-50 border rounded-lg group transition-all ${hasError ? 'border-red-300 bg-red-50/30' : 'border-gray-200 hover:border-blue-300 hover:shadow-sm'}`}>
                                     <div className="flex items-start space-x-3">
                                         <div className="shrink-0 pt-2 text-gray-400 font-mono text-xs w-6 text-center">{idx + 1}</div>
-                                        
-                                        <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div className="flex-1 space-y-3">
                                             <div>
                                                 <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Dataset</label>
                                                 <select 
@@ -610,7 +653,6 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                                     {availableDatasets.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
                                                 </select>
                                             </div>
-                                            
                                             <div>
                                                 <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Alias Name</label>
                                                 <div className="flex items-center space-x-2">
@@ -625,16 +667,14 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                                 </div>
                                             </div>
                                         </div>
-
                                         <button 
-                                            onClick={() => handleRemoveSourceCmd(cmd.id)}
+                                            onClick={() => handleRemoveCmd(cmd.id)}
                                             className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors mt-1 opacity-0 group-hover:opacity-100"
                                             title="Remove Source"
                                         >
                                             <Trash2 className="w-4 h-4" />
                                         </button>
                                     </div>
-                                    
                                     {hasError && (
                                         <div className="mt-3 ml-9 flex items-start text-xs text-red-600 bg-red-100/50 p-2 rounded border border-red-100">
                                             <AlertTriangle className="w-3.5 h-3.5 mr-1.5 shrink-0 mt-0.5" />
@@ -648,16 +688,113 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                 </div>
                                 );
                             })}
+                            
+                            <div className="pt-2">
+                                <Button variant="secondary" onClick={handleAddSource} className="w-full justify-center" icon={<Plus className="w-4 h-4"/>}>
+                                    Add Data Source
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
 
-                            {sourceCommands.length === 0 && (
-                                <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200 text-gray-400 text-sm">
-                                    No sources configured.
+                    {/* Variable Configuration */}
+                    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-fit">
+                        <div className="p-6 pb-2 border-b border-gray-100">
+                            <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wider flex items-center">
+                                <Variable className="w-4 h-4 mr-2 text-purple-500" />
+                                Custom Variables
+                            </h3>
+                        </div>
+                        <div className="p-6 space-y-4">
+                            {variableCommands.length === 0 && (
+                                <div className="text-center py-6 text-gray-400 text-xs italic bg-gray-50 rounded-lg border border-dashed border-gray-200">
+                                    No variables defined.<br/>Use variables to store values for reuse in filters.
                                 </div>
                             )}
+                            
+                            {variableCommands.map((cmd) => {
+                                const errors = getVariableValidationErrors(cmd);
+                                const hasError = errors.length > 0;
 
-                            <div className="flex justify-center pt-2">
-                                <Button variant="secondary" onClick={handleAddSource} icon={<Plus className="w-4 h-4"/>}>
-                                    Add Another Source
+                                return (
+                                <div key={cmd.id} className={`flex flex-col p-4 bg-purple-50/30 border rounded-lg group transition-all ${hasError ? 'border-red-300 bg-red-50/30' : 'border-purple-100 hover:shadow-sm'}`}>
+                                    <div className="flex items-start space-x-3">
+                                        <div className="flex-1 space-y-3">
+                                            <div className="flex space-x-3">
+                                                <div className="flex-1">
+                                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Name</label>
+                                                    <div className="relative">
+                                                        <span className="absolute inset-y-0 left-0 pl-2 flex items-center text-gray-400 font-mono text-xs">{'{'}</span>
+                                                        <input 
+                                                            type="text" 
+                                                            className={`w-full pl-6 px-3 py-2 border rounded-md focus:ring-1 text-sm font-mono ${hasError ? 'border-red-300 focus:ring-red-200 focus:border-red-500' : 'border-gray-300 focus:ring-purple-500 focus:border-purple-500'}`}
+                                                            value={cmd.config.variableName || ''}
+                                                            onChange={(e) => handleUpdateSourceCmd(cmd.id, { variableName: e.target.value })}
+                                                            placeholder="var_name"
+                                                        />
+                                                        <span className="absolute inset-y-0 right-0 pr-2 flex items-center text-gray-400 font-mono text-xs">{'}'}</span>
+                                                    </div>
+                                                </div>
+                                                <div className="w-1/3">
+                                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Type</label>
+                                                    <select 
+                                                        className="w-full px-2 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-purple-500 focus:border-purple-500 text-sm bg-white"
+                                                        value={cmd.config.variableType || 'text'}
+                                                        onChange={(e) => handleUpdateSourceCmd(cmd.id, { variableType: e.target.value })}
+                                                    >
+                                                        <option value="text">Single Text</option>
+                                                        <option value="list">Text List</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                            
+                                            <div>
+                                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">
+                                                    {cmd.config.variableType === 'list' ? 'Values (Comma Separated)' : 'Value'}
+                                                </label>
+                                                {cmd.config.variableType === 'list' ? (
+                                                    <textarea 
+                                                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-purple-500 focus:border-purple-500 text-sm font-mono min-h-[60px]"
+                                                        value={Array.isArray(cmd.config.variableValue) ? cmd.config.variableValue.join(', ') : (cmd.config.variableValue || '')}
+                                                        onChange={(e) => handleUpdateSourceCmd(cmd.id, { variableValue: e.target.value.split(',').map(s => s.trim()) })}
+                                                        placeholder="Value 1, Value 2, Value 3"
+                                                    />
+                                                ) : (
+                                                    <input 
+                                                        type="text" 
+                                                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-purple-500 focus:border-purple-500 text-sm"
+                                                        value={cmd.config.variableValue as string || ''}
+                                                        onChange={(e) => handleUpdateSourceCmd(cmd.id, { variableValue: e.target.value })}
+                                                        placeholder="Enter value"
+                                                    />
+                                                )}
+                                            </div>
+                                        </div>
+                                        <button 
+                                            onClick={() => handleRemoveCmd(cmd.id)}
+                                            className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors mt-1 opacity-0 group-hover:opacity-100"
+                                            title="Remove Variable"
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                    {hasError && (
+                                        <div className="mt-3 flex items-start text-xs text-red-600 bg-red-50/50 p-2 rounded border border-red-100">
+                                            <AlertTriangle className="w-3.5 h-3.5 mr-1.5 shrink-0 mt-0.5" />
+                                            <div className="space-y-0.5">
+                                                {errors.map((err, i) => (
+                                                    <div key={i}>{err}</div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                                );
+                            })}
+
+                            <div className="pt-2">
+                                <Button variant="secondary" onClick={handleAddVariable} className="w-full justify-center text-purple-600 hover:text-purple-700 hover:bg-purple-50 border-purple-200" icon={<Plus className="w-4 h-4"/>}>
+                                    Add Variable
                                 </Button>
                             </div>
                         </div>

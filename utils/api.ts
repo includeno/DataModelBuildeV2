@@ -128,7 +128,18 @@ const buildSourceMap = (root: OperationNode): Record<string, string> => {
 
 const evaluateCondition = (row: any, cond: FilterCondition, variables: Record<string, any[]>): boolean => {
     const val = row[cond.field];
-    const target = cond.value;
+    
+    // Resolve variable placeholder in target value if present (e.g., "{my_var}")
+    let target = cond.value;
+    if (typeof target === 'string' && target.startsWith('{') && target.endsWith('}')) {
+        const varName = target.slice(1, -1);
+        // We look up in variables. 
+        // Note: variables map currently stores ANY value (array or string). 
+        // Typescript signature says any[] but it's really any.
+        if (variables[varName] !== undefined) {
+            target = variables[varName] as any;
+        }
+    }
     
     switch (cond.operator) {
         case '=': return String(val) == String(target); 
@@ -147,10 +158,25 @@ const evaluateCondition = (row: any, cond: FilterCondition, variables: Record<st
         case 'is_false': return val === false;
         case 'has_key': return typeof val === 'object' && val !== null && String(target) in val;
         case 'in_variable': 
+            // Target is expected to be a variable name string here from the dropdown config
+            // OR if it was resolved from {var}, it might be the array itself. 
+            // Standard 'in_variable' operator flow usually takes the variable NAME as value.
+            let list: any[] = [];
+            if (Array.isArray(target)) {
+                list = target;
+            } else {
+                list = variables[String(target)] || [];
+            }
             // Loose matching: compare strings to handle number/string id mismatches
-            return (variables[String(target)] || []).some(v => String(v) === String(val));
+            return list.some(v => String(v) === String(val));
         case 'not_in_variable': 
-            return !(variables[String(target)] || []).some(v => String(v) === String(val));
+            let listNot: any[] = [];
+            if (Array.isArray(target)) {
+                listNot = target;
+            } else {
+                listNot = variables[String(target)] || [];
+            }
+            return !listNot.some(v => String(v) === String(val));
         default: return true;
     }
 };
@@ -220,6 +246,13 @@ const executeMockLogic = (tree: OperationNode, targetNodeId: string): any => {
                         let extracted = currentData.map(r => r[field]);
                         if (distinct !== false) extracted = Array.from(new Set(extracted));
                         variables[String(varName)] = extracted;
+                    }
+                } else if (cmd.type === 'define_variable') {
+                    const { variableName, variableValue } = cmd.config;
+                    if (variableName) {
+                        // Store as is (string or array of strings)
+                        // Cast to any[] to satisfy TS constraint of map, though it might be a string
+                        variables[variableName] = variableValue as any;
                     }
                 } else {
                     currentData = applyMockCommand(currentData, cmd, variables);

@@ -10,6 +10,7 @@ class MappingRule(BaseModel):
     id: str
     expression: str
     outputField: str
+    mode: Optional[str] = None
 
 class SubTableConfig(BaseModel):
     id: str
@@ -30,6 +31,12 @@ class CommandConfig(BaseModel):
     
     # Source configs
     mainTable: Optional[str] = None
+    alias: Optional[str] = None
+
+    # Variable Definition
+    variableName: Optional[str] = None
+    variableType: Optional[str] = None # 'text' or 'list'
+    variableValue: Optional[Union[str, List[str]]] = None
 
     # Join configs
     joinTargetType: Optional[str] = "table" # 'table' or 'node'
