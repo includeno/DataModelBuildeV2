@@ -1,4 +1,5 @@
 
+
 from pydantic import BaseModel, Field
 from typing import List, Any, Optional, Dict, Union
 
@@ -10,6 +11,12 @@ class MappingRule(BaseModel):
     id: str
     expression: str
     outputField: str
+
+class SubTableConfig(BaseModel):
+    id: str
+    table: str
+    on: str
+    label: str
 
 class CommandConfig(BaseModel):
     # New: Context selection
@@ -57,6 +64,9 @@ class CommandConfig(BaseModel):
     # Recursive Filter Root
     filterRoot: Optional[Dict[str, Any]] = None
 
+    # Multi Table
+    subTables: Optional[List[SubTableConfig]] = None
+
 class Command(BaseModel):
     id: str
     type: str
@@ -80,6 +90,7 @@ class ExecuteRequest(BaseModel):
     targetNodeId: str
     page: int = 1
     pageSize: int = 50
+    viewId: str = "main" # 'main' or specific subTable ID
 
 class ExecuteSqlRequest(BaseModel):
     session_id: str = Field(..., alias="sessionId")

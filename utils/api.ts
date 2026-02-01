@@ -32,30 +32,31 @@ const generateEmployees = (count: number) => {
 const generateSales = (count: number) => {
     const rows = [];
     for (let i = 1; i <= count; i++) {
+        // Generate uid between 1 and 50 to match employee ids
+        const uid = (i % 50) + 1;
         rows.push({
             order_id: 1000 + i,
-            uid: (i % 20) + 1, 
+            uid: uid, 
             amount: Math.round(Math.random() * 1000),
-            date: new Date(2023, i % 12, (i % 28) + 1).toISOString()
+            date: new Date(2023, i % 12, (i % 28) + 1).toISOString(),
+            status: i % 4 === 0 ? "Refunded" : "Completed"
         });
     }
     return rows;
 };
 
-// Fix: Updated return type to Record<string, FieldInfo> to match Dataset interface requirements.
 const generateFieldTypes = (rows: any[]): Record<string, FieldInfo> => {
     if (rows.length === 0) return {};
     const types: Record<string, FieldInfo> = {};
     const sample = rows[0];
     Object.keys(sample).forEach(key => {
-        // Fix: Wrapped the inferred DataType into a FieldInfo object.
         types[key] = { type: inferType(sample[key]) };
     });
     return types;
 };
 
 const empRows = generateEmployees(50);
-const salesRows = generateSales(150);
+const salesRows = generateSales(200); // Increased sales count for better density
 
 const MOCK_DATASETS: Dataset[] = [
     { 
@@ -69,8 +70,8 @@ const MOCK_DATASETS: Dataset[] = [
     { 
         id: "mock_sales", 
         name: "sales_data.csv", 
-        totalCount: 150, 
-        fields: ["order_id", "uid", "amount", "date"], 
+        totalCount: 200, 
+        fields: ["order_id", "uid", "amount", "date", "status"], 
         fieldTypes: generateFieldTypes(salesRows),
         rows: salesRows 
     }
@@ -151,6 +152,9 @@ const executeMockLogic = (tree: OperationNode, targetNodeId: string): any => {
         if (!node.enabled) continue;
 
         for (const cmd of node.commands) {
+            // Note: multi_table commands are pass-throughs for the main stream, 
+            // but we MUST NOT skip them entirely if they are responsible for loading the data source (Apply To).
+            
             if (cmd.type === 'source' || (cmd.type !== 'join' && cmd.type !== 'group' && cmd.config.mainTable)) {
                 const tableName = cmd.config.mainTable;
                 const ds = MOCK_DATASETS.find(d => d.name === tableName);
@@ -168,7 +172,11 @@ const executeMockLogic = (tree: OperationNode, targetNodeId: string): any => {
                 
                 if (cmd.config.dataSource && cmd.config.dataSource !== 'stream') {
                     const ds = MOCK_DATASETS.find(d => d.name === cmd.config.dataSource);
-                    if (ds) currentData = [...ds.rows];
+                    if (ds) {
+                        currentData = [...ds.rows];
+                        // If we loaded data, we mark it.
+                        hasLoadedSource = true; 
+                    }
                 }
 
                 if (cmd.type === 'save') {
@@ -191,6 +199,11 @@ const executeMockLogic = (tree: OperationNode, targetNodeId: string): any => {
 
 const applyMockCommand = (data: any[], cmd: Command, variables: Record<string, any[]>): any[] => {
     const { config } = cmd;
+
+    if (cmd.type === 'multi_table') {
+        // Pass-through: multi_table command does not transform data in the main stream
+        return data;
+    }
 
     if (cmd.type === 'filter') {
         if (!config.filterRoot) return data;
@@ -325,10 +338,76 @@ export const api = {
                  return { status: "ok" };
             }
             if (endpoint === '/execute') {
-                const { tree, targetNodeId, page = 1, pageSize = 50 } = body;
-                const fullResult = executeMockLogic(tree, targetNodeId);
+                const { tree, targetNodeId, page = 1, pageSize = 50, viewId = "main" } = body;
+                
+                // 1. Get Main Flow Result
+                const mainResult = executeMockLogic(tree, targetNodeId);
+                
+                let finalData = mainResult.rows;
+                let columns = mainResult.columns;
+
+                // 2. Handle Multi-Table Sub Views
+                if (viewId !== "main") {
+                    // Start with empty result for safety
+                    finalData = [];
+                    columns = [];
+
+                    const path = findPathToNode(tree, targetNodeId);
+                    const targetNode = path ? path[path.length - 1] : null;
+                    const multiCmd = targetNode?.commands.find(c => c.type === 'multi_table');
+                    
+                    if (multiCmd && multiCmd.config.subTables) {
+                        const subConfig = multiCmd.config.subTables.find((s: any) => s.id === viewId);
+                        if (subConfig) {
+                            const subDs = MOCK_DATASETS.find(d => d.name === subConfig.table);
+                            if (subDs) {
+                                // MOCK JOIN LOGIC
+                                const subRows = subDs.rows;
+                                const onCondition = subConfig.on; 
+                                
+                                if (onCondition && onCondition.includes('=')) {
+                                    const parts = onCondition.split('=').map((s: string) => s.trim());
+                                    let mainCol = '', subCol = '';
+                                    
+                                    parts.forEach((p: string) => {
+                                        if (p.startsWith('main.')) mainCol = p.replace('main.', '');
+                                        else if (p.startsWith('sub.')) subCol = p.replace('sub.', '');
+                                        // Fallback logic for aliases
+                                        else if (p.startsWith(subConfig.table + '.')) subCol = p.replace(subConfig.table + '.', '');
+                                    });
+
+                                    // Fallback defaults for mock ease-of-use
+                                    if (!mainCol) mainCol = 'id';
+                                    if (!subCol) subCol = 'uid';
+
+                                    if (mainCol && subCol) {
+                                        const mainValues = new Set(mainResult.rows.map((r: any) => String(r[mainCol])));
+                                        finalData = subRows.filter((r: any) => mainValues.has(String(r[subCol])));
+                                        columns = subDs.fields;
+                                    } else {
+                                        // Condition exists but couldn't parse columns, return nothing to avoid confusion
+                                        finalData = [];
+                                    }
+                                } else {
+                                    // No valid condition: return full sub table
+                                    finalData = subRows;
+                                    columns = subDs.fields;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                const totalCount = finalData.length;
                 const start = (page - 1) * pageSize;
-                return { rows: fullResult.rows.slice(start, start + pageSize), totalCount: fullResult.totalCount, columns: fullResult.columns, page, pageSize };
+                return { 
+                    rows: finalData.slice(start, start + pageSize), 
+                    totalCount: totalCount, 
+                    columns: columns, 
+                    page, 
+                    pageSize,
+                    activeViewId: viewId
+                };
             }
             if (endpoint === '/analyze') return { report: ["⚠️ Mock Analysis: Overlap detected in 2 branches."] };
             if (endpoint.match(/\/sessions\/.*\/state/)) { MOCK_SESSION_STATES[endpoint.split('/')[2]] = body; return { status: "ok" }; }
@@ -396,7 +475,6 @@ export const api = {
             const file = formData.get('file') as File;
             const name = formData.get('name') as string;
             const rows = [{ col1: "A", col2: 100, col3: true }, { col1: "B", col2: 200, col3: false }];
-            // Fix: Ensured the generateFieldTypes call is compatible with the Dataset.fieldTypes requirement.
             const newDs: Dataset = { id: `mock_table_${Date.now()}`, name: name || file.name, fields: ["col1", "col2", "col3"], rows: rows, fieldTypes: generateFieldTypes(rows), totalCount: 2 };
             MOCK_DATASETS.push(newDs);
             return newDs;

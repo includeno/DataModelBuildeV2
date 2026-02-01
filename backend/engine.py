@@ -4,16 +4,38 @@ import numpy as np
 import math
 import datetime
 import re
+import duckdb
 from typing import List, Optional, Dict, Set, Any, Union
 from models import Command, OperationNode
 from storage import storage
 from simpleeval import simple_eval
 
 class ExecutionEngine:
-    def execute(self, session_id: str, tree: OperationNode, target_node_id: str) -> pd.DataFrame:
+    def execute(self, session_id: str, tree: OperationNode, target_node_id: str, view_id: str = "main") -> pd.DataFrame:
         path = self._find_path_to_node(tree, target_node_id)
         if not path:
             raise ValueError("Target node not found in operation tree")
+
+        # If requesting a specific sub-view (not main), find the command responsible for it
+        if view_id != "main":
+            target_node = path[-1]
+            multi_cmd = None
+            
+            # Look for the multi_table command that contains this view_id
+            for cmd in target_node.commands:
+                if cmd.type == 'multi_table' and cmd.config.subTables:
+                    for sub in cmd.config.subTables:
+                        if sub.id == view_id:
+                            multi_cmd = cmd
+                            break
+                if multi_cmd: break
+            
+            if multi_cmd:
+                return self._execute_multi_table_sub(session_id, path, multi_cmd, view_id)
+            else:
+                # Fallback: if view_id not found, perhaps it's an error or stale ID, return empty or default to main
+                # For now, let's proceed to main execution but this likely indicates a client-side sync issue
+                pass
 
         df = None
         variables: Dict[str, Any] = {} 
@@ -26,6 +48,70 @@ class ExecutionEngine:
             return pd.DataFrame()
 
         return df
+
+    def _execute_multi_table_sub(self, session_id: str, path: List[OperationNode], multi_cmd: Command, view_id: str) -> pd.DataFrame:
+        # 1. Execute everything UP TO the multi_table command to get the "Main" context
+        df = None
+        variables: Dict[str, Any] = {}
+        
+        # We walk the path. For the *last* node (target_node), we only execute commands up to the multi_cmd.
+        target_node = path[-1]
+        
+        for node in path:
+            if not node.enabled: continue
+            
+            commands_to_run = node.commands
+            
+            # If this is the target node, truncate commands list to stop at the multi_table command
+            if node.id == target_node.id:
+                trunc_cmds = []
+                for cmd in node.commands:
+                    if cmd.id == multi_cmd.id:
+                        break
+                    trunc_cmds.append(cmd)
+                commands_to_run = trunc_cmds
+            
+            df = self._apply_node_commands(df, commands_to_run, session_id, variables, path[0])
+        
+        if df is None or df.empty:
+            return pd.DataFrame()
+
+        # 2. Find the sub-table config
+        sub_config = next((s for s in (multi_cmd.config.subTables or []) if s.id == view_id), None)
+        if not sub_config:
+            raise ValueError(f"Sub-table view '{view_id}' not found")
+
+        # 3. Perform the filter join using DuckDB
+        con = duckdb.connect(":memory:")
+        try:
+            con.register('main_table', df)
+            
+            # Get the sub table
+            sub_df = storage.get_full_dataset(session_id, sub_config.table)
+            if sub_df is None:
+                raise ValueError(f"Dataset {sub_config.table} not found")
+            
+            con.register('sub_table', sub_df)
+            
+            # Construct Query: SELECT * FROM sub_table sub WHERE EXISTS (SELECT 1 FROM main_table main WHERE condition)
+            # Basic sanitization of condition
+            condition = sub_config.on
+            
+            query = f"""
+                SELECT sub.* 
+                FROM sub_table sub
+                WHERE EXISTS (
+                    SELECT 1 
+                    FROM main_table main 
+                    WHERE {condition}
+                )
+            """
+            result = con.execute(query).df()
+            return result
+        except Exception as e:
+            raise ValueError(f"Failed to execute sub-table query: {str(e)}")
+        finally:
+            con.close()
 
     def calculate_overlap(self, session_id: str, tree: OperationNode, parent_node_id: str) -> List[str]:
         parent_node = self._find_node_recursive(tree, parent_node_id)
@@ -81,7 +167,7 @@ class ExecutionEngine:
                 if source and source != 'stream':
                      df = storage.get_full_dataset(session_id, source)
                 
-                if cmd.type == 'source' or (cmd.type not in ['join', 'group'] and cmd.config.mainTable):
+                if cmd.type == 'source' or (cmd.type not in ['join', 'group', 'multi_table'] and cmd.config.mainTable):
                     table_name = cmd.config.mainTable
                     if table_name:
                         df = storage.get_full_dataset(session_id, table_name)
@@ -96,6 +182,10 @@ class ExecutionEngine:
                          else:
                              variables[str(var_name)] = df[field].tolist()
                      continue
+                
+                # Multi-table command is a pass-through for the main stream
+                if cmd.type == 'multi_table':
+                    continue
 
                 if df is None: continue
 

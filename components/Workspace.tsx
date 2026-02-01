@@ -4,7 +4,9 @@ import { Settings, Play, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, X, T
 import { CommandEditor } from './CommandEditor';
 import { SqlEditor } from './SqlEditor';
 import { DataPreview } from './DataPreview';
+import { ComplexDataPreview } from './ComplexDataPreview';
 import { OperationNode, Dataset, Command, ExecutionResult, ApiConfig, OperationType, DataType } from '../types';
+import { api } from '../utils/api';
 
 interface WorkspaceProps {
   currentView: 'workflow' | 'sql';
@@ -80,11 +82,56 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   }, [previewData, activeTab]);
 
   const showExecutionTab = !!previewData;
+  const isMultiTableMode = selectedNode?.commands.some(c => c.type === 'multi_table') ?? false;
+
+  const handleRefreshView = async (viewId: string, page: number, pageSize: number): Promise<ExecutionResult> => {
+      if (!selectedNode || !tree) throw new Error("No context");
+      const res = await api.post(apiConfig, '/execute', {
+          sessionId,
+          tree,
+          targetNodeId: selectedNode.id,
+          page,
+          pageSize,
+          viewId // Pass the viewId (main or subTableId)
+      });
+      return res;
+  };
   
   // Layout Logic
   const isVertical = panelPosition === 'top' || panelPosition === 'bottom';
   const isPanelFirst = panelPosition === 'top' || panelPosition === 'left';
   
+  // Helper to find the source table name for the current context
+  const findMainSourceName = (node: OperationNode | null, currentTree: OperationNode | undefined): string | undefined => {
+      if (!node || !currentTree) return undefined;
+      
+      const findPath = (root: OperationNode, targetId: string): OperationNode[] | null => {
+          if (root.id === targetId) return [root];
+          if (root.children) {
+              for (const child of root.children) {
+                  const path = findPath(child, targetId);
+                  if (path) return [root, ...path];
+              }
+          }
+          return null;
+      };
+
+      const path = findPath(currentTree, node.id);
+      if (!path) return undefined;
+
+      // Traverse path to find the last explicit source setting
+      let sourceName = "Unknown Source";
+      path.forEach(n => {
+          n.commands.forEach(c => {
+              if (c.type === 'source' && c.config.mainTable) sourceName = c.config.mainTable;
+              else if (c.config.dataSource && c.config.dataSource !== 'stream') sourceName = c.config.dataSource;
+          });
+      });
+      return sourceName;
+  };
+
+  const mainSourceName = findMainSourceName(selectedNode, tree);
+
   const mainContent = (
       <div className="flex-1 flex flex-col bg-gray-50/50 min-w-0 w-full h-full overflow-hidden">
         {selectedNode && selectedNode.id !== 'root' ? (
@@ -143,7 +190,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                           }`}
                       >
                           <Play className="w-3 h-3 mr-2" />
-                          <span>Execution Result</span>
+                          <span>{isMultiTableMode ? 'Complex Result' : 'Execution Result'}</span>
                           <button 
                               onClick={(e) => {
                                   e.stopPropagation();
@@ -173,15 +220,26 @@ export const Workspace: React.FC<WorkspaceProps> = ({
 
           <div className="flex-1 overflow-hidden relative">
               {activeTab === 'output' && showExecutionTab ? (
-                  <DataPreview 
-                      data={previewData} 
-                      loading={loading}
-                      pageSize={selectedNode?.pageSize}
-                      onRefresh={() => onRefreshPreview(previewData?.page || 1)}
-                      onPageChange={(page) => onRefreshPreview(page)}
-                      onUpdatePageSize={onUpdatePageSize}
-                      onExportFull={onExportFull}
-                  />
+                  isMultiTableMode && selectedNode ? (
+                      <ComplexDataPreview 
+                          initialResult={previewData}
+                          selectedNode={selectedNode}
+                          loading={loading}
+                          onRefreshView={handleRefreshView}
+                          onExportFull={onExportFull}
+                          mainSourceName={mainSourceName}
+                      />
+                  ) : (
+                      <DataPreview 
+                          data={previewData} 
+                          loading={loading}
+                          pageSize={selectedNode?.pageSize}
+                          onRefresh={() => onRefreshPreview(previewData?.page || 1)}
+                          onPageChange={(page) => onRefreshPreview(page)}
+                          onUpdatePageSize={onUpdatePageSize}
+                          onExportFull={onExportFull}
+                      />
+                  )
               ) : (
                   <div className="flex flex-col items-center justify-center h-full text-gray-400 p-6 text-center">
                       <TableIcon className="w-12 h-12 mb-3 opacity-20" />

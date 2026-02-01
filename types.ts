@@ -1,5 +1,6 @@
 
-export type CommandType = 'filter' | 'join' | 'transform' | 'group' | 'sort' | 'pivot' | 'export' | 'source' | 'custom' | 'save';
+
+export type CommandType = 'filter' | 'join' | 'transform' | 'group' | 'sort' | 'pivot' | 'export' | 'source' | 'custom' | 'save' | 'multi_table';
 
 export type OperationType = 'dataset' | 'process';
 
@@ -47,6 +48,13 @@ export interface FilterGroup {
   conditions: (FilterCondition | FilterGroup)[];
 }
 
+export interface SubTableConfig {
+  id: string;
+  table: string;
+  on: string; // Join condition e.g. main.id = sub.user_id
+  label: string;
+}
+
 export interface CommandConfig {
   dataSource?: string; 
 
@@ -78,6 +86,9 @@ export interface CommandConfig {
   aggregations?: AggregationConfig[];
   havingConditions?: HavingCondition[];
   outputTableName?: string;
+
+  // Multi Table Display
+  subTables?: SubTableConfig[];
 
   groupBy?: string[];
   aggFunc?: string;
@@ -136,6 +147,9 @@ export interface ExecutionResult {
   columns?: string[];
   page: number;
   pageSize: number;
+  // If result is from a multi_table command
+  isMultiTable?: boolean;
+  activeViewId?: string; // 'main' or subTableId
 }
 
 export interface ApiConfig {
