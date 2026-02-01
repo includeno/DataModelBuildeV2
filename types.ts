@@ -1,8 +1,7 @@
 
+export type CommandType = 'filter' | 'join' | 'transform' | 'group' | 'sort' | 'pivot' | 'export' | 'source' | 'custom' | 'save' | 'multi_table' | 'view';
 
-export type CommandType = 'filter' | 'join' | 'transform' | 'group' | 'sort' | 'pivot' | 'export' | 'source' | 'custom' | 'save' | 'multi_table';
-
-export type OperationType = 'dataset' | 'process';
+export type OperationType = 'dataset' | 'process' | 'setup';
 
 export type DataType = 'string' | 'number' | 'boolean' | 'date' | 'timestamp' | 'json';
 
@@ -68,6 +67,7 @@ export interface CommandConfig {
   
   distinct?: boolean; 
   mainTable?: string;
+  alias?: string; // Added for Source commands to define output alias
 
   // Join configs
   joinTargetType?: 'table' | 'node'; 
@@ -155,4 +155,11 @@ export interface ExecutionResult {
 export interface ApiConfig {
   baseUrl: string;
   isMock: boolean;
+}
+
+export interface AppearanceConfig {
+  textSize: number;
+  textColor: string;
+  guideLineColor: string;
+  showGuideLines: boolean;
 }

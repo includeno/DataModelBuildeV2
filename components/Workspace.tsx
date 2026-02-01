@@ -29,7 +29,7 @@ interface WorkspaceProps {
   previewData: ExecutionResult | null;
   onClearPreview?: () => void;
   loading: boolean;
-  onRefreshPreview: (page?: number) => void;
+  onRefreshPreview: (page?: number, commandId?: string) => void;
   onUpdatePageSize: (size: number) => void;
   onExportFull: () => void;
   isMobile: boolean;
@@ -146,6 +146,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                 onUpdateName={onUpdateName}
                 onUpdateType={onUpdateType}
                 onViewPath={onViewPath}
+                onRun={(cmdId) => onRefreshPreview(1, cmdId)}
                 tree={tree} 
             />
         ) : (

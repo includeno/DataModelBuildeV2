@@ -2,7 +2,7 @@
 import React, { useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, Layers, Plus, Database, Search, Download, Upload, Settings, FoldVertical, UnfoldVertical } from 'lucide-react';
 import { OperationTree } from './OperationTree';
-import { OperationNode, Dataset } from '../types';
+import { OperationNode, Dataset, AppearanceConfig } from '../types';
 
 interface SidebarProps {
   width: number;
@@ -21,6 +21,7 @@ interface SidebarProps {
   onImportOperations?: (file: File) => void;
   onAnalyzeOverlap?: (nodeId: string) => void;
   onOpenSchema?: (name: string) => void;
+  appearance: AppearanceConfig;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -39,12 +40,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onExportOperations,
   onImportOperations,
   onAnalyzeOverlap,
-  onOpenSchema
+  onOpenSchema,
+  appearance
 }) => {
   const [isOpsExpanded, setIsOpsExpanded] = useState(true);
   const [isDataExpanded, setIsDataExpanded] = useState(true);
   const [expandAllCounter, setExpandAllCounter] = useState(0); // For simple trigger
   const [collapseAllCounter, setCollapseAllCounter] = useState(0);
+  const [lastGlobalAction, setLastGlobalAction] = useState<'expand' | 'collapse' | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -54,14 +57,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
       if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  const handleExpandAll = () => {
+      setExpandAllCounter(c => c + 1);
+      setLastGlobalAction('expand');
+  };
+
+  const handleCollapseAll = () => {
+      setCollapseAllCounter(c => c + 1);
+      setLastGlobalAction('collapse');
+  };
+
   return (
     <aside 
-        className="bg-white border-r border-gray-200 flex flex-col transition-none z-10 shrink-0 h-full"
+        className="bg-white border-r border-gray-200 flex flex-col z-10 shrink-0 h-full"
         style={{ width: width }}
     >
       {/* Operations Section */}
       {currentView === 'workflow' && (
-          <div className={`flex flex-col transition-all duration-300 ${isOpsExpanded ? 'flex-1 min-h-0' : 'flex-none'}`}>
+          <div className={`flex flex-col ${isOpsExpanded ? 'flex-1 min-h-0' : 'flex-none'}`}>
              <div className="p-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center select-none shrink-0">
                 <div className="flex items-center space-x-2 cursor-pointer" onClick={() => setIsOpsExpanded(!isOpsExpanded)}>
                     {isOpsExpanded ? <ChevronDown className="w-4 h-4 text-gray-500"/> : <ChevronRight className="w-4 h-4 text-gray-500"/>}
@@ -71,12 +84,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <div className="flex items-center space-x-1">
                      {isOpsExpanded && (
                          <div className="flex items-center bg-white border border-gray-200 rounded-md p-0.5 shadow-sm mr-1">
-                             <button onClick={() => setCollapseAllCounter(c => c + 1)} className="p-1 hover:bg-gray-100 rounded text-gray-400" title="Collapse All"><FoldVertical className="w-3 h-3" /></button>
-                             <button onClick={() => setExpandAllCounter(c => c + 1)} className="p-1 hover:bg-gray-100 rounded text-gray-400" title="Expand All"><UnfoldVertical className="w-3 h-3" /></button>
+                             <button onClick={handleCollapseAll} className="p-1 hover:bg-gray-100 rounded text-gray-400" title="Collapse All"><FoldVertical className="w-3 h-3" /></button>
+                             <button onClick={handleExpandAll} className="p-1 hover:bg-gray-100 rounded text-gray-400" title="Expand All"><UnfoldVertical className="w-3 h-3" /></button>
                          </div>
                      )}
                      {onExportOperations && <button onClick={(e) => { e.stopPropagation(); onExportOperations(); }} className="p-1 hover:bg-gray-200 rounded text-gray-500" title="Export"><Download className="w-3.5 h-3.5" /></button>}
-                     <button onClick={(e) => { e.stopPropagation(); onAddChild('root'); }} className="p-1 hover:bg-blue-100 rounded text-blue-600" title="Add Root Operation"><Layers className="w-4 h-4" /></button>
+                     
+                     <div className="relative">
+                        <button onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }} className="p-1 hover:bg-gray-200 rounded text-gray-500" title="Import"><Upload className="w-3.5 h-3.5" /></button>
+                        <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept=".json" />
+                     </div>
+
+                     <button onClick={(e) => { e.stopPropagation(); onAddChild('root'); }} className="p-1 hover:bg-blue-100 rounded text-blue-600" title="Add Setup Node"><Plus className="w-4 h-4" /></button>
                 </div>
              </div>
              
@@ -94,10 +113,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             onAnalyzeOverlap={onAnalyzeOverlap}
                             expandTrigger={expandAllCounter}
                             collapseTrigger={collapseAllCounter}
+                            globalAction={lastGlobalAction}
+                            appearance={appearance}
                         />
                     ))}
                     {(!tree.children || tree.children.length === 0) && (
-                        <div className="text-center mt-10 text-gray-400 text-sm p-4 italic">No operations yet.</div>
+                        <div className="text-center mt-10 text-gray-400 text-sm p-4 italic">
+                            No operations yet.<br/>
+                            Click <Plus className="w-3 h-3 inline text-blue-500"/> to add a Setup node.
+                        </div>
                     )}
                 </div>
              )}
@@ -105,11 +129,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       )}
 
       {/* Data Sources Section */}
-      <div className={`flex flex-col border-t border-gray-200 bg-white transition-all duration-300 ${currentView === 'sql' ? 'flex-1' : (!isOpsExpanded ? 'flex-1' : (isDataExpanded ? 'min-h-[160px] h-1/4 max-h-[300px]' : 'flex-none'))}`}>
+      <div className={`flex flex-col border-t border-gray-200 bg-white ${currentView === 'sql' ? 'flex-1' : (!isOpsExpanded ? 'flex-1' : (isDataExpanded ? 'min-h-[160px] h-1/4 max-h-[300px]' : 'flex-none'))}`}>
          <div className="p-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center cursor-pointer hover:bg-gray-100 select-none shrink-0" onClick={() => setIsDataExpanded(!isDataExpanded)}>
              <div className="flex items-center space-x-2">
                  {isDataExpanded ? <ChevronDown className="w-4 h-4 text-gray-500"/> : <ChevronRight className="w-4 h-4 text-gray-500"/>}
-                 <span className="text-xs font-bold text-gray-600 uppercase tracking-wider">Data Sources</span>
+                 <span className="text-xs font-bold text-gray-600 uppercase tracking-wider">Datasets</span>
              </div>
              <button onClick={(e) => { e.stopPropagation(); onImportClick(); }} className="p-1 hover:bg-blue-100 rounded text-blue-600 transition-colors" title="Import Dataset"><Plus className="w-4 h-4" /></button>
          </div>

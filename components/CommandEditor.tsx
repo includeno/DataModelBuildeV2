@@ -1,8 +1,8 @@
 
-import React, { useMemo, useState } from 'react';
-import { Command, CommandType, Dataset, OperationType, AggregationConfig, OperationNode, DataType, HavingCondition, MappingRule, FilterGroup, FilterCondition, SubTableConfig } from '../types';
+import React, { useMemo, useState, useRef, useEffect } from 'react';
+import { Command, CommandType, Dataset, OperationType, AggregationConfig, OperationNode, DataType, HavingCondition, MappingRule, FilterGroup, FilterCondition, SubTableConfig, FieldInfo } from '../types';
 import { Button } from './Button';
-import { Trash2, Plus, GripVertical, Type, Hash, Calendar, Clock, CheckCircle, Code, Database, Play, Layers, Braces, Save, Share2, ArrowRight, AlertCircle, Filter as FilterIcon, Table, Calculator, List, Check, Wand2, Info, ChevronRight, Split, LayoutDashboard, AlertTriangle } from 'lucide-react';
+import { Trash2, Plus, GripVertical, Type, Hash, Calendar, Clock, CheckCircle, Code, Database, Play, Layers, Braces, Save, Share2, ArrowRight, AlertCircle, Filter as FilterIcon, Table, Calculator, List, Check, Wand2, Info, ChevronRight, ChevronDown, Split, LayoutDashboard, AlertTriangle, Settings2, ArrowRightLeft, Eye } from 'lucide-react';
 
 interface CommandEditorProps {
   operationId: string;
@@ -15,6 +15,7 @@ interface CommandEditorProps {
   onUpdateName: (name: string) => void;
   onUpdateType: (operationId: string, type: OperationType) => void;
   onViewPath: () => void;
+  onRun?: (commandId?: string) => void;
   tree?: OperationNode; 
 }
 
@@ -34,7 +35,7 @@ const DATA_TYPE_ICONS: Record<string, any> = {
 };
 
 const OPERATION_TYPES: {value: OperationType, label: string, icon: any}[] = [
-    { value: 'dataset', label: 'Data Source', icon: Database },
+    { value: 'setup', label: 'Setup Source', icon: Settings2 },
     { value: 'process', label: 'Process', icon: Play },
 ];
 
@@ -110,7 +111,7 @@ const findAncestorVariables = (root: OperationNode, currentId: string): string[]
         if (foundInChild) {
             node.commands.forEach(cmd => {
                 if (cmd.type === 'save' && cmd.config.value) {
-                    vars.push(cmd.config.value as string);
+                    vars.push(String(cmd.config.value));
                 }
             });
             return true;
@@ -121,13 +122,23 @@ const findAncestorVariables = (root: OperationNode, currentId: string): string[]
     return vars;
 };
 
+const getAncestors = (node: OperationNode, targetId: string): OperationNode[] | null => {
+    if (node.id === targetId) return [];
+    if (node.children) {
+        for (const child of node.children) {
+            const res = getAncestors(child, targetId);
+            if (res) return [node, ...res];
+        }
+    }
+    return null;
+};
+
 // --- HELPER COMPONENTS ---
 
 interface VariableInserterProps {
     variables: string[];
     onInsert: (v: string) => void;
 }
-
 const VariableInserter: React.FC<VariableInserterProps> = ({ variables, onInsert }) => {
     const [isOpen, setIsOpen] = useState(false);
     return (
@@ -165,11 +176,9 @@ const VariableInserter: React.FC<VariableInserterProps> = ({ variables, onInsert
         </div>
     );
 };
-
 const InsertDivider = ({ onInsert, index }: { onInsert: (i: number) => void; index: number }) => {
     return (
         <div className="relative h-5 group flex items-center justify-center my-1">
-            {/* The hit area is the full height, line appears in middle */}
             <div className="absolute inset-x-8 top-1/2 -translate-y-1/2 h-px bg-blue-200 opacity-0 group-hover:opacity-100 transition-opacity duration-200"></div>
             <button
                 onClick={() => onInsert(index)}
@@ -182,7 +191,66 @@ const InsertDivider = ({ onInsert, index }: { onInsert: (i: number) => void; ind
     );
 };
 
-// --- RECURSIVE FILTER COMPONENTS ---
+const VariableSuggestionInput: React.FC<{ value: string, onChange: (val: string) => void, variables: string[] }> = ({ value, onChange, variables }) => {
+    const [showSuggestions, setShowSuggestions] = useState(false);
+    const containerRef = useRef<HTMLDivElement>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
+
+    // Close on click outside
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+                setShowSuggestions(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+    
+    return (
+        <div className="relative w-full" ref={containerRef}>
+            <input 
+                ref={inputRef}
+                className={`${baseInputStyles} py-1 px-2 pr-6`} 
+                placeholder="Variable Name" 
+                value={value} 
+                onChange={(e) => onChange(e.target.value)}
+                onFocus={() => setShowSuggestions(true)}
+            />
+            <div 
+                className="absolute right-1 top-1/2 -translate-y-1/2 cursor-pointer text-gray-400 hover:text-blue-500 p-1"
+                onClick={() => {
+                    setShowSuggestions(!showSuggestions);
+                    if (!showSuggestions) {
+                        inputRef.current?.focus();
+                    }
+                }}
+            >
+                <ChevronDown className="w-3 h-3" />
+            </div>
+            
+            {showSuggestions && (
+                <div className="absolute left-0 right-0 z-[100] mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-48 overflow-y-auto animate-in fade-in zoom-in-95 duration-100 min-w-[120px]">
+                    <div className="px-2 py-1.5 text-[10px] font-bold text-gray-400 uppercase bg-gray-50 border-b border-gray-100 sticky top-0">Select Variable</div>
+                    {variables.length === 0 ? (
+                        <div className="px-3 py-2 text-xs text-gray-400 italic">No variables available</div>
+                    ) : (
+                        variables.map(v => (
+                            <div 
+                                key={v}
+                                className="px-3 py-2 text-xs text-gray-700 hover:bg-blue-50 hover:text-blue-700 cursor-pointer flex items-center transition-colors"
+                                onClick={() => { onChange(v); setShowSuggestions(false); }}
+                            >
+                                <Braces className="w-3 h-3 mr-2 text-blue-400 shrink-0" />
+                                <span className="truncate font-medium">{v}</span>
+                            </div>
+                        ))
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
 
 interface FilterGroupEditorProps {
     group: FilterGroup;
@@ -190,11 +258,10 @@ interface FilterGroupEditorProps {
     onUpdate: (updated: FilterGroup) => void;
     onRemove: (id: string) => void;
     isRoot?: boolean;
+    availableVariables: string[];
 }
-
-const FilterGroupEditor: React.FC<FilterGroupEditorProps> = ({ group, activeSchema, onUpdate, onRemove, isRoot = false }) => {
+const FilterGroupEditor: React.FC<FilterGroupEditorProps> = ({ group, activeSchema, onUpdate, onRemove, isRoot = false, availableVariables }) => {
     const fieldNames = Object.keys(activeSchema);
-
     const handleUpdateCondition = (id: string, updates: Partial<FilterCondition>) => {
         const newConditions = group.conditions.map(c => {
             if (c.id === id && c.type === 'condition') return { ...c, ...updates };
@@ -202,26 +269,21 @@ const FilterGroupEditor: React.FC<FilterGroupEditorProps> = ({ group, activeSche
         });
         onUpdate({ ...group, conditions: newConditions });
     };
-
     const handleUpdateSubGroup = (id: string, updatedGroup: FilterGroup) => {
         const newConditions = group.conditions.map(c => c.id === id ? updatedGroup : c);
         onUpdate({ ...group, conditions: newConditions });
     };
-
     const handleAddCondition = () => {
         const newCond: FilterCondition = { id: `cond_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`, type: 'condition', field: '', operator: '=', value: '' };
         onUpdate({ ...group, conditions: [...group.conditions, newCond] });
     };
-
     const handleAddGroup = () => {
         const newGroup: FilterGroup = { id: `group_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`, type: 'group', logicalOperator: 'AND', conditions: [] };
         onUpdate({ ...group, conditions: [...group.conditions, newGroup] });
     };
-
     const handleRemoveChild = (id: string) => {
         onUpdate({ ...group, conditions: group.conditions.filter(c => c.id !== id) });
     };
-
     return (
         <div className={`space-y-3 ${isRoot ? '' : 'pl-4 border-l-2 border-blue-100 py-1'}`}>
             <div className="flex items-center space-x-3 mb-2">
@@ -242,7 +304,6 @@ const FilterGroupEditor: React.FC<FilterGroupEditorProps> = ({ group, activeSche
                     </button>
                 )}
             </div>
-
             <div className="space-y-3">
                 {group.conditions.map(item => (
                     item.type === 'group' ? (
@@ -252,9 +313,10 @@ const FilterGroupEditor: React.FC<FilterGroupEditorProps> = ({ group, activeSche
                             activeSchema={activeSchema} 
                             onUpdate={(g) => handleUpdateSubGroup(item.id, g)} 
                             onRemove={handleRemoveChild}
+                            availableVariables={availableVariables}
                         />
                     ) : (
-                        <div key={item.id} className="grid grid-cols-12 gap-2 items-center bg-gray-50/50 p-2 rounded-md border border-gray-100 group/cond">
+                        <div key={item.id} className="grid grid-cols-12 gap-2 items-center bg-gray-50/50 p-2 rounded-md border border-gray-100 group/cond relative">
                             <div className="col-span-5 relative">
                                 <select 
                                     className={`${baseInputStyles} py-1 pl-2`} 
@@ -276,13 +338,21 @@ const FilterGroupEditor: React.FC<FilterGroupEditorProps> = ({ group, activeSche
                                     ))}
                                 </select>
                             </div>
-                            <div className="col-span-3">
-                                <input 
-                                    className={`${baseInputStyles} py-1 px-2`} 
-                                    placeholder="Value" 
-                                    value={String(item.value)} 
-                                    onChange={(e) => handleUpdateCondition(item.id, { value: e.target.value })} 
-                                />
+                            <div className="col-span-3 relative">
+                                {(item.operator === 'in_variable' || item.operator === 'not_in_variable') ? (
+                                    <VariableSuggestionInput 
+                                        value={String(item.value)} 
+                                        onChange={(val) => handleUpdateCondition(item.id, { value: val })}
+                                        variables={availableVariables}
+                                    />
+                                ) : (
+                                    <input 
+                                        className={`${baseInputStyles} py-1 px-2`} 
+                                        placeholder="Value" 
+                                        value={String(item.value)} 
+                                        onChange={(e) => handleUpdateCondition(item.id, { value: e.target.value })} 
+                                    />
+                                )}
                             </div>
                             <div className="col-span-1 flex justify-end">
                                 <button onClick={() => handleRemoveChild(item.id)} className="p-1 text-gray-300 hover:text-red-500 opacity-0 group-hover/cond:opacity-100 transition-all">
@@ -293,7 +363,6 @@ const FilterGroupEditor: React.FC<FilterGroupEditorProps> = ({ group, activeSche
                     )
                 ))}
             </div>
-
             <div className="flex items-center space-x-4 pt-1">
                 <button onClick={handleAddCondition} className="text-[10px] font-bold text-blue-600 hover:underline flex items-center">
                     <Plus className="w-3 h-3 mr-1" /> Add Rule
@@ -311,7 +380,7 @@ const FilterGroupEditor: React.FC<FilterGroupEditorProps> = ({ group, activeSche
 export const CommandEditor: React.FC<CommandEditorProps> = ({ 
   operationId, 
   operationName, 
-  operationType,
+  operationType, 
   commands, 
   datasets,
   inputSchema,
@@ -319,10 +388,11 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
   onUpdateName,
   onUpdateType,
   onViewPath,
+  onRun,
   tree
 }) => {
   
-  const availableVariables = useMemo(() => {
+  const ancestorVariables = useMemo(() => {
      if (!tree) return [];
      return findAncestorVariables(tree, operationId);
   }, [tree, operationId]);
@@ -332,7 +402,273 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
       return flattenNodes(tree).filter(n => n.id !== operationId);
   }, [tree, operationId]);
 
+  // Aggregate all available source aliases from all setup nodes
+  const availableSourceAliases = useMemo(() => {
+      if (!tree) return [];
+      const setupNodes = flattenNodes(tree).filter(n => n.operationType === 'setup');
+      const aliases: { alias: string, nodeName: string, id: string, sourceTable?: string, linkId: string }[] = [];
+      
+      setupNodes.forEach(node => {
+          const sourceCmds = node.commands.filter(c => c.type === 'source');
+          sourceCmds.forEach((cmd, idx) => {
+              // Determine display alias: Explicit Alias -> Node Name (if first command) -> Empty
+              let effectiveAlias = cmd.config.alias;
+              if (!effectiveAlias && idx === 0) {
+                  effectiveAlias = node.name;
+              }
+              
+              // Ensure we have a link ID. Fallback to cmd.id if linkId wasn't saved in older versions.
+              const linkId = cmd.config.linkId || cmd.id;
+
+              if (effectiveAlias) {
+                  aliases.push({ 
+                      alias: effectiveAlias, 
+                      nodeName: node.name, 
+                      id: node.id,
+                      sourceTable: cmd.config.mainTable || '?',
+                      linkId: linkId
+                  });
+              }
+          });
+      });
+      return aliases;
+  }, [tree]);
+
+  // Collect outputs from Ancestor nodes (Parent -> Parent -> Root)
+  const ancestorOutputs = useMemo(() => {
+      if (!tree) return [];
+      const ancestors = getAncestors(tree, operationId);
+      if (!ancestors) return [];
+
+      const outputs = new Set<string>();
+      ancestors.forEach(node => {
+          node.commands.forEach(cmd => {
+              if (cmd.type === 'group' && cmd.config.outputTableName && cmd.config.outputTableName.trim() !== '') {
+                  outputs.add(cmd.config.outputTableName.trim());
+              }
+          });
+      });
+      return Array.from(outputs);
+  }, [tree, operationId]);
+
+  // Global list only for resolving schemas if needed, though strictly we should use scoped.
+  // We'll use this only for fallback in `inputSchema` resolution if necessary, 
+  // but for the Dropdown we will use `ancestorOutputs` + `localOutputs`.
+  const allGeneratedTablesGlobal = useMemo(() => {
+      if (!tree) return [];
+      const names = new Set<string>();
+      const nodes = flattenNodes(tree);
+      nodes.forEach(node => {
+          node.commands.forEach(cmd => {
+              if (cmd.type === 'group' && cmd.config.outputTableName && cmd.config.outputTableName.trim() !== '') {
+                  names.add(cmd.config.outputTableName.trim());
+              }
+          });
+      });
+      return Array.from(names);
+  }, [tree]);
+
   const hasComplexView = useMemo(() => commands.some(c => c.type === 'multi_table'), [commands]);
+
+  // -- Setup Mode Handler --
+  if (operationType === 'setup') {
+      const sourceCommands = commands.filter(c => c.type === 'source');
+      
+      const handleAddSource = () => {
+          const newCmd: Command = {
+              id: `cmd_src_${Date.now()}`,
+              type: 'source',
+              config: { 
+                  mainTable: '', 
+                  alias: '',
+                  linkId: `link_${Date.now()}_${Math.random().toString(36).substr(2, 5)}` // Generate stable Link ID
+              }, 
+              order: commands.length + 1
+          };
+          onUpdateCommands(operationId, [...commands, newCmd]);
+      };
+
+      const handleUpdateSourceCmd = (cmdId: string, updates: Partial<any>) => {
+          const updated = commands.map(c => {
+              if (c.id === cmdId) {
+                  return { ...c, config: { ...c.config, ...updates } };
+              }
+              return c;
+          });
+          onUpdateCommands(operationId, updated);
+      };
+
+      const handleDatasetSelection = (cmdId: string, datasetName: string, currentAlias: string) => {
+          const updates: any = { mainTable: datasetName };
+          // Auto-fill alias if empty when selecting a dataset
+          if (!currentAlias && datasetName) {
+              updates.alias = datasetName;
+          }
+          handleUpdateSourceCmd(cmdId, updates);
+      };
+
+      const handleRemoveSourceCmd = (cmdId: string) => {
+          const updated = commands.filter(c => c.id !== cmdId);
+          onUpdateCommands(operationId, updated);
+      };
+
+      const getValidationErrors = (cmd: Command, index: number) => {
+          const errors: string[] = [];
+          const currentTable = cmd.config.mainTable;
+          const currentAlias = cmd.config.alias;
+
+          // 1. Duplicate Data Source Check
+          if (currentTable) {
+              const isDuplicateTable = sourceCommands.some((c, idx) => 
+                  idx !== index && c.config.mainTable === currentTable
+              );
+              if (isDuplicateTable) errors.push("This table is already selected.");
+          }
+
+          // 2. Duplicate Alias Check
+          if (currentAlias) {
+              const isDuplicateAlias = sourceCommands.some((c, idx) => 
+                  idx !== index && c.config.alias === currentAlias
+              );
+              if (isDuplicateAlias) errors.push("Alias name must be unique.");
+          }
+
+          // 3. Alias vs Table Name Check
+          if (currentAlias) {
+              // Check against all available datasets to ensure no shadowing
+              const isConflictWithDataset = datasets.some(d => d.name === currentAlias);
+              if (isConflictWithDataset && currentAlias !== currentTable) {
+                   // It's okay if alias == mainTable (default case), but warn if it shadows ANOTHER table
+                   errors.push(`Alias matches another dataset '${currentAlias}'.`);
+              }
+          }
+
+          return errors;
+      };
+
+      return (
+        <div className="flex flex-col h-full bg-gray-50/50">
+            {/* Unified Header Style */}
+            <div className="px-6 py-5 border-b border-gray-200 flex justify-between items-center bg-white sticky top-0 z-10 shadow-sm">
+                <div className="flex-1 min-w-0">
+                   <div className="flex items-center space-x-2 mb-1">
+                     <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Configuration</span>
+                     <span className="text-[10px] font-mono text-gray-300">#{operationId}</span>
+                   </div>
+                   <div className="flex items-center space-x-3">
+                       <div className="relative group shrink-0 text-gray-400">
+                            <Settings2 className="w-6 h-6" />
+                       </div>
+                       <input 
+                           type="text" 
+                           value={operationName} 
+                           onChange={(e) => onUpdateName(e.target.value)} 
+                           className="text-xl font-bold text-gray-900 bg-transparent border-none focus:ring-0 p-0 hover:bg-gray-50 pl-1 rounded transition-colors placeholder-gray-300 flex-1 min-w-0" 
+                           placeholder="Operation Name" 
+                       />
+                   </div>
+                </div>
+                <div className="flex items-center pl-4 border-l border-gray-200 ml-4">
+                     <button onClick={onViewPath} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors" title="View Logic Path"><Layers className="w-5 h-5" /></button>
+                </div>
+            </div>
+            
+            <div className="p-8 max-w-3xl mx-auto w-full">
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                    <div className="p-6 space-y-6">
+                        <div className="relative pt-2">
+                            <div className="relative flex justify-start">
+                                <span className="text-sm font-bold text-gray-700 uppercase tracking-wider">Configured Sources</span>
+                            </div>
+                        </div>
+
+                        <div className="space-y-3">
+                            {sourceCommands.map((cmd, idx) => {
+                                const errors = getValidationErrors(cmd, idx);
+                                const hasError = errors.length > 0;
+
+                                // Filter out datasets that are already used by OTHER source commands in this setup node
+                                const usedTables = sourceCommands
+                                    .filter((c, i) => i !== idx && c.config.mainTable)
+                                    .map(c => c.config.mainTable);
+                                const availableDatasets = datasets.filter(d => !usedTables.includes(d.name));
+
+                                return (
+                                <div key={cmd.id} className={`flex flex-col p-4 bg-gray-50 border rounded-lg group transition-all ${hasError ? 'border-red-300 bg-red-50/30' : 'border-gray-200 hover:border-blue-300 hover:shadow-sm'}`}>
+                                    <div className="flex items-start space-x-3">
+                                        <div className="shrink-0 pt-2 text-gray-400 font-mono text-xs w-6 text-center">{idx + 1}</div>
+                                        
+                                        <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Dataset</label>
+                                                <select 
+                                                    className={`w-full px-3 py-2 border rounded-md focus:ring-1 text-sm bg-white ${hasError && errors[0].includes('table') ? 'border-red-300 focus:border-red-500 focus:ring-red-200' : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500'}`}
+                                                    value={cmd.config.mainTable || ''} 
+                                                    onChange={(e) => handleDatasetSelection(cmd.id, e.target.value, cmd.config.alias || '')}
+                                                >
+                                                    <option value="">-- Select Dataset --</option>
+                                                    {availableDatasets.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
+                                                </select>
+                                            </div>
+                                            
+                                            <div>
+                                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Alias Name</label>
+                                                <div className="flex items-center space-x-2">
+                                                    <ArrowRight className="w-4 h-4 text-gray-400 shrink-0" />
+                                                    <input 
+                                                        type="text" 
+                                                        className={`w-full px-3 py-2 border rounded-md focus:ring-1 text-sm font-bold bg-blue-50/50 placeholder-blue-200 ${hasError && (errors[0].includes('Alias') || errors[0].includes('unique')) ? 'border-red-300 text-red-700 focus:border-red-500 focus:ring-red-200' : 'border-gray-300 text-blue-700 focus:border-blue-500 focus:ring-blue-500'}`}
+                                                        value={cmd.config.alias || ''}
+                                                        onChange={(e) => handleUpdateSourceCmd(cmd.id, { alias: e.target.value })}
+                                                        placeholder="e.g. Users"
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <button 
+                                            onClick={() => handleRemoveSourceCmd(cmd.id)}
+                                            className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors mt-1 opacity-0 group-hover:opacity-100"
+                                            title="Remove Source"
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                    
+                                    {hasError && (
+                                        <div className="mt-3 ml-9 flex items-start text-xs text-red-600 bg-red-100/50 p-2 rounded border border-red-100">
+                                            <AlertTriangle className="w-3.5 h-3.5 mr-1.5 shrink-0 mt-0.5" />
+                                            <div className="space-y-0.5">
+                                                {errors.map((err, i) => (
+                                                    <div key={i}>{err}</div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                                );
+                            })}
+
+                            {sourceCommands.length === 0 && (
+                                <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200 text-gray-400 text-sm">
+                                    No sources configured.
+                                </div>
+                            )}
+
+                            <div className="flex justify-center pt-2">
+                                <Button variant="secondary" onClick={handleAddSource} icon={<Plus className="w-4 h-4"/>}>
+                                    Add Another Source
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+      );
+  }
+
+  // -- Standard Process Mode Handlers --
 
   const addCommand = () => {
     const newCmd: Command = {
@@ -340,7 +676,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
       type: 'filter',
       config: { 
         filterRoot: { id: `root_${Date.now()}`, type: 'group', logicalOperator: 'AND', conditions: [] },
-        dataSource: 'stream' 
+        dataSource: '' // Default to empty to force selection (or imply parent if left empty, but visibly distinct)
       },
       order: commands.length + 1
     };
@@ -353,7 +689,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
       type: 'filter',
       config: { 
         filterRoot: { id: `root_${Date.now()}`, type: 'group', logicalOperator: 'AND', conditions: [] },
-        dataSource: 'stream' 
+        dataSource: '' // Default to empty
       },
       order: index + 1 // Will be reordered
     };
@@ -374,14 +710,15 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
     const updated = commands.map(c => {
       if (c.id === id) {
         if (field === 'type') {
-            let newConfig: any = { dataSource: 'stream' }; 
-            if (value === 'source') newConfig = { ...newConfig, mainTable: '' };
-            else if (value === 'filter') newConfig = { ...newConfig, filterRoot: { id: `root_${Date.now()}`, type: 'group', logicalOperator: 'AND', conditions: [] } };
+            let newConfig: any = { dataSource: '' }; // Reset to empty on type change
+            // Source command removed from Process type
+            if (value === 'filter') newConfig = { ...newConfig, filterRoot: { id: `root_${Date.now()}`, type: 'group', logicalOperator: 'AND', conditions: [] } };
             else if (value === 'group') newConfig = { ...newConfig, groupByFields: [], aggregations: [], havingConditions: [], outputTableName: '' };
             else if (value === 'join') newConfig = { ...newConfig, joinType: 'left', joinTargetType: 'table', joinSuffix: '_joined' };
             else if (value === 'save') newConfig = { ...newConfig, field: '', value: 'var_name', distinct: true };
             else if (value === 'transform') newConfig = { ...newConfig, mappings: [{ id: `m_${Date.now()}`, mode: 'simple', expression: '', outputField: 'new_column' }] };
             else if (value === 'multi_table') newConfig = { ...newConfig, subTables: [] };
+            else if (value === 'view') newConfig = { ...newConfig, dataSource: '' }; // Reset for View
             return { ...c, type: value as CommandType, config: newConfig };
         }
         if (field.startsWith('config.')) {
@@ -395,22 +732,17 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
     onUpdateCommands(operationId, updated);
   };
 
+  // ... (Mapping and Aggregation helpers remain the same as original) ...
   const addMappingRule = (cmdId: string, current: MappingRule[]) => {
       updateCommand(cmdId, 'config.mappings', [...(current || []), { id: `m_${Date.now()}`, mode: 'simple', expression: '', outputField: `new_col_${(current || []).length + 1}` }]);
   };
-
   const removeMappingRule = (cmdId: string, current: MappingRule[], idx: number) => {
-      const newList = [...(current || [])];
-      newList.splice(idx, 1);
-      updateCommand(cmdId, 'config.mappings', newList);
+      const newList = [...(current || [])]; newList.splice(idx, 1); updateCommand(cmdId, 'config.mappings', newList);
   };
-
   const updateMappingRule = (cmdId: string, current: MappingRule[], idx: number, key: keyof MappingRule, val: string) => {
-      const newList = [...(current || [])];
-      newList[idx] = { ...newList[idx], [key]: val };
+      const newList = [...(current || [])]; newList[idx] = { ...newList[idx], [key]: val };
       updateCommand(cmdId, 'config.mappings', newList);
   };
-
   const setMappingMode = (cmdId: string, current: MappingRule[], mode: 'simple' | 'python') => {
       const newList = (current || []).map(m => {
           if (m.mode === mode) return m;
@@ -421,7 +753,6 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
       });
       updateCommand(cmdId, 'config.mappings', newList);
   };
-
   const addGroupField = (cmdId: string, currentFields: string[]) => updateCommand(cmdId, 'config.groupByFields', [...(currentFields || []), '']);
   const removeGroupField = (cmdId: string, currentFields: string[], idx: number) => {
       const newFields = [...(currentFields || [])]; newFields.splice(idx, 1); updateCommand(cmdId, 'config.groupByFields', newFields);
@@ -429,7 +760,6 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
   const updateGroupField = (cmdId: string, currentFields: string[], idx: number, val: string) => {
       const newFields = [...(currentFields || [])]; newFields[idx] = val; updateCommand(cmdId, 'config.groupByFields', newFields);
   };
-  
   const addAggregation = (cmdId: string, currentAggs: AggregationConfig[]) => updateCommand(cmdId, 'config.aggregations', [...(currentAggs || []), { field: '', func: 'count', alias: '' }]);
   const removeAggregation = (cmdId: string, currentAggs: AggregationConfig[], idx: number) => {
       const newAggs = [...(currentAggs || [])]; newAggs.splice(idx, 1); updateCommand(cmdId, 'config.aggregations', newAggs);
@@ -439,7 +769,6 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
       if (key !== 'alias' && !newAggs[idx].alias && newAggs[idx].field && newAggs[idx].func) newAggs[idx].alias = `${newAggs[idx].func}_${newAggs[idx].field}`;
       updateCommand(cmdId, 'config.aggregations', newAggs);
   };
-
   const addHavingCondition = (cmdId: string, current: HavingCondition[]) => updateCommand(cmdId, 'config.havingConditions', [...(current || []), { id: `h_${Date.now()}`, metricAlias: '', operator: '=', value: '' }]);
   const removeHavingCondition = (cmdId: string, current: HavingCondition[], idx: number) => {
       const newList = [...(current || [])]; newList.splice(idx, 1); updateCommand(cmdId, 'config.havingConditions', newList);
@@ -448,10 +777,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
       const newList = [...(current || [])]; newList[idx] = { ...newList[idx], [key]: val };
       updateCommand(cmdId, 'config.havingConditions', newList);
   };
-
-  // Multi-table functions
   const addSubTable = (cmdId: string, current: SubTableConfig[]) => {
-      // Default to main.id = sub.uid as it is a common mock pattern
       updateCommand(cmdId, 'config.subTables', [...(current || []), { id: `sub_${Date.now()}`, table: '', on: 'main.id = sub.uid', label: 'New Sub-Table' }]);
   };
   const removeSubTable = (cmdId: string, current: SubTableConfig[], idx: number) => {
@@ -468,77 +794,6 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
       return availableFields.includes(value) ? baseInputStyles : errorInputStyles;
   };
 
-  const getFieldSchemaAtStep = (targetIndex: number) => {
-      let currentFields: Record<string, DataType> = { ...inputSchema };
-
-      for (let i = 0; i < targetIndex; i++) {
-          const cmd = commands[i];
-          const source = cmd.config.dataSource;
-          
-          if (source && source !== 'stream' && source !== '') {
-              const ds = datasets.find(d => d.name === source);
-              if (ds) {
-                  // Fix: Properly map Record<string, FieldInfo> to Record<string, DataType>
-                  currentFields = {};
-                  if (ds.fieldTypes) {
-                      Object.keys(ds.fieldTypes).forEach(f => {
-                          currentFields[f] = ds.fieldTypes![f].type;
-                      });
-                  } else {
-                      ds.fields.forEach(f => currentFields[f] = 'string');
-                  }
-              }
-          }
-
-          if (cmd.type === 'source' && cmd.config.mainTable) {
-               const ds = datasets.find(d => d.name === cmd.config.mainTable);
-               if (ds) {
-                   // Fix: Properly map Record<string, FieldInfo> to Record<string, DataType>
-                   currentFields = {};
-                   if (ds.fieldTypes) {
-                       Object.keys(ds.fieldTypes).forEach(f => {
-                           currentFields[f] = ds.fieldTypes![f].type;
-                       });
-                   } else {
-                       ds.fields.forEach(f => currentFields[f] = 'string');
-                   }
-               }
-          }
-
-          if (cmd.type === 'transform') {
-               const mappings = cmd.config.mappings || [];
-               if (mappings.length > 0) {
-                   mappings.forEach(m => {
-                       if (m.outputField) currentFields[m.outputField] = 'number';
-                   });
-               } else if (cmd.config.outputField) {
-                    currentFields[cmd.config.outputField] = 'number'; 
-               }
-          }
-          
-          if (cmd.type === 'join' && cmd.config.joinTable) {
-               const ds = datasets.find(d => d.name === cmd.config.joinTable);
-               if (ds) {
-                   const suffix = cmd.config.joinSuffix || '_joined';
-                   const joinSchema = ds.fieldTypes || {};
-                   (Object.keys(joinSchema).length ? Object.keys(joinSchema) : ds.fields).forEach(f => {
-                       // Fix: Extract .type from FieldInfo
-                       const type = joinSchema[f]?.type || 'string';
-                       currentFields[currentFields[f] ? `${f}${suffix}` : f] = type as DataType;
-                   });
-               }
-          }
-          
-          if (cmd.type === 'group') {
-              const nextSchema: Record<string, DataType> = {};
-              (cmd.config.groupByFields || []).forEach(g => { if (currentFields[g]) nextSchema[g] = currentFields[g]; });
-              (cmd.config.aggregations || []).forEach(agg => { nextSchema[agg.alias || `${agg.func}_${agg.field}`] = 'number'; });
-              if (Object.keys(nextSchema).length > 0) currentFields = nextSchema;
-          }
-      }
-      return currentFields;
-  };
-
   return (
     <div className="flex flex-col h-full bg-gray-50/50">
       <div className="px-6 py-5 border-b border-gray-200 flex justify-between items-center bg-white sticky top-0 z-10 shadow-sm">
@@ -549,17 +804,13 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
            </div>
            <div className="flex items-center space-x-3">
                <div className="relative group shrink-0">
-                    <button className="flex items-center justify-center w-8 h-8 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors">
-                        {React.createElement(OPERATION_TYPES.find(t => t.value === operationType)?.icon || Layers, { className: "w-5 h-5" })}
+                    <button 
+                        onClick={() => onRun && onRun()}
+                        className="flex items-center justify-center w-8 h-8 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm active:scale-95"
+                        title="Run this operation"
+                    >
+                        <Play className="w-4 h-4 ml-0.5" />
                     </button>
-                    <div className="absolute top-full left-0 mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-xl hidden group-hover:block z-20">
-                        {OPERATION_TYPES.map(type => (
-                            <button key={type.value} onClick={() => onUpdateType(operationId, type.value)} className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 text-left">
-                                {React.createElement(type.icon, { className: "w-4 h-4 mr-2 text-gray-400" })}
-                                {type.label}
-                            </button>
-                        ))}
-                    </div>
                </div>
                <input type="text" value={operationName} onChange={(e) => onUpdateName(e.target.value)} className="text-xl font-bold text-gray-900 bg-transparent border-none focus:ring-0 p-0 hover:bg-gray-50 pl-1 rounded transition-colors placeholder-gray-300 flex-1 min-w-0" placeholder="Operation Name" />
            </div>
@@ -578,24 +829,54 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
         ) : (
           <>
             {commands.map((cmd, index) => {
-                const stepSchema = getFieldSchemaAtStep(index);
-                let activeSchema = { ...stepSchema };
-                if (cmd.config.dataSource && cmd.config.dataSource !== 'stream' && cmd.config.dataSource !== '') {
-                    const ds = datasets.find(d => d.name === cmd.config.dataSource);
-                    if (ds) {
-                        activeSchema = {};
-                        if (ds.fieldTypes) {
-                            Object.keys(ds.fieldTypes).forEach(f => {
-                                activeSchema[f] = ds.fieldTypes![f].type;
-                            });
+                let activeSchema: Record<string, DataType> = {};
+                
+                if (cmd.config.dataSource) {
+                    const sourceAlias = availableSourceAliases.find(sa => sa.linkId === cmd.config.dataSource);
+                    let targetDatasetName = "";
+                    if (sourceAlias) {
+                        targetDatasetName = sourceAlias.sourceTable || "";
+                    } else {
+                        // Assume it's a direct table name (generated or otherwise)
+                        targetDatasetName = cmd.config.dataSource;
+                    }
+
+                    if (targetDatasetName) {
+                        const ds = datasets.find(d => d.name === targetDatasetName);
+                        if (ds) {
+                             if (ds.fieldTypes) {
+                                 Object.entries(ds.fieldTypes).forEach(([k, v]) => activeSchema[k] = (v as FieldInfo).type);
+                             } else {
+                                 ds.fields.forEach(f => activeSchema[f] = 'string');
+                             }
                         } else {
-                            ds.fields.forEach(f => activeSchema[f] = 'string');
+                            // Fallback: Check globally if it's a generated table not in datasets yet (schema might be missing but we allow selection)
+                            if (allGeneratedTablesGlobal.includes(targetDatasetName)) {
+                                // No schema available yet for un-executed generated tables
+                            }
                         }
                     }
                 }
-
+                const activeSchemaRef = activeSchema;
                 const fieldNames = Object.keys(activeSchema);
-                const isSource = cmd.type === 'source';
+
+                // Calculate available tables for this specific command index
+                const localPrecedingOutputs = commands
+                    .slice(0, index)
+                    .filter(c => c.type === 'group' && c.config.outputTableName && c.config.outputTableName.trim() !== '')
+                    .map(c => c.config.outputTableName!.trim());
+                
+                const availableGeneratedTablesForCmd = Array.from(new Set([...ancestorOutputs, ...localPrecedingOutputs])).sort();
+
+                // Calculate Local Variables defined in previous steps of THIS operation
+                // Force convert to string to handle 'any' type from CommandConfig
+                const localVariables = commands
+                    .slice(0, index)
+                    .filter(c => c.type === 'save' && c.config.value)
+                    .map(c => String(c.config.value));
+                
+                // Combine Ancestor + Local Variables for this command's context and deduplicate
+                const currentScopeVariables = Array.from(new Set([...ancestorVariables, ...localVariables]));
 
                 return (
                 <React.Fragment key={cmd.id}>
@@ -606,106 +887,147 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                 <div className="cursor-move text-gray-300 hover:text-gray-500"><GripVertical className="w-4 h-4" /></div>
                                 <div className="flex items-center">
                                     <select value={cmd.type} onChange={(e) => updateCommand(cmd.id, 'type', e.target.value)} className="text-sm font-bold text-gray-800 bg-transparent border-none focus:ring-0 cursor-pointer hover:text-blue-600 pl-0 pr-6 py-0">
-                                        <option value="source">Load Table</option>
                                         <option value="filter">Filter</option>
                                         <option value="join">Join</option>
                                         <option value="sort">Sort</option>
                                         <option value="transform">Mapping</option>
                                         <option value="group">Group</option>
                                         <option value="save">Save Variable</option>
+                                        <option value="view">View / Select Table</option>
                                         <option value="multi_table">Complex View (Final Step)</option>
                                     </select>
                                 </div>
                             </div>
                             <div className="flex items-center space-x-2">
+                                {/* Run to Step Button */}
+                                <button 
+                                    onClick={() => onRun && onRun(cmd.id)}
+                                    className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                                    title="Run logic up to this step"
+                                >
+                                    <Play className="w-3.5 h-3.5" />
+                                </button>
                                 <span className="text-[10px] font-mono text-gray-300">#{index + 1}</span>
                                 <button onClick={() => removeCommand(cmd.id)} className="p-1 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
                             </div>
                         </div>
 
-                        {!isSource && (
+                        {cmd.type !== 'view' && (
                             <div className={`px-3 py-1.5 border-b border-gray-100 flex items-center space-x-2 ${!cmd.config.dataSource ? 'bg-red-50/50' : 'bg-gray-50'}`}>
                                 <Database className={`w-3 h-3 ${!cmd.config.dataSource ? 'text-red-400' : 'text-gray-400'}`} />
-                                <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Apply To:</span>
+                                <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Select Dataset:</span>
                                 <select
                                         value={cmd.config.dataSource || ''}
                                         onChange={(e) => updateCommand(cmd.id, 'config.dataSource', e.target.value)}
                                         className={`bg-transparent text-xs font-medium focus:outline-none cursor-pointer border-none p-0 pr-4 hover:underline ${!cmd.config.dataSource ? 'text-red-600' : 'text-blue-700'}`}
                                     >
-                                        <option value="">-- Missing Source --</option>
-                                        <option value="stream">Parent Stream</option>
-                                        <optgroup label="Data Sources">
-                                            {datasets.map(d => (
-                                                <option key={d.id} value={d.name}>{d.name}</option>
-                                            ))}
-                                        </optgroup>
+                                        <option value="">-- Select Source --</option>
+                                        {availableSourceAliases.length > 0 && (
+                                            <optgroup label="Data Sources">
+                                                {availableSourceAliases.map(sa => (
+                                                    <option key={sa.linkId} value={sa.linkId}>{sa.alias} to {sa.sourceTable}</option>
+                                                ))}
+                                            </optgroup>
+                                        )}
+                                        {availableGeneratedTablesForCmd.length > 0 && (
+                                            <optgroup label="Generated Datasets">
+                                                {availableGeneratedTablesForCmd.map(name => (
+                                                    <option key={name} value={name}>{name}</option>
+                                                ))}
+                                            </optgroup>
+                                        )}
                                     </select>
                             </div>
                         )}
 
                         <div className="p-4">
-                            {isSource && (
-                                <div className="flex items-center space-x-3">
-                                    <label className="text-sm text-gray-600">Select Table:</label>
-                                    <select className={baseInputStyles} value={cmd.config.mainTable || ''} onChange={(e) => updateCommand(cmd.id, 'config.mainTable', e.target.value)}>
-                                        <option value="">-- Choose Dataset --</option>
-                                        {datasets.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
-                                    </select>
-                                </div>
-                            )}
-
                             {cmd.type === 'filter' && cmd.config.filterRoot && (
                                 <div className="space-y-4">
                                     <label className="text-xs font-bold text-gray-500 uppercase flex items-center"><FilterIcon className="w-3 h-3 mr-1"/> Rule Builder</label>
                                     <FilterGroupEditor 
                                         group={cmd.config.filterRoot} 
-                                        activeSchema={activeSchema} 
+                                        activeSchema={activeSchemaRef} 
                                         onUpdate={(g) => updateCommand(cmd.id, 'config.filterRoot', g)}
                                         onRemove={() => {}}
                                         isRoot={true}
+                                        availableVariables={currentScopeVariables}
                                     />
                                 </div>
                             )}
 
+                            {/* View Command - Simple Selector */}
+                            {cmd.type === 'view' && (
+                                <div className="space-y-4">
+                                    <div className="flex items-start space-x-3 p-3 bg-purple-50 border border-purple-100 rounded-lg text-sm text-purple-900">
+                                        <Eye className="w-5 h-5 shrink-0 mt-0.5" />
+                                        <div>
+                                            <p className="font-semibold">Explicit View Selection</p>
+                                            <p className="text-xs text-purple-700 mt-1">
+                                                This step forces the pipeline to output the selected table below. Use this to verify intermediate results or saved tables.
+                                            </p>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="flex flex-col">
+                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Table to View</label>
+                                        <select 
+                                            className={`${baseInputStyles} py-2`}
+                                            value={cmd.config.dataSource || ''} 
+                                            onChange={(e) => updateCommand(cmd.id, 'config.dataSource', e.target.value)}
+                                        >
+                                            <option value="">-- Select Table --</option>
+                                            {availableSourceAliases.length > 0 && (
+                                                <optgroup label="Data Sources">
+                                                    {availableSourceAliases.map(sa => (
+                                                        <option key={sa.linkId} value={sa.linkId}>{sa.alias} to {sa.sourceTable}</option>
+                                                    ))}
+                                                </optgroup>
+                                            )}
+                                            {availableGeneratedTablesForCmd.length > 0 && (
+                                                <optgroup label="Generated Datasets">
+                                                    {availableGeneratedTablesForCmd.map(name => (
+                                                        <option key={name} value={name}>{name}</option>
+                                                    ))}
+                                                </optgroup>
+                                            )}
+                                        </select>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* ... (Other command types rendering, identical to original but preserved) ... */}
                             {cmd.type === 'multi_table' && (
                                 <div className="space-y-4">
                                     <div className="flex items-start space-x-3 p-3 bg-blue-50 border border-blue-100 rounded-lg text-sm text-blue-800">
                                         <LayoutDashboard className="w-5 h-5 shrink-0 mt-0.5" />
                                         <div>
                                             <p className="font-semibold">Complex View Configuration</p>
-                                            <p className="text-xs text-blue-600 mt-1">This command displays the main result stream alongside multiple related sub-tables. Filtering applied before this step affects the main stream, which can then be used to filter sub-tables.</p>
+                                            <p className="text-xs text-blue-600 mt-1">This command displays the main result stream alongside multiple related sub-tables.</p>
                                         </div>
                                     </div>
-                                    
                                     <div>
                                         <label className="text-xs font-bold text-gray-500 uppercase mb-2 flex items-center">Sub-Tables (Linked Data)</label>
                                         <div className="space-y-3">
                                             {(cmd.config.subTables || []).map((sub, i) => (
                                                 <div key={sub.id} className="grid grid-cols-12 gap-2 items-center bg-gray-50 p-2 rounded border border-gray-100">
                                                     <div className="col-span-3">
-                                                        <label className="text-[10px] text-gray-400 font-bold uppercase">Table</label>
                                                         <select className={baseInputStyles} value={sub.table} onChange={(e) => updateSubTable(cmd.id, cmd.config.subTables || [], i, 'table', e.target.value)}>
-                                                            <option value="">Select...</option>
-                                                            {datasets.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
+                                                            <option value="">Select Source...</option>
+                                                            {availableSourceAliases.map(sa => (
+                                                                <option key={sa.linkId} value={sa.linkId}>{sa.alias} to {sa.sourceTable}</option>
+                                                            ))}
+                                                            {availableGeneratedTablesForCmd.map(name => (
+                                                                <option key={name} value={name}>{name}</option>
+                                                            ))}
                                                         </select>
                                                     </div>
                                                     <div className="col-span-3">
-                                                        <label className="text-[10px] text-gray-400 font-bold uppercase">Display Label</label>
                                                         <input className={baseInputStyles} placeholder="Tab Name" value={sub.label} onChange={(e) => updateSubTable(cmd.id, cmd.config.subTables || [], i, 'label', e.target.value)} />
                                                     </div>
                                                     <div className="col-span-5 relative">
-                                                        <label className="text-[10px] text-gray-400 font-bold uppercase">Join Condition (WHERE EXISTS)</label>
                                                         <div className="relative">
-                                                            <input 
-                                                                className={`${baseInputStyles} pr-8`} 
-                                                                placeholder="e.g. main.id = sub.user_id" 
-                                                                value={sub.on} 
-                                                                onChange={(e) => updateSubTable(cmd.id, cmd.config.subTables || [], i, 'on', e.target.value)} 
-                                                            />
-                                                            <VariableInserter 
-                                                                variables={availableVariables} 
-                                                                onInsert={(v) => updateSubTable(cmd.id, cmd.config.subTables || [], i, 'on', sub.on ? `${sub.on} ${v}` : v)} 
-                                                            />
+                                                            <input className={`${baseInputStyles} pr-8`} placeholder="main.id = sub.user_id" value={sub.on} onChange={(e) => updateSubTable(cmd.id, cmd.config.subTables || [], i, 'on', e.target.value)} />
+                                                            <VariableInserter variables={currentScopeVariables} onInsert={(v) => updateSubTable(cmd.id, cmd.config.subTables || [], i, 'on', sub.on ? `${sub.on} ${v}` : v)} />
                                                         </div>
                                                     </div>
                                                     <div className="col-span-1 flex items-end justify-center pb-1">
@@ -716,167 +1038,169 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                             <Button size="sm" variant="secondary" onClick={() => addSubTable(cmd.id, cmd.config.subTables || [])} icon={<Plus className="w-3 h-3"/>}>Add Sub-Table</Button>
                                         </div>
                                     </div>
-                                    
-                                    <div className="flex items-center text-xs text-orange-600 bg-orange-50 p-2 rounded border border-orange-100">
-                                        <AlertTriangle className="w-3.5 h-3.5 mr-2 shrink-0" />
-                                        <span className="font-medium">Terminal Step: No further commands can be added after a Complex View.</span>
+                                </div>
+                            )}
+
+                            {cmd.type === 'group' && (
+                                <div className="space-y-4">
+                                    <div className="grid grid-cols-12 gap-6">
+                                        <div className="col-span-5">
+                                            <label className="text-xs font-bold text-gray-500 uppercase mb-2 flex items-center"><Layers className="w-3 h-3 mr-1"/> Group By</label>
+                                            <div className="space-y-2">
+                                                {(cmd.config.groupByFields || []).map((field, i) => (
+                                                    <div key={i} className="flex space-x-2">
+                                                        <select className={getFieldStyle(field, fieldNames)} value={field} onChange={(e) => updateGroupField(cmd.id, cmd.config.groupByFields || [], i, e.target.value)}>
+                                                            <option value="">Select Field...</option>
+                                                            {fieldNames.map(f => <option key={f} value={f}>{f}</option>)}
+                                                        </select>
+                                                        <button onClick={() => removeGroupField(cmd.id, cmd.config.groupByFields || [], i)} className="text-red-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
+                                                    </div>
+                                                ))}
+                                                <button onClick={() => addGroupField(cmd.id, cmd.config.groupByFields || [])} className="text-xs text-blue-600 hover:underline flex items-center font-medium"><Plus className="w-3 h-3 mr-1" /> Add Column</button>
+                                            </div>
+                                        </div>
+                                        <div className="col-span-7">
+                                            <label className="text-xs font-bold text-gray-500 uppercase mb-2 flex items-center"><Calculator className="w-3 h-3 mr-1"/> Metrics</label>
+                                            <div className="space-y-2">
+                                                {(cmd.config.aggregations || []).map((agg, i) => (
+                                                    <div key={i} className="flex space-x-2 items-center">
+                                                        <select className={`${baseInputStyles} w-24 shrink-0`} value={agg.func} onChange={(e) => updateAggregation(cmd.id, cmd.config.aggregations || [], i, 'func', e.target.value)}>
+                                                            <option value="count">Count</option><option value="sum">Sum</option><option value="mean">Avg</option><option value="min">Min</option><option value="max">Max</option>
+                                                        </select>
+                                                        <select className={getFieldStyle(agg.field, fieldNames)} value={agg.field} onChange={(e) => updateAggregation(cmd.id, cmd.config.aggregations || [], i, 'field', e.target.value)}>
+                                                            <option value="">Field...</option><option value="*">Any (*)</option>{fieldNames.map(f => <option key={f} value={f}>{f}</option>)}
+                                                        </select>
+                                                        <input className={`${baseInputStyles} w-24 shrink-0`} placeholder="As..." value={agg.alias} onChange={(e) => updateAggregation(cmd.id, cmd.config.aggregations || [], i, 'alias', e.target.value)} />
+                                                        <button onClick={() => removeAggregation(cmd.id, cmd.config.aggregations || [], i)} className="text-red-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
+                                                    </div>
+                                                ))}
+                                                <button onClick={() => addAggregation(cmd.id, cmd.config.aggregations || [])} className="text-xs text-blue-600 hover:underline flex items-center font-medium"><Plus className="w-3 h-3 mr-1" /> Add Metric</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="border-t border-gray-100 pt-4">
+                                        <label className="text-xs font-bold text-gray-500 uppercase mb-2 flex items-center"><FilterIcon className="w-3 h-3 mr-1"/> Having</label>
+                                        <div className="space-y-2">
+                                            {(cmd.config.havingConditions || []).map((cond, i) => (
+                                                <div key={cond.id} className="flex space-x-2 items-center">
+                                                    <select className={baseInputStyles} value={cond.metricAlias} onChange={(e) => updateHavingCondition(cmd.id, cmd.config.havingConditions || [], i, 'metricAlias', e.target.value)}>
+                                                        <option value="">Metric...</option>
+                                                        {(cmd.config.aggregations || []).map(agg => agg.alias && <option key={agg.alias} value={agg.alias}>{agg.alias}</option>)}
+                                                    </select>
+                                                    <select className={`${baseInputStyles} w-24 shrink-0`} value={cond.operator} onChange={(e) => updateHavingCondition(cmd.id, cmd.config.havingConditions || [], i, 'operator', e.target.value)}>
+                                                        {OPERATORS['number'].map(op => <option key={op.value} value={op.value}>{op.label}</option>)}
+                                                    </select>
+                                                    <input className={baseInputStyles} placeholder="Value" value={cond.value} onChange={(e) => updateHavingCondition(cmd.id, cmd.config.havingConditions || [], i, 'value', e.target.value)} />
+                                                    <button onClick={() => removeHavingCondition(cmd.id, cmd.config.havingConditions || [], i)} className="text-red-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
+                                                </div>
+                                            ))}
+                                            <button onClick={() => addHavingCondition(cmd.id, cmd.config.havingConditions || [])} className="text-xs text-blue-600 hover:underline flex items-center font-medium"><Plus className="w-3 h-3 mr-1" /> Add Condition</button>
+                                        </div>
+                                    </div>
+                                    <div className="border-t border-gray-100 pt-4 flex items-center space-x-3">
+                                        <Table className="w-3.5 h-3.5 text-blue-500"/>
+                                        <input className={`${baseInputStyles} max-w-[200px]`} placeholder="Output Table Name" value={cmd.config.outputTableName || ''} onChange={(e) => updateCommand(cmd.id, 'config.outputTableName', e.target.value)} />
                                     </div>
                                 </div>
                             )}
-                            
-                            {/* Other command renders remain unchanged */}
-                            {cmd.type !== 'multi_table' && cmd.type !== 'filter' && cmd.type !== 'source' && (
-                                <div className="space-y-4">
-                                    {cmd.type === 'group' && (
-                                        <div className="space-y-4">
-                                            <div className="grid grid-cols-12 gap-6">
-                                                <div className="col-span-5">
-                                                    <label className="text-xs font-bold text-gray-500 uppercase mb-2 flex items-center"><Layers className="w-3 h-3 mr-1"/> Group By</label>
-                                                    <div className="space-y-2">
-                                                        {(cmd.config.groupByFields || []).map((field, i) => (
-                                                            <div key={i} className="flex space-x-2">
-                                                                <select className={getFieldStyle(field, Object.keys(activeSchema))} value={field} onChange={(e) => updateGroupField(cmd.id, cmd.config.groupByFields || [], i, e.target.value)}>
-                                                                    <option value="">Select Field...</option>
-                                                                    {Object.keys(activeSchema).map(f => <option key={f} value={f}>{f}</option>)}
-                                                                </select>
-                                                                <button onClick={() => removeGroupField(cmd.id, cmd.config.groupByFields || [], i)} className="text-red-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
-                                                            </div>
-                                                        ))}
-                                                        <button onClick={() => addGroupField(cmd.id, cmd.config.groupByFields || [])} className="text-xs text-blue-600 hover:underline flex items-center font-medium"><Plus className="w-3 h-3 mr-1" /> Add Column</button>
-                                                    </div>
-                                                </div>
-                                                
-                                                <div className="col-span-7">
-                                                    <label className="text-xs font-bold text-gray-500 uppercase mb-2 flex items-center"><Calculator className="w-3 h-3 mr-1"/> Metrics</label>
-                                                    <div className="space-y-2">
-                                                        {(cmd.config.aggregations || []).map((agg, i) => (
-                                                            <div key={i} className="flex space-x-2 items-center">
-                                                                <select className={`${baseInputStyles} w-24 shrink-0`} value={agg.func} onChange={(e) => updateAggregation(cmd.id, cmd.config.aggregations || [], i, 'func', e.target.value)}>
-                                                                    <option value="count">Count</option><option value="sum">Sum</option><option value="mean">Avg</option><option value="min">Min</option><option value="max">Max</option>
-                                                                </select>
-                                                                <select className={getFieldStyle(agg.field, Object.keys(activeSchema))} value={agg.field} onChange={(e) => updateAggregation(cmd.id, cmd.config.aggregations || [], i, 'field', e.target.value)}>
-                                                                    <option value="">Field...</option><option value="*">Any (*)</option>{Object.keys(activeSchema).map(f => <option key={f} value={f}>{f}</option>)}
-                                                                </select>
-                                                                <input className={`${baseInputStyles} w-24 shrink-0`} placeholder="As..." value={agg.alias} onChange={(e) => updateAggregation(cmd.id, cmd.config.aggregations || [], i, 'alias', e.target.value)} />
-                                                                <button onClick={() => removeAggregation(cmd.id, cmd.config.aggregations || [], i)} className="text-red-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
-                                                            </div>
-                                                        ))}
-                                                        <button onClick={() => addAggregation(cmd.id, cmd.config.aggregations || [])} className="text-xs text-blue-600 hover:underline flex items-center font-medium"><Plus className="w-3 h-3 mr-1" /> Add Metric</button>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <div className="border-t border-gray-100 pt-4">
-                                                <label className="text-xs font-bold text-gray-500 uppercase mb-2 flex items-center"><FilterIcon className="w-3 h-3 mr-1"/> Having</label>
-                                                <div className="space-y-2">
-                                                    {(cmd.config.havingConditions || []).map((cond, i) => (
-                                                        <div key={cond.id} className="flex space-x-2 items-center">
-                                                            <select className={baseInputStyles} value={cond.metricAlias} onChange={(e) => updateHavingCondition(cmd.id, cmd.config.havingConditions || [], i, 'metricAlias', e.target.value)}>
-                                                                <option value="">Metric...</option>
-                                                                {(cmd.config.aggregations || []).map(agg => agg.alias && <option key={agg.alias} value={agg.alias}>{agg.alias}</option>)}
-                                                            </select>
-                                                            <select className={`${baseInputStyles} w-24 shrink-0`} value={cond.operator} onChange={(e) => updateHavingCondition(cmd.id, cmd.config.havingConditions || [], i, 'operator', e.target.value)}>
-                                                                {OPERATORS['number'].map(op => <option key={op.value} value={op.value}>{op.label}</option>)}
-                                                            </select>
-                                                            <input className={baseInputStyles} placeholder="Value" value={cond.value} onChange={(e) => updateHavingCondition(cmd.id, cmd.config.havingConditions || [], i, 'value', e.target.value)} />
-                                                            <button onClick={() => removeHavingCondition(cmd.id, cmd.config.havingConditions || [], i)} className="text-red-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
-                                                        </div>
-                                                    ))}
-                                                    <button onClick={() => addHavingCondition(cmd.id, cmd.config.havingConditions || [])} className="text-xs text-blue-600 hover:underline flex items-center font-medium"><Plus className="w-3 h-3 mr-1" /> Add Condition</button>
-                                                </div>
-                                            </div>
-                                            <div className="border-t border-gray-100 pt-4 flex items-center space-x-3">
-                                                <Table className="w-3.5 h-3.5 text-blue-500"/>
-                                                <input className={`${baseInputStyles} max-w-[200px]`} placeholder="Output Table Name" value={cmd.config.outputTableName || ''} onChange={(e) => updateCommand(cmd.id, 'config.outputTableName', e.target.value)} />
-                                            </div>
-                                        </div>
-                                    )}
-                                    
-                                    {cmd.type === 'join' && (
-                                        <div className="grid grid-cols-12 gap-3">
-                                            <div className="col-span-4">
-                                                <select className={baseInputStyles} value={cmd.config.joinTargetType || 'table'} onChange={(e) => updateCommand(cmd.id, 'config.joinTargetType', e.target.value)}>
-                                                    <option value="table">Table</option>
-                                                    <option value="node">Operation Node</option>
-                                                </select>
-                                            </div>
-                                            <div className="col-span-8">
-                                                {cmd.config.joinTargetType === 'node' ? (
-                                                    <select className={baseInputStyles} value={cmd.config.joinTargetNodeId || ''} onChange={(e) => updateCommand(cmd.id, 'config.joinTargetNodeId', e.target.value)}>
-                                                        <option value="">-- Select Operation --</option>
-                                                        {availableNodes.map(n => <option key={n.id} value={n.id}>{n.name}</option>)}
-                                                    </select>
-                                                ) : (
-                                                    <select className={baseInputStyles} value={cmd.config.joinTable || ''} onChange={(e) => updateCommand(cmd.id, 'config.joinTable', e.target.value)}>
-                                                        <option value="">-- Select Table --</option>
-                                                        {datasets.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
-                                                    </select>
-                                                )}
-                                            </div>
-                                            <div className="col-span-12"><input className={baseInputStyles} value={cmd.config.on || ''} onChange={(e) => updateCommand(cmd.id, 'config.on', e.target.value)} placeholder="ON Condition (e.g. id = user_id)" /></div>
-                                        </div>
-                                    )}
 
-                                    {cmd.type === 'save' && (
-                                        <div className="grid grid-cols-12 gap-4">
-                                            <div className="col-span-4">
-                                                <select className={getFieldStyle(cmd.config.field || '', Object.keys(activeSchema))} value={cmd.config.field || ''} onChange={(e) => updateCommand(cmd.id, 'config.field', e.target.value)}>
-                                                    <option value="">Select Field...</option>
-                                                    {Object.keys(activeSchema).map(f => <option key={f} value={f}>{f}</option>)}
-                                                </select>
-                                            </div>
-                                            <div className="col-span-4">
-                                                <div className="flex bg-gray-100 rounded-md p-0.5">
-                                                    <button onClick={() => updateCommand(cmd.id, 'config.distinct', false)} className={`flex-1 py-1 rounded-sm text-[10px] font-bold ${!cmd.config.distinct ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>All</button>
-                                                    <button onClick={() => updateCommand(cmd.id, 'config.distinct', true)} className={`flex-1 py-1 rounded-sm text-[10px] font-bold ${cmd.config.distinct ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Distinct</button>
-                                                </div>
-                                            </div>
-                                            <div className="col-span-4">
-                                                <input className={baseInputStyles} placeholder="var_name" value={cmd.config.value || ''} onChange={(e) => updateCommand(cmd.id, 'config.value', e.target.value)} />
-                                            </div>
-                                        </div>
-                                    )}
-                                    
-                                    {cmd.type === 'transform' && (
-                                        <div className="space-y-4">
-                                            <div className="flex bg-gray-100 rounded-md p-0.5 w-fit">
-                                                <button onClick={() => setMappingMode(cmd.id, cmd.config.mappings || [], 'simple')} className={`px-3 py-1 rounded-sm text-[10px] font-bold ${!cmd.config.mappings?.some(m => m.mode === 'python') ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Simple</button>
-                                                <button onClick={() => setMappingMode(cmd.id, cmd.config.mappings || [], 'python')} className={`px-3 py-1 rounded-sm text-[10px] font-bold ${cmd.config.mappings?.some(m => m.mode === 'python') ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Python</button>
-                                            </div>
-                                            <div className="space-y-3">
-                                                {(cmd.config.mappings || []).map((mapping, i) => (
-                                                    <div key={mapping.id} className="flex space-x-3 items-start border p-3 rounded-lg bg-gray-50">
-                                                        <div className="flex-1 space-y-2">
-                                                            {mapping.mode === 'python' ? (
-                                                                <textarea className={codeAreaStyles} rows={3} value={mapping.expression} onChange={(e) => updateMappingRule(cmd.id, cmd.config.mappings || [], i, 'expression', e.target.value)} placeholder={PYTHON_TEMPLATE} />
-                                                            ) : (
-                                                                <input className={baseInputStyles} value={mapping.expression} onChange={(e) => updateMappingRule(cmd.id, cmd.config.mappings || [], i, 'expression', e.target.value)} placeholder="Expression" />
-                                                            )}
-                                                            <input className={baseInputStyles} value={mapping.outputField} onChange={(e) => updateMappingRule(cmd.id, cmd.config.mappings || [], i, 'outputField', e.target.value)} placeholder="Output Field" />
-                                                        </div>
-                                                        <button onClick={() => removeMappingRule(cmd.id, cmd.config.mappings || [], i)} className="text-red-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                            <button onClick={() => addMappingRule(cmd.id, cmd.config.mappings || [])} className="text-xs text-blue-600 hover:underline"><Plus className="w-3 h-3 inline mr-1" />Add Mapping</button>
-                                        </div>
-                                    )}
-                                    
-                                    {cmd.type === 'sort' && (
-                                            <div className="grid grid-cols-12 gap-3">
-                                            <div className="col-span-8">
-                                                <select className={getFieldStyle(cmd.config.field || '', Object.keys(activeSchema))} value={cmd.config.field || ''} onChange={(e) => updateCommand(cmd.id, 'config.field', e.target.value)}>
-                                                    <option value="">Select Field...</option>
-                                                    {Object.keys(activeSchema).map(f => <option key={f} value={f}>{f}</option>)}
-                                                </select>
-                                            </div>
-                                            <div className="col-span-4">
-                                                <select className={baseInputStyles} value={cmd.config.ascending === false ? 'desc' : 'asc'} onChange={(e) => updateCommand(cmd.id, 'config.ascending', e.target.value === 'asc')}>
-                                                    <option value="asc">Asc</option><option value="desc">Desc</option>
-                                                </select>
-                                            </div>
-                                            </div>
-                                    )}
+                            {cmd.type === 'join' && (
+                                <div className="grid grid-cols-12 gap-3">
+                                    <div className="col-span-4">
+                                        <select className={baseInputStyles} value={cmd.config.joinTargetType || 'table'} onChange={(e) => updateCommand(cmd.id, 'config.joinTargetType', e.target.value)}>
+                                            <option value="table">Table</option>
+                                            <option value="node">Operation Node</option>
+                                        </select>
+                                    </div>
+                                    <div className="col-span-8">
+                                        {cmd.config.joinTargetType === 'node' ? (
+                                            <select className={baseInputStyles} value={cmd.config.joinTargetNodeId || ''} onChange={(e) => updateCommand(cmd.id, 'config.joinTargetNodeId', e.target.value)}>
+                                                <option value="">-- Select Operation --</option>
+                                                {availableNodes.map(n => <option key={n.id} value={n.id}>{n.name}</option>)}
+                                            </select>
+                                        ) : (
+                                            <select className={baseInputStyles} value={cmd.config.joinTable || ''} onChange={(e) => updateCommand(cmd.id, 'config.joinTable', e.target.value)}>
+                                                <option value="">-- Select Source --</option>
+                                                {availableSourceAliases.length > 0 && (
+                                                    <optgroup label="Data Sources">
+                                                        {availableSourceAliases.map(sa => (
+                                                            <option key={sa.linkId} value={sa.linkId}>{sa.alias} to {sa.sourceTable}</option>
+                                                        ))}
+                                                    </optgroup>
+                                                )}
+                                                {availableGeneratedTablesForCmd.length > 0 && (
+                                                    <optgroup label="Generated Datasets">
+                                                        {availableGeneratedTablesForCmd.map(name => (
+                                                            <option key={name} value={name}>{name}</option>
+                                                        ))}
+                                                    </optgroup>
+                                                )}
+                                            </select>
+                                        )}
+                                    </div>
+                                    <div className="col-span-12"><input className={baseInputStyles} value={cmd.config.on || ''} onChange={(e) => updateCommand(cmd.id, 'config.on', e.target.value)} placeholder="ON Condition (e.g. id = user_id)" /></div>
                                 </div>
+                            )}
+
+                            {cmd.type === 'save' && (
+                                <div className="grid grid-cols-12 gap-4">
+                                    <div className="col-span-4">
+                                        <select className={getFieldStyle(cmd.config.field || '', fieldNames)} value={cmd.config.field || ''} onChange={(e) => updateCommand(cmd.id, 'config.field', e.target.value)}>
+                                            <option value="">Select Field...</option>
+                                            {fieldNames.map(f => <option key={f} value={f}>{f}</option>)}
+                                        </select>
+                                    </div>
+                                    <div className="col-span-4">
+                                        <div className="flex bg-gray-100 rounded-md p-0.5">
+                                            <button onClick={() => updateCommand(cmd.id, 'config.distinct', false)} className={`flex-1 py-1 rounded-sm text-[10px] font-bold ${!cmd.config.distinct ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>All</button>
+                                            <button onClick={() => updateCommand(cmd.id, 'config.distinct', true)} className={`flex-1 py-1 rounded-sm text-[10px] font-bold ${cmd.config.distinct ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Distinct</button>
+                                        </div>
+                                    </div>
+                                    <div className="col-span-4">
+                                        <input className={baseInputStyles} placeholder="var_name" value={cmd.config.value || ''} onChange={(e) => updateCommand(cmd.id, 'config.value', e.target.value)} />
+                                    </div>
+                                </div>
+                            )}
+
+                            {cmd.type === 'transform' && (
+                                <div className="space-y-4">
+                                    <div className="flex bg-gray-100 rounded-md p-0.5 w-fit">
+                                        <button onClick={() => setMappingMode(cmd.id, cmd.config.mappings || [], 'simple')} className={`px-3 py-1 rounded-sm text-[10px] font-bold ${!cmd.config.mappings?.some(m => m.mode === 'python') ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Simple</button>
+                                        <button onClick={() => setMappingMode(cmd.id, cmd.config.mappings || [], 'python')} className={`px-3 py-1 rounded-sm text-[10px] font-bold ${cmd.config.mappings?.some(m => m.mode === 'python') ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Python</button>
+                                    </div>
+                                    <div className="space-y-3">
+                                        {(cmd.config.mappings || []).map((mapping, i) => (
+                                            <div key={mapping.id} className="flex space-x-3 items-start border p-3 rounded-lg bg-gray-50">
+                                                <div className="flex-1 space-y-2">
+                                                    {mapping.mode === 'python' ? (
+                                                        <textarea className={codeAreaStyles} rows={3} value={mapping.expression} onChange={(e) => updateMappingRule(cmd.id, cmd.config.mappings || [], i, 'expression', e.target.value)} placeholder={PYTHON_TEMPLATE} />
+                                                    ) : (
+                                                        <input className={baseInputStyles} value={mapping.expression} onChange={(e) => updateMappingRule(cmd.id, cmd.config.mappings || [], i, 'expression', e.target.value)} placeholder="Expression" />
+                                                    )}
+                                                    <input className={baseInputStyles} value={mapping.outputField} onChange={(e) => updateMappingRule(cmd.id, cmd.config.mappings || [], i, 'outputField', e.target.value)} placeholder="Output Field" />
+                                                </div>
+                                                <button onClick={() => removeMappingRule(cmd.id, cmd.config.mappings || [], i)} className="text-red-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <button onClick={() => addMappingRule(cmd.id, cmd.config.mappings || [])} className="text-xs text-blue-600 hover:underline"><Plus className="w-3 h-3 inline mr-1" />Add Mapping</button>
+                                </div>
+                            )}
+
+                            {cmd.type === 'sort' && (
+                                    <div className="grid grid-cols-12 gap-3">
+                                    <div className="col-span-8">
+                                        <select className={getFieldStyle(cmd.config.field || '', fieldNames)} value={cmd.config.field || ''} onChange={(e) => updateCommand(cmd.id, 'config.field', e.target.value)}>
+                                            <option value="">Select Field...</option>
+                                            {fieldNames.map(f => <option key={f} value={f}>{f}</option>)}
+                                        </select>
+                                    </div>
+                                    <div className="col-span-4">
+                                        <select className={baseInputStyles} value={cmd.config.ascending === false ? 'desc' : 'asc'} onChange={(e) => updateCommand(cmd.id, 'config.ascending', e.target.value === 'asc')}>
+                                            <option value="asc">Asc</option><option value="desc">Desc</option>
+                                        </select>
+                                    </div>
+                                    </div>
                             )}
                         </div>
                     </div>

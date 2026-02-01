@@ -11,7 +11,7 @@ from storage import storage
 from simpleeval import simple_eval
 
 class ExecutionEngine:
-    def execute(self, session_id: str, tree: OperationNode, target_node_id: str, view_id: str = "main") -> pd.DataFrame:
+    def execute(self, session_id: str, tree: OperationNode, target_node_id: str, view_id: str = "main", target_command_id: str = None) -> pd.DataFrame:
         path = self._find_path_to_node(tree, target_node_id)
         if not path:
             raise ValueError("Target node not found in operation tree")
@@ -33,8 +33,7 @@ class ExecutionEngine:
             if multi_cmd:
                 return self._execute_multi_table_sub(session_id, path, multi_cmd, view_id)
             else:
-                # Fallback: if view_id not found, perhaps it's an error or stale ID, return empty or default to main
-                # For now, let's proceed to main execution but this likely indicates a client-side sync issue
+                # Fallback
                 pass
 
         df = None
@@ -42,7 +41,9 @@ class ExecutionEngine:
 
         for node in path:
             if node.enabled:
-                df = self._apply_node_commands(df, node.commands, session_id, variables, tree)
+                # Only limit commands if we are at the target node AND a specific command ID was requested
+                limit_cmd_id = target_command_id if node.id == target_node_id else None
+                df = self._apply_node_commands(df, node.commands, session_id, variables, tree, limit_cmd_id)
         
         if df is None:
             return pd.DataFrame()
@@ -53,25 +54,25 @@ class ExecutionEngine:
         # 1. Execute everything UP TO the multi_table command to get the "Main" context
         df = None
         variables: Dict[str, Any] = {}
-        
-        # We walk the path. For the *last* node (target_node), we only execute commands up to the multi_cmd.
         target_node = path[-1]
         
         for node in path:
             if not node.enabled: continue
             
-            commands_to_run = node.commands
-            
-            # If this is the target node, truncate commands list to stop at the multi_table command
+            limit_cmd_id = None
+            # If this is the target node, we stop AT the multi_table command (inclusive or exclusive depending on logic, exclusive for input context)
             if node.id == target_node.id:
+                # We need to run commands UP TO the multi_table command to establish context
+                # So we can reuse _apply_node_commands but we need to know where to stop manually if not using limit_cmd_id
+                # Actually, simpler: construct a list of commands up to (but not including) multi_cmd
                 trunc_cmds = []
                 for cmd in node.commands:
                     if cmd.id == multi_cmd.id:
                         break
                     trunc_cmds.append(cmd)
-                commands_to_run = trunc_cmds
-            
-            df = self._apply_node_commands(df, commands_to_run, session_id, variables, path[0])
+                df = self._apply_node_commands(df, trunc_cmds, session_id, variables, path[0])
+            else:
+                df = self._apply_node_commands(df, node.commands, session_id, variables, path[0])
         
         if df is None or df.empty:
             return pd.DataFrame()
@@ -94,7 +95,6 @@ class ExecutionEngine:
             con.register('sub_table', sub_df)
             
             # Construct Query: SELECT * FROM sub_table sub WHERE EXISTS (SELECT 1 FROM main_table main WHERE condition)
-            # Basic sanitization of condition
             condition = sub_config.on
             
             query = f"""
@@ -158,21 +158,33 @@ class ExecutionEngine:
                 if found: return found
         return None
 
-    def _apply_node_commands(self, df: Optional[pd.DataFrame], commands: List[Command], session_id: str, variables: Dict[str, Any], tree: OperationNode) -> Optional[pd.DataFrame]:
+    def _apply_node_commands(self, df: Optional[pd.DataFrame], commands: List[Command], session_id: str, variables: Dict[str, Any], tree: OperationNode, limit_command_id: str = None) -> Optional[pd.DataFrame]:
         sorted_cmds = sorted(commands, key=lambda x: x.order)
         
         for idx, cmd in enumerate(sorted_cmds):
             try:
+                # 1. Handle Context/Source Loading (Common to all commands)
                 source = cmd.config.dataSource
                 if source and source != 'stream':
+                     # If loading a specific source, replace df
                      df = storage.get_full_dataset(session_id, source)
                 
-                if cmd.type == 'source' or (cmd.type not in ['join', 'group', 'multi_table'] and cmd.config.mainTable):
+                # Legacy fallback for Source Type
+                if cmd.type == 'source' or (cmd.type not in ['join', 'group', 'multi_table', 'view'] and cmd.config.mainTable):
                     table_name = cmd.config.mainTable
                     if table_name:
                         df = storage.get_full_dataset(session_id, table_name)
-                    continue
+                    # If it's purely a source command, we are done with this step logic, but check loop exit below
+                    if cmd.type == 'source':
+                        pass # Continue to check exit condition
 
+                # 2. View Command Logic
+                if cmd.type == 'view':
+                    # View command explicitly sets the dataframe to the dataSource, done above by generic handler.
+                    # If dataSource was 'stream' (default), it's a pass-through.
+                    pass 
+
+                # 3. Variable Save Logic
                 if cmd.type == 'save' and df is not None:
                      field, var_name = cmd.config.field, cmd.config.value
                      is_distinct = cmd.config.distinct if cmd.config.distinct is not None else True
@@ -181,23 +193,24 @@ class ExecutionEngine:
                              variables[str(var_name)] = df[field].unique().tolist()
                          else:
                              variables[str(var_name)] = df[field].tolist()
-                     continue
                 
-                # Multi-table command is a pass-through for the main stream
-                if cmd.type == 'multi_table':
-                    continue
+                # 4. Processing Logic (Skip if df is None)
+                if df is not None:
+                    if cmd.type == 'filter': df = self._apply_filter(df, cmd, variables)
+                    elif cmd.type == 'join': df = self._apply_join(df, cmd, session_id, tree)
+                    elif cmd.type == 'sort': df = self._apply_sort(df, cmd)
+                    elif cmd.type == 'group' or cmd.type == 'aggregate': df = self._apply_group(df, cmd, session_id)
+                    elif cmd.type == 'transform': df = self._apply_transform(df, cmd)
+                    # multi_table and view are pass-throughs for the stream itself (data loaded via context above)
 
-                if df is None: continue
+                # Check Stop Condition
+                if limit_command_id and cmd.id == limit_command_id:
+                    break
 
-                if cmd.type == 'filter': df = self._apply_filter(df, cmd, variables)
-                elif cmd.type == 'join': df = self._apply_join(df, cmd, session_id, tree)
-                elif cmd.type == 'sort': df = self._apply_sort(df, cmd)
-                elif cmd.type == 'group' or cmd.type == 'aggregate': 
-                    df = self._apply_group(df, cmd, session_id)
-                elif cmd.type == 'transform': df = self._apply_transform(df, cmd)
             except Exception as e:
                 print(f"Error executing command {cmd.id} ({cmd.type}): {e}")
                 continue
+                
         return df
 
     def _apply_filter(self, df: pd.DataFrame, cmd: Command, variables: Dict[str, Any]) -> pd.DataFrame:

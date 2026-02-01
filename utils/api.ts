@@ -98,6 +98,34 @@ const findPathToNode = (root: OperationNode, targetId: string): OperationNode[] 
     return null;
 };
 
+// Helper to map Link IDs (and aliases) back to actual table names
+const buildSourceMap = (root: OperationNode): Record<string, string> => {
+    const map: Record<string, string> = {};
+    const traverse = (node: OperationNode) => {
+        if (node.operationType === 'setup') {
+            node.commands.forEach(cmd => {
+                if (cmd.type === 'source' && cmd.config.mainTable) {
+                    // Map linkId to table name
+                    if (cmd.config.linkId) {
+                        map[cmd.config.linkId] = cmd.config.mainTable;
+                    }
+                    // Map command ID to table name (fallback)
+                    map[cmd.id] = cmd.config.mainTable;
+                    // Map alias to table name
+                    if (cmd.config.alias) {
+                        map[cmd.config.alias] = cmd.config.mainTable;
+                    }
+                }
+            });
+        }
+        if (node.children) {
+            node.children.forEach(traverse);
+        }
+    };
+    traverse(root);
+    return map;
+};
+
 const evaluateCondition = (row: any, cond: FilterCondition, variables: Record<string, any[]>): boolean => {
     const val = row[cond.field];
     const target = cond.value;
@@ -118,8 +146,11 @@ const evaluateCondition = (row: any, cond: FilterCondition, variables: Record<st
         case 'is_true': return val === true;
         case 'is_false': return val === false;
         case 'has_key': return typeof val === 'object' && val !== null && String(target) in val;
-        case 'in_variable': return (variables[String(target)] || []).includes(val);
-        case 'not_in_variable': return !(variables[String(target)] || []).includes(val);
+        case 'in_variable': 
+            // Loose matching: compare strings to handle number/string id mismatches
+            return (variables[String(target)] || []).some(v => String(v) === String(val));
+        case 'not_in_variable': 
+            return !(variables[String(target)] || []).some(v => String(v) === String(val));
         default: return true;
     }
 };
@@ -141,6 +172,7 @@ const evaluateFilterGroup = (row: any, group: FilterGroup, variables: Record<str
 };
 
 const executeMockLogic = (tree: OperationNode, targetNodeId: string): any => {
+    const sourceMap = buildSourceMap(tree); // Build map first
     const path = findPathToNode(tree, targetNodeId);
     if (!path) throw new Error("Target node not found in tree");
 
@@ -171,7 +203,10 @@ const executeMockLogic = (tree: OperationNode, targetNodeId: string): any => {
                 }
                 
                 if (cmd.config.dataSource && cmd.config.dataSource !== 'stream') {
-                    const ds = MOCK_DATASETS.find(d => d.name === cmd.config.dataSource);
+                    // Resolve table name: Check map first (for Link IDs), then use value directly
+                    const resolvedName = sourceMap[cmd.config.dataSource] || cmd.config.dataSource;
+                    
+                    const ds = MOCK_DATASETS.find(d => d.name === resolvedName);
                     if (ds) {
                         currentData = [...ds.rows];
                         // If we loaded data, we mark it.

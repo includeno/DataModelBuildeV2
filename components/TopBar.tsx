@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { GitBranch, ChevronDown, Clock, Check, Trash2, Plus, Layers, Terminal, Server, Play, PanelRight, Settings, Menu } from 'lucide-react';
+import { GitBranch, ChevronDown, Clock, Check, Trash2, Plus, Layers, Terminal, Server, Play, PanelRight, Settings, Menu, SlidersHorizontal } from 'lucide-react';
 import { SessionMetadata, ApiConfig } from '../types';
 import { Button } from './Button';
 
@@ -20,6 +20,7 @@ interface TopBarProps {
   onExecute: () => void;
   onToggleRightPanel: () => void;
   onToggleMobileSidebar: () => void;
+  canExecute?: boolean;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -37,7 +38,8 @@ export const TopBar: React.FC<TopBarProps> = ({
   onSessionSettingsOpen,
   onExecute,
   onToggleRightPanel,
-  onToggleMobileSidebar
+  onToggleMobileSidebar,
+  canExecute = true
 }) => {
   const [isSessionMenuOpen, setIsSessionMenuOpen] = useState(false);
 
@@ -80,17 +82,6 @@ export const TopBar: React.FC<TopBarProps> = ({
                   <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${isSessionMenuOpen ? 'rotate-180' : ''}`} />
               </button>
               
-              {/* Session Settings Button */}
-              {sessionId && (
-                  <button
-                    onClick={onSessionSettingsOpen}
-                    className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
-                    title="Session Settings"
-                  >
-                      <Settings className="w-4 h-4" />
-                  </button>
-              )}
-
               {isSessionMenuOpen && (
                   <div className="absolute top-full left-0 mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-xl z-50 flex flex-col animate-in fade-in zoom-in-95 duration-100 origin-top-left">
                       <div className="px-4 py-2 border-b border-gray-100 bg-gray-50 rounded-t-lg">
@@ -123,6 +114,22 @@ export const TopBar: React.FC<TopBarProps> = ({
                                   
                                   <div className="flex items-center">
                                       {s.sessionId === sessionId && <Check className="w-4 h-4 text-blue-500 mr-2" />}
+                                      
+                                      {/* Settings Button (Only for active session) */}
+                                      {s.sessionId === sessionId && (
+                                          <button
+                                              onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  onSessionSettingsOpen();
+                                                  setIsSessionMenuOpen(false);
+                                              }}
+                                              className="p-1.5 rounded-md text-gray-400 hover:text-blue-600 hover:bg-blue-100 transition-all mr-1"
+                                              title="Session Settings"
+                                          >
+                                              <SlidersHorizontal className="w-4 h-4" />
+                                          </button>
+                                      )}
+
                                       <button 
                                           onClick={(e) => onSessionDelete(e, s.sessionId)}
                                           className={`p-1.5 rounded-md text-gray-400 hover:text-red-600 hover:bg-red-50 transition-all ${sessions.length === 1 ? 'hidden' : 'opacity-0 group-hover:opacity-100'}`}
@@ -188,24 +195,30 @@ export const TopBar: React.FC<TopBarProps> = ({
         </div>
 
         <div className="flex items-center space-x-2">
-             {/* Settings Button (Server Config) */}
-             <button 
-                onClick={onSettingsOpen}
-                className={`flex items-center px-2 md:px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
+             {/* Server Status Badge (Display Only) */}
+             <div 
+                className={`flex items-center px-2 md:px-3 py-1.5 text-xs font-medium rounded-full border cursor-default select-none ${
                     apiConfig.isMock 
-                    ? 'bg-yellow-50 text-yellow-700 border-yellow-200 hover:bg-yellow-100' 
-                    : 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100'
+                    ? 'bg-yellow-50 text-yellow-700 border-yellow-200' 
+                    : 'bg-green-50 text-green-700 border-green-200'
                 }`}
-                title="Configure Server"
+                title="Backend Status"
              >
                 <Server className="w-3 h-3 md:mr-1.5" />
                 <span className="hidden md:inline">{apiConfig.isMock ? 'Mock Server' : 'Localhost'}</span>
-             </button>
+             </div>
 
             {currentView === 'workflow' && (
                 <>
                     <div className="h-6 w-px bg-gray-300 mx-1 hidden sm:block" />
-                    <Button variant="primary" size="sm" icon={<Play className="w-4 h-4" />} onClick={onExecute} disabled={!sessionId} className="px-2 md:px-4">
+                    <Button 
+                        variant="primary" 
+                        size="sm" 
+                        icon={<Play className="w-4 h-4" />} 
+                        onClick={onExecute} 
+                        disabled={!sessionId || !canExecute} 
+                        className={`px-2 md:px-4 ${!canExecute ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
                         <span className="hidden md:inline">Run</span>
                     </Button>
                     <button
@@ -217,6 +230,16 @@ export const TopBar: React.FC<TopBarProps> = ({
                     </button>
                 </>
             )}
+
+             {/* Global Settings Button */}
+             <div className="h-6 w-px bg-gray-300 mx-1" />
+             <button 
+                onClick={onSettingsOpen}
+                className="p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-700 rounded-md transition-colors"
+                title="Global Settings (Connection & Appearance)"
+             >
+                <Settings className="w-5 h-5" />
+             </button>
         </div>
       </header>
     </>

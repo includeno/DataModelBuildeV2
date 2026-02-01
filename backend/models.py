@@ -1,5 +1,4 @@
 
-
 from pydantic import BaseModel, Field
 from typing import List, Any, Optional, Dict, Union
 
@@ -88,6 +87,7 @@ class ExecuteRequest(BaseModel):
     session_id: str = Field(..., alias="sessionId")
     tree: OperationNode
     targetNodeId: str
+    targetCommandId: Optional[str] = None
     page: int = 1
     pageSize: int = 50
     viewId: str = "main" # 'main' or specific subTable ID

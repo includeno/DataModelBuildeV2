@@ -1,5 +1,4 @@
 
-
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Body
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -129,21 +128,13 @@ async def upload_file(
 @app.post("/execute")
 async def execute(req: ExecuteRequest):
     try:
-        # Pass viewId to engine
-        df = engine.execute(req.session_id, req.tree, req.targetNodeId, req.viewId)
+        # Pass viewId and targetCommandId to engine
+        df = engine.execute(req.session_id, req.tree, req.targetNodeId, req.viewId, req.targetCommandId)
         
         total_count = len(df)
         paginated_df = paginate_df(df, req.page, req.pageSize)
         clean_rows = clean_df_for_json(paginated_df)
         
-        # Check if this command is multi_table to add flags
-        is_multi = False
-        try:
-             # Basic check, proper way is finding path like engine does, 
-             # but here we just need to flag response
-             pass 
-        except: pass
-
         return {
             "rows": clean_rows,
             "totalCount": total_count,
@@ -159,9 +150,8 @@ async def execute(req: ExecuteRequest):
 @app.post("/export")
 async def export_data(req: ExecuteRequest):
     try:
-        # Execute logic to get full dataframe (ignoring pagination params in req for fetching, 
-        # but using them if we wanted to slice. Here we want full.)
-        df = engine.execute(req.session_id, req.tree, req.targetNodeId, req.viewId)
+        # Execute logic to get full dataframe 
+        df = engine.execute(req.session_id, req.tree, req.targetNodeId, req.viewId, req.targetCommandId)
         
         stream = io.StringIO()
         df.to_csv(stream, index=False)
