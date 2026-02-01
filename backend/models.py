@@ -10,6 +10,7 @@ class MappingRule(BaseModel):
     id: str
     expression: str
     outputField: str
+    mode: Optional[str] = None
 
 class SubTableConfig(BaseModel):
     id: str

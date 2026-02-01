@@ -309,10 +309,18 @@ class ExecutionEngine:
         try:
             if on_clause and '=' in on_clause:
                 left_on, right_on = [x.strip() for x in on_clause.split('=')]
+                # Strip table prefixes if present
+                if '.' in left_on: left_on = left_on.split('.')[-1]
+                if '.' in right_on: right_on = right_on.split('.')[-1]
+
                 return pd.merge(df, target_df, left_on=left_on, right_on=right_on, how=join_type, suffixes=('', suffix))
             elif on_clause:
-                return pd.merge(df, target_df, on=on_clause.strip(), how=join_type, suffixes=('', suffix))
-        except: pass
+                col = on_clause.strip()
+                if '.' in col: col = col.split('.')[-1]
+                return pd.merge(df, target_df, on=col, how=join_type, suffixes=('', suffix))
+        except Exception as e:
+            print(f"Join Error: {e}")
+            pass
         return df
 
     def _apply_group(self, df: pd.DataFrame, cmd: Command, session_id: str) -> pd.DataFrame:
