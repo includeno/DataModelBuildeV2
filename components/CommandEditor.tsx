@@ -2,7 +2,7 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { Command, CommandType, Dataset, OperationType, AggregationConfig, OperationNode, DataType, HavingCondition, MappingRule, FilterGroup, FilterCondition, SubTableConfig, FieldInfo } from '../types';
 import { Button } from './Button';
-import { Trash2, Plus, GripVertical, Type, Hash, Calendar, Clock, CheckCircle, Code, Database, Play, Layers, Braces, Save, Share2, ArrowRight, AlertCircle, Filter as FilterIcon, Table, Calculator, List, Check, Wand2, Info, ChevronRight, ChevronDown, Split, LayoutDashboard, AlertTriangle, Settings2, ArrowRightLeft, Eye, Variable } from 'lucide-react';
+import { Trash2, Plus, GripVertical, Type, Hash, Calendar, Clock, CheckCircle, Code, Database, Play, Layers, Braces, Save, Share2, ArrowRight, AlertCircle, Filter as FilterIcon, Table, Calculator, List, Check, Wand2, Info, ChevronRight, ChevronDown, Split, LayoutDashboard, AlertTriangle, Settings2, ArrowRightLeft, Eye, Variable, X } from 'lucide-react';
 
 interface CommandEditorProps {
   operationId: string;
@@ -138,6 +138,152 @@ const getAncestors = (node: OperationNode, targetId: string): OperationNode[] | 
 };
 
 // --- HELPER COMPONENTS ---
+
+interface SelectOption {
+    value: string;
+    label: string;
+    subLabel?: string;
+    disabled?: boolean;
+    icon?: React.ElementType;
+}
+
+const CustomSelect: React.FC<{
+    value: string;
+    onChange: (val: string) => void;
+    options: SelectOption[];
+    placeholder?: string;
+    icon?: React.ElementType;
+    hasError?: boolean;
+    className?: string;
+}> = ({ value, onChange, options, placeholder = "Select...", icon: DefaultIcon, hasError, className = "" }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const containerRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+                setIsOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    const selectedOption = options.find(o => o.value === value);
+    const isPlaceholder = !value;
+    const IconToUse = selectedOption?.icon || DefaultIcon;
+
+    return (
+        <div className={`relative w-full ${className}`} ref={containerRef}>
+            <div
+                onClick={() => setIsOpen(!isOpen)}
+                className={`
+                    w-full px-3 py-2.5 rounded-lg border flex items-center justify-between cursor-pointer transition-all bg-white
+                    ${hasError ? 'border-red-300 focus:ring-2 focus:ring-red-100' : 'border-gray-200 hover:border-blue-400 focus:ring-2 focus:ring-blue-50'}
+                    ${isOpen ? 'ring-2 ring-blue-100 border-blue-400' : 'shadow-sm'}
+                `}
+            >
+                <div className="flex items-center overflow-hidden">
+                    {IconToUse && <IconToUse className={`w-4 h-4 mr-2.5 shrink-0 ${selectedOption ? 'text-blue-600' : 'text-gray-400'}`} />}
+                    <span className={`text-sm truncate font-medium ${isPlaceholder ? 'text-gray-400 italic' : 'text-gray-900'}`}>
+                        {selectedOption ? selectedOption.label : placeholder}
+                    </span>
+                </div>
+                <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+            </div>
+
+            {isOpen && (
+                <div className="absolute z-50 left-0 right-0 mt-1.5 bg-white border border-gray-100 rounded-xl shadow-xl max-h-60 overflow-y-auto animate-in fade-in zoom-in-95 duration-100 p-1">
+                    {options.length === 0 ? (
+                        <div className="px-4 py-3 text-xs text-gray-400 text-center italic">No options available</div>
+                    ) : (
+                        options.map((opt) => (
+                            <div
+                                key={opt.value}
+                                onClick={() => {
+                                    if (!opt.disabled) {
+                                        onChange(opt.value);
+                                        setIsOpen(false);
+                                    }
+                                }}
+                                className={`
+                                    flex items-center justify-between px-3 py-2.5 rounded-lg mb-0.5 transition-colors
+                                    ${opt.disabled 
+                                        ? 'opacity-50 cursor-not-allowed bg-gray-50' 
+                                        : 'cursor-pointer hover:bg-blue-50 group'
+                                    }
+                                    ${opt.value === value ? 'bg-blue-50/80' : ''}
+                                `}
+                            >
+                                <div className="flex flex-col min-w-0">
+                                    <div className="flex items-center">
+                                        {opt.icon && <opt.icon className={`w-3.5 h-3.5 mr-2 ${opt.value === value ? 'text-blue-700' : 'text-gray-400 group-hover:text-blue-600'}`} />}
+                                        <span className={`text-sm font-medium ${opt.value === value ? 'text-blue-700' : 'text-gray-700 group-hover:text-blue-700'}`}>
+                                            {opt.label}
+                                        </span>
+                                    </div>
+                                    {opt.subLabel && (
+                                        <span className="text-[10px] text-gray-400 mt-0.5 ml-5.5">
+                                            {opt.subLabel}
+                                        </span>
+                                    )}
+                                </div>
+                                {opt.value === value && <Check className="w-4 h-4 text-blue-600" />}
+                                {opt.disabled && opt.value !== value && (
+                                    <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded ml-2">Used</span>
+                                )}
+                            </div>
+                        ))
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
+// Collapsible Section Component
+const CollapsibleSection: React.FC<{
+    title: string;
+    icon: any;
+    count: number;
+    children: React.ReactNode;
+    color?: string; // class for text color e.g. text-blue-500
+}> = ({ title, icon: Icon, count, children, color = "text-blue-500" }) => {
+    const [isOpen, setIsOpen] = useState(true);
+
+    return (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col transition-all duration-200 group">
+            <div 
+                className="px-6 py-4 flex justify-between items-center cursor-pointer hover:bg-gray-50 transition-colors select-none"
+                onClick={() => setIsOpen(!isOpen)}
+            >
+                <div className="flex items-center space-x-3">
+                    <div className={`p-1.5 rounded-lg transition-colors ${isOpen ? 'bg-gray-100' : 'bg-transparent'}`}>
+                        <Icon className={`w-4 h-4 ${color}`} />
+                    </div>
+                    <div className="flex items-center space-x-2">
+                        <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wider">{title}</h3>
+                        {count > 0 && (
+                            <span className="text-[10px] font-bold bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full border border-gray-200">
+                                {count}
+                            </span>
+                        )}
+                    </div>
+                </div>
+                <div className={`transform transition-transform duration-200 text-gray-400 group-hover:text-gray-600 ${isOpen ? 'rotate-180' : ''}`}>
+                    <ChevronDown className="w-4 h-4" />
+                </div>
+            </div>
+            <div 
+                className={`transition-all duration-300 ease-in-out overflow-hidden bg-white ${isOpen ? 'max-h-[800px] opacity-100 border-t border-gray-100' : 'max-h-0 opacity-0'}`}
+            >
+                <div className="p-6 overflow-y-auto max-h-[60vh] space-y-4 custom-scrollbar">
+                    {children}
+                </div>
+            </div>
+        </div>
+    );
+};
 
 interface VariableInserterProps {
     variables: string[];
@@ -481,7 +627,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
       
       const handleAddSource = () => {
           const newCmd: Command = {
-              id: `cmd_src_${Date.now()}`,
+              id: `cmd_src_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
               type: 'source',
               config: { 
                   mainTable: '', 
@@ -495,7 +641,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
 
       const handleAddVariable = () => {
           const newCmd: Command = {
-              id: `cmd_var_${Date.now()}`,
+              id: `cmd_var_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
               type: 'define_variable',
               config: {
                   variableName: '',
@@ -537,7 +683,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
               const currentTable = cmd.config.mainTable;
               const currentAlias = cmd.config.alias;
 
-              // 1. Duplicate Data Source Check (handled mostly by dropdown filter now, but keep as fallback)
+              // 1. Duplicate Data Source Check
               if (currentTable) {
                   const isDuplicateTable = sourceCommands.some((c, idx) => 
                       idx !== index && c.config.mainTable === currentTable
@@ -615,190 +761,193 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                 </div>
             </div>
             
-            <div className="p-8 max-w-6xl mx-auto w-full">
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="p-8 max-w-4xl mx-auto w-full h-full overflow-y-auto custom-scrollbar">
+                <div className="flex flex-col space-y-4 pb-20">
                     {/* Source Configuration */}
-                    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-fit">
-                        <div className="p-6 pb-2 border-b border-gray-100">
-                            <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wider flex items-center">
-                                <Database className="w-4 h-4 mr-2 text-blue-500" />
-                                Configured Sources
-                            </h3>
-                        </div>
-                        <div className="p-6 space-y-4">
-                            {sourceCommands.map((cmd, idx) => {
-                                const errors = getValidationErrors(cmd, idx);
-                                const hasError = errors.length > 0;
-                                
-                                // Determine available datasets: Exclude ones used by other source commands
-                                const availableDatasets = datasets.filter(d => 
-                                    !sourceCommands.some(otherCmd => 
-                                        otherCmd.id !== cmd.id && otherCmd.config.mainTable === d.name
-                                    )
-                                );
-
-                                return (
-                                <div key={cmd.id} className={`flex flex-col p-4 bg-gray-50 border rounded-lg group transition-all ${hasError ? 'border-red-300 bg-red-50/30' : 'border-gray-200 hover:border-blue-300 hover:shadow-sm'}`}>
-                                    <div className="flex items-start space-x-3">
-                                        <div className="shrink-0 pt-2 text-gray-400 font-mono text-xs w-6 text-center">{idx + 1}</div>
-                                        <div className="flex-1 space-y-3">
-                                            <div>
-                                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Dataset</label>
-                                                <select 
-                                                    className={`w-full px-3 py-2 border rounded-md focus:ring-1 text-sm bg-white ${hasError && errors[0].includes('table') ? 'border-red-300 focus:border-red-500 focus:ring-red-200' : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500'}`}
-                                                    value={cmd.config.mainTable || ''} 
-                                                    onChange={(e) => handleDatasetSelection(cmd.id, e.target.value, cmd.config.alias || '')}
-                                                >
-                                                    <option value="">-- Select Dataset --</option>
-                                                    {availableDatasets.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
-                                                </select>
-                                            </div>
-                                            <div>
-                                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Alias Name</label>
-                                                <div className="flex items-center space-x-2">
-                                                    <ArrowRight className="w-4 h-4 text-gray-400 shrink-0" />
-                                                    <input 
-                                                        type="text" 
-                                                        className={`w-full px-3 py-2 border rounded-md focus:ring-1 text-sm font-bold bg-blue-50/50 placeholder-blue-200 ${hasError && (errors[0].includes('Alias') || errors[0].includes('unique')) ? 'border-red-300 text-red-700 focus:border-red-500 focus:ring-red-200' : 'border-gray-300 text-blue-700 focus:border-blue-500 focus:ring-blue-500'}`}
-                                                        value={cmd.config.alias || ''}
-                                                        onChange={(e) => handleUpdateSourceCmd(cmd.id, { alias: e.target.value })}
-                                                        placeholder="e.g. Users"
-                                                    />
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <button 
-                                            onClick={() => handleRemoveCmd(cmd.id)}
-                                            className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors mt-1 opacity-0 group-hover:opacity-100"
-                                            title="Remove Source"
-                                        >
-                                            <Trash2 className="w-4 h-4" />
-                                        </button>
-                                    </div>
-                                    {hasError && (
-                                        <div className="mt-3 ml-9 flex items-start text-xs text-red-600 bg-red-100/50 p-2 rounded border border-red-100">
-                                            <AlertTriangle className="w-3.5 h-3.5 mr-1.5 shrink-0 mt-0.5" />
-                                            <div className="space-y-0.5">
-                                                {errors.map((err, i) => (
-                                                    <div key={i}>{err}</div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                                );
-                            })}
+                    <CollapsibleSection title="Configured Sources" icon={Database} count={sourceCommands.length}>
+                        {sourceCommands.map((cmd, idx) => {
+                            const errors = getValidationErrors(cmd, idx);
+                            const hasError = errors.length > 0;
                             
-                            <div className="pt-2">
-                                <Button variant="secondary" onClick={handleAddSource} className="w-full justify-center" icon={<Plus className="w-4 h-4"/>}>
-                                    Add Data Source
-                                </Button>
+                            const otherSelectedTables = new Set(
+                                sourceCommands
+                                    .filter(other => other.id !== cmd.id)
+                                    .map(other => other.config.mainTable)
+                                    .filter(Boolean)
+                            );
+
+                            const currentSelection = cmd.config.mainTable;
+                            const isMissing = currentSelection && !datasets.some(d => d.name === currentSelection);
+
+                            const options: SelectOption[] = datasets.map(d => ({
+                                value: d.name,
+                                label: d.name,
+                                subLabel: `${d.totalCount} rows`,
+                                disabled: otherSelectedTables.has(d.name),
+                                icon: Database
+                            }));
+
+                            if (isMissing && currentSelection) {
+                                options.push({ value: currentSelection, label: `${currentSelection} (Unavailable)`, disabled: true, icon: Database });
+                            }
+
+                            return (
+                            <div key={cmd.id} className={`flex flex-col p-4 bg-gray-50 border rounded-lg group transition-all ${hasError ? 'border-red-300 bg-red-50/30' : 'border-gray-200 hover:border-blue-300 hover:shadow-sm'}`}>
+                                <div className="flex items-start space-x-3">
+                                    <div className="shrink-0 pt-2 text-gray-400 font-mono text-xs w-6 text-center">{idx + 1}</div>
+                                    <div className="flex-1 space-y-3">
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Dataset</label>
+                                            <CustomSelect 
+                                                value={cmd.config.mainTable || ''}
+                                                onChange={(val) => handleDatasetSelection(cmd.id, val, cmd.config.alias || '')}
+                                                options={options}
+                                                placeholder="-- Select Dataset --"
+                                                icon={Database}
+                                                hasError={hasError && errors[0].includes('table')}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Alias Name</label>
+                                            <div className="flex items-center space-x-2">
+                                                <ArrowRight className="w-4 h-4 text-gray-400 shrink-0" />
+                                                <input 
+                                                    type="text" 
+                                                    className={`w-full px-3 py-2 border rounded-md focus:ring-1 text-sm font-bold bg-blue-50/50 placeholder-blue-200 ${hasError && (errors[0].includes('Alias') || errors[0].includes('unique')) ? 'border-red-300 text-red-700 focus:border-red-500 focus:ring-red-200' : 'border-gray-300 text-blue-700 focus:border-blue-500 focus:ring-blue-500'}`}
+                                                    value={cmd.config.alias || ''}
+                                                    onChange={(e) => handleUpdateSourceCmd(cmd.id, { alias: e.target.value })}
+                                                    placeholder="e.g. Users"
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <button 
+                                        onClick={() => handleRemoveCmd(cmd.id)}
+                                        className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors mt-1 opacity-0 group-hover:opacity-100"
+                                        title="Remove Source"
+                                    >
+                                        <Trash2 className="w-4 h-4" />
+                                    </button>
+                                </div>
+                                {hasError && (
+                                    <div className="mt-3 ml-9 flex items-start text-xs text-red-600 bg-red-100/50 p-2 rounded border border-red-100">
+                                        <AlertTriangle className="w-3.5 h-3.5 mr-1.5 shrink-0 mt-0.5" />
+                                        <div className="space-y-0.5">
+                                            {errors.map((err, i) => (
+                                                <div key={i}>{err}</div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
+                            );
+                        })}
+                        
+                        <div className="pt-2">
+                            <Button variant="secondary" onClick={handleAddSource} className="w-full justify-center" icon={<Plus className="w-4 h-4"/>}>
+                                Add Data Source
+                            </Button>
                         </div>
-                    </div>
+                    </CollapsibleSection>
 
                     {/* Variable Configuration */}
-                    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-fit">
-                        <div className="p-6 pb-2 border-b border-gray-100">
-                            <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wider flex items-center">
-                                <Variable className="w-4 h-4 mr-2 text-purple-500" />
-                                Custom Variables
-                            </h3>
-                        </div>
-                        <div className="p-6 space-y-4">
-                            {variableCommands.length === 0 && (
-                                <div className="text-center py-6 text-gray-400 text-xs italic bg-gray-50 rounded-lg border border-dashed border-gray-200">
-                                    No variables defined.<br/>Use variables to store values for reuse in filters.
-                                </div>
-                            )}
-                            
-                            {variableCommands.map((cmd) => {
-                                const errors = getVariableValidationErrors(cmd);
-                                const hasError = errors.length > 0;
+                    <CollapsibleSection title="Custom Variables" icon={Variable} count={variableCommands.length} color="text-purple-500">
+                        {variableCommands.length === 0 && (
+                            <div className="text-center py-6 text-gray-400 text-xs italic bg-gray-50 rounded-lg border border-dashed border-gray-200">
+                                No variables defined.<br/>Use variables to store values for reuse in filters.
+                            </div>
+                        )}
+                        
+                        {variableCommands.map((cmd) => {
+                            const errors = getVariableValidationErrors(cmd);
+                            const hasError = errors.length > 0;
 
-                                return (
-                                <div key={cmd.id} className={`flex flex-col p-4 bg-purple-50/30 border rounded-lg group transition-all ${hasError ? 'border-red-300 bg-red-50/30' : 'border-purple-100 hover:shadow-sm'}`}>
-                                    <div className="flex items-start space-x-3">
-                                        <div className="flex-1 space-y-3">
-                                            <div className="flex space-x-3">
-                                                <div className="flex-1">
-                                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Name</label>
-                                                    <div className="relative">
-                                                        <span className="absolute inset-y-0 left-0 pl-2 flex items-center text-gray-400 font-mono text-xs">{'{'}</span>
-                                                        <input 
-                                                            type="text" 
-                                                            className={`w-full pl-6 px-3 py-2 border rounded-md focus:ring-1 text-sm font-mono ${hasError ? 'border-red-300 focus:ring-red-200 focus:border-red-500' : 'border-gray-300 focus:ring-purple-500 focus:border-purple-500'}`}
-                                                            value={cmd.config.variableName || ''}
-                                                            onChange={(e) => handleUpdateSourceCmd(cmd.id, { variableName: e.target.value })}
-                                                            placeholder="var_name"
-                                                        />
-                                                        <span className="absolute inset-y-0 right-0 pr-2 flex items-center text-gray-400 font-mono text-xs">{'}'}</span>
-                                                    </div>
-                                                </div>
-                                                <div className="w-1/3">
-                                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Type</label>
-                                                    <select 
-                                                        className="w-full px-2 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-purple-500 focus:border-purple-500 text-sm bg-white"
-                                                        value={cmd.config.variableType || 'text'}
-                                                        onChange={(e) => handleUpdateSourceCmd(cmd.id, { variableType: e.target.value })}
-                                                    >
-                                                        <option value="text">Single Text</option>
-                                                        <option value="list">Text List</option>
-                                                    </select>
-                                                </div>
-                                            </div>
-                                            
-                                            <div>
-                                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">
-                                                    {cmd.config.variableType === 'list' ? 'Values (Comma Separated)' : 'Value'}
-                                                </label>
-                                                {cmd.config.variableType === 'list' ? (
-                                                    <textarea 
-                                                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-purple-500 focus:border-purple-500 text-sm font-mono min-h-[60px]"
-                                                        value={Array.isArray(cmd.config.variableValue) ? cmd.config.variableValue.join(', ') : (cmd.config.variableValue || '')}
-                                                        onChange={(e) => handleUpdateSourceCmd(cmd.id, { variableValue: e.target.value.split(',').map(s => s.trim()) })}
-                                                        placeholder="Value 1, Value 2, Value 3"
-                                                    />
-                                                ) : (
+                            const typeOptions: SelectOption[] = [
+                                { value: 'text', label: 'Single Text', icon: Type, subLabel: 'String value' },
+                                { value: 'list', label: 'Text List', icon: List, subLabel: 'Array of strings' }
+                            ];
+
+                            return (
+                            <div key={cmd.id} className={`flex flex-col p-4 bg-purple-50/30 border rounded-lg group transition-all ${hasError ? 'border-red-300 bg-red-50/30' : 'border-purple-100 hover:shadow-sm'}`}>
+                                <div className="flex items-start space-x-3">
+                                    <div className="flex-1 space-y-3">
+                                        <div className="flex space-x-3">
+                                            <div className="flex-1">
+                                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Name</label>
+                                                <div className="relative">
+                                                    <span className="absolute inset-y-0 left-0 pl-2 flex items-center text-gray-400 font-mono text-xs">{'{'}</span>
                                                     <input 
                                                         type="text" 
-                                                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-purple-500 focus:border-purple-500 text-sm"
-                                                        value={cmd.config.variableValue as string || ''}
-                                                        onChange={(e) => handleUpdateSourceCmd(cmd.id, { variableValue: e.target.value })}
-                                                        placeholder="Enter value"
+                                                        className={`w-full pl-6 px-3 py-2 border rounded-md focus:ring-1 text-sm font-mono ${hasError ? 'border-red-300 focus:ring-red-200 focus:border-red-500' : 'border-gray-300 focus:ring-purple-500 focus:border-purple-500'}`}
+                                                        value={cmd.config.variableName || ''}
+                                                        onChange={(e) => handleUpdateSourceCmd(cmd.id, { variableName: e.target.value })}
+                                                        placeholder="var_name"
                                                     />
-                                                )}
+                                                    <span className="absolute inset-y-0 right-0 pr-2 flex items-center text-gray-400 font-mono text-xs">{'}'}</span>
+                                                </div>
+                                            </div>
+                                            <div className="w-1/3">
+                                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Type</label>
+                                                <CustomSelect 
+                                                    value={cmd.config.variableType || 'text'}
+                                                    onChange={(val) => handleUpdateSourceCmd(cmd.id, { variableType: val })}
+                                                    options={typeOptions}
+                                                    icon={Variable}
+                                                    className="bg-white"
+                                                />
                                             </div>
                                         </div>
-                                        <button 
-                                            onClick={() => handleRemoveCmd(cmd.id)}
-                                            className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors mt-1 opacity-0 group-hover:opacity-100"
-                                            title="Remove Variable"
-                                        >
-                                            <Trash2 className="w-4 h-4" />
-                                        </button>
+                                        
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">
+                                                {cmd.config.variableType === 'list' ? 'Values (Comma Separated)' : 'Value'}
+                                            </label>
+                                            {cmd.config.variableType === 'list' ? (
+                                                <textarea 
+                                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-purple-500 focus:border-purple-500 text-sm font-mono min-h-[60px]"
+                                                    value={Array.isArray(cmd.config.variableValue) ? cmd.config.variableValue.join(', ') : (cmd.config.variableValue || '')}
+                                                    onChange={(e) => handleUpdateSourceCmd(cmd.id, { variableValue: e.target.value.split(',').map(s => s.trim()) })}
+                                                    placeholder="Value 1, Value 2, Value 3"
+                                                />
+                                            ) : (
+                                                <input 
+                                                    type="text" 
+                                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-purple-500 focus:border-purple-500 text-sm"
+                                                    value={cmd.config.variableValue as string || ''}
+                                                    onChange={(e) => handleUpdateSourceCmd(cmd.id, { variableValue: e.target.value })}
+                                                    placeholder="Enter value"
+                                                />
+                                            )}
+                                        </div>
                                     </div>
-                                    {hasError && (
-                                        <div className="mt-3 flex items-start text-xs text-red-600 bg-red-50/50 p-2 rounded border border-red-100">
-                                            <AlertTriangle className="w-3.5 h-3.5 mr-1.5 shrink-0 mt-0.5" />
-                                            <div className="space-y-0.5">
-                                                {errors.map((err, i) => (
-                                                    <div key={i}>{err}</div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
+                                    <button 
+                                        onClick={() => handleRemoveCmd(cmd.id)}
+                                        className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors mt-1 opacity-0 group-hover:opacity-100"
+                                        title="Remove Variable"
+                                    >
+                                        <Trash2 className="w-4 h-4" />
+                                    </button>
                                 </div>
-                                );
-                            })}
-
-                            <div className="pt-2">
-                                <Button variant="secondary" onClick={handleAddVariable} className="w-full justify-center text-purple-600 hover:text-purple-700 hover:bg-purple-50 border-purple-200" icon={<Plus className="w-4 h-4"/>}>
-                                    Add Variable
-                                </Button>
+                                {hasError && (
+                                    <div className="mt-3 flex items-start text-xs text-red-600 bg-red-50/50 p-2 rounded border border-red-100">
+                                        <AlertTriangle className="w-3.5 h-3.5 mr-1.5 shrink-0 mt-0.5" />
+                                        <div className="space-y-0.5">
+                                            {errors.map((err, i) => (
+                                                <div key={i}>{err}</div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
+                            );
+                        })}
+
+                        <div className="pt-2">
+                            <Button variant="secondary" onClick={handleAddVariable} className="w-full justify-center text-purple-600 hover:text-purple-700 hover:bg-purple-50 border-purple-200" icon={<Plus className="w-4 h-4"/>}>
+                                Add Variable
+                            </Button>
                         </div>
-                    </div>
+                    </CollapsibleSection>
                 </div>
             </div>
         </div>
