@@ -11,7 +11,8 @@
     "build:docker": "docker build -t dataflow-backend ./backend",
     "preview": "vite preview",
     "tauri": "tauri",
-    "check:types": "tsc --noEmit"
+    "check:types": "tsc --noEmit",
+    "test": "vitest"
   },
   "dependencies": {
     "lucide-react": "^0.292.0",
@@ -26,6 +27,7 @@
     "concurrently": "^8.2.2",
     "typescript": "^5.2.2",
     "vite": "^5.0.0",
+    "vitest": "^1.2.0",
     "wait-on": "^7.2.0"
   }
 }

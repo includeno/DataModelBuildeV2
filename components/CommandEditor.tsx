@@ -1,4 +1,5 @@
 
+
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { Command, CommandType, Dataset, OperationType, AggregationConfig, OperationNode, DataType, HavingCondition, MappingRule, FilterGroup, FilterCondition, SubTableConfig, FieldInfo } from '../types';
 import { Button } from './Button';
@@ -1000,7 +1001,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
             // Source command removed from Process type
             if (value === 'filter') newConfig = { ...newConfig, filterRoot: { id: `root_${Date.now()}`, type: 'group', logicalOperator: 'AND', conditions: [] } };
             else if (value === 'group') newConfig = { ...newConfig, groupByFields: [], aggregations: [], havingConditions: [], outputTableName: '' };
-            else if (value === 'join') newConfig = { ...newConfig, joinType: 'left', joinTargetType: 'table', joinSuffix: '_joined' };
+            else if (value === 'join') newConfig = { ...newConfig, joinType: 'LEFT', joinTargetType: 'table', joinSuffix: '_joined' };
             else if (value === 'save') newConfig = { ...newConfig, field: '', value: 'var_name', distinct: true };
             else if (value === 'transform') newConfig = { ...newConfig, mappings: [{ id: `m_${Date.now()}`, mode: 'simple', expression: '', outputField: 'new_column' }] };
             else if (value === 'multi_table') newConfig = { ...newConfig, subTables: [] };

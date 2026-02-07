@@ -289,6 +289,63 @@ const applyMockCommand = (data: any[], cmd: Command, variables: Record<string, a
         });
     }
 
+    if (cmd.type === 'join') {
+        const targetTable = config.joinTable;
+        const targetDs = MOCK_DATASETS.find(d => d.name === targetTable);
+        if (!targetDs) return data;
+        
+        const joinType = (config.joinType || 'left').toLowerCase();
+        const on = config.on || '';
+        
+        // Simple mock join supporting equality: "table.col = other.col" or "col1 = col2"
+        if (!on.includes('=')) return data; 
+        
+        // Extract field names. Assumes structure like "left.id = right.uid"
+        const parts = on.split('=').map(s => s.trim());
+        const leftKeyPart = parts[0];
+        const rightKeyPart = parts[1];
+        
+        // Strip table prefixes if present to get raw field name
+        const leftField = leftKeyPart.includes('.') ? leftKeyPart.split('.').pop()! : leftKeyPart;
+        const rightField = rightKeyPart.includes('.') ? rightKeyPart.split('.').pop()! : rightKeyPart;
+        
+        const suffix = config.joinSuffix || '_joined';
+
+        // Index right table
+        const rightMap = new Map<string, any[]>();
+        targetDs.rows.forEach(r => {
+            const val = String(r[rightField]);
+            if (!rightMap.has(val)) rightMap.set(val, []);
+            rightMap.get(val)!.push(r);
+        });
+
+        const result: any[] = [];
+        data.forEach(leftRow => {
+            const key = String(leftRow[leftField]);
+            const matches = rightMap.get(key);
+
+            if (matches && matches.length > 0) {
+                matches.forEach(matchRow => {
+                    const merged = { ...leftRow };
+                    Object.keys(matchRow).forEach(k => {
+                        // Handle collision
+                        if (k in merged) {
+                            merged[`${k}${suffix}`] = matchRow[k];
+                        } else {
+                            merged[k] = matchRow[k];
+                        }
+                    });
+                    result.push(merged);
+                });
+            } else if (joinType === 'left') {
+                result.push({ ...leftRow });
+            }
+            // Inner join omits rows with no match
+        });
+        
+        return result;
+    }
+
     if (cmd.type === 'transform') {
         const mappings = config.mappings || [];
         if (mappings.length > 0) {
