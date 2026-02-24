@@ -47,7 +47,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   onClearTargetSqlTable,
   selectedNode,
   datasets,
-  inputFields,
+  // inputFields,
   inputSchema,
   onUpdateCommands,
   onUpdateName,

@@ -98,7 +98,7 @@ export const DataPreview: React.FC<DataPreviewProps> = ({
           <div className="fixed inset-0 z-20" onClick={() => setIsExportMenuOpen(false)} />
       )}
       
-      <div className="px-5 py-2 border-b border-gray-200 flex justify-between items-center bg-white sticky top-0 z-10">
+      <div className="px-5 py-2 border-b border-gray-200 flex justify-between items-center bg-white sticky top-0 z-40">
         <div className="flex items-center space-x-3">
             <span className="text-sm font-bold text-gray-800">Preview</span>
             <span className="px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 text-[11px] font-semibold border border-blue-100">
@@ -141,21 +141,21 @@ export const DataPreview: React.FC<DataPreviewProps> = ({
                 </Button>
                 
                 {isExportMenuOpen && (
-                    <div className="absolute right-0 top-full mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-xl z-30 flex flex-col animate-in fade-in zoom-in-95 duration-100">
+                    <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-lg z-50 flex flex-col">
                          <button 
                             onClick={handleExportCsvPage}
-                            className="text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 flex items-center"
+                            className="text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2 transition-colors"
                          >
-                             <List className="w-4 h-4 mr-2 text-gray-400" />
-                             Export Current Page
+                             <List className="w-4 h-4 text-gray-400" />
+                             <span className="whitespace-nowrap">Export Current Page</span>
                          </button>
                          {onExportFull && (
                             <button 
                                 onClick={handleExportFull}
-                                className="text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 flex items-center border-t border-gray-100"
+                                className="text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2 border-t border-gray-100 transition-colors"
                             >
-                                <FileDown className="w-4 h-4 mr-2 text-blue-500" />
-                                Export All Rows (Full)
+                                <FileDown className="w-4 h-4 text-blue-500" />
+                                <span className="whitespace-nowrap">Export All Rows (Full)</span>
                             </button>
                          )}
                     </div>

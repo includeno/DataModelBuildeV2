@@ -1,5 +1,5 @@
 
-import { ApiConfig, Dataset, ExecutionResult, SessionMetadata, OperationNode, Command, DataType, MappingRule, FilterGroup, FilterCondition, FieldInfo } from "../types";
+import { ApiConfig, Dataset, SessionMetadata, OperationNode, Command, DataType, FilterGroup, FilterCondition, FieldInfo } from "../types";
 
 // --- MOCK DATA GENERATORS ---
 
@@ -378,10 +378,10 @@ const applyMockCommand = (data: any[], cmd: Command, variables: Record<string, a
             groups[key].push(row);
         });
 
-        let result = Object.entries(groups).map(([key, rows]) => {
+        let result = Object.entries(groups).map(([_key, rows]) => {
             const resultRow: any = {};
-            const keyParts = key.split('|');
-            groupFields.forEach((f, i) => { resultRow[f] = rows[0][f]; });
+            // const keyParts = key.split('|');
+            groupFields.forEach((f) => { resultRow[f] = rows[0][f]; });
             aggregations.forEach(agg => {
                 const { field, func, alias } = agg;
                 const fieldName = alias || `${func}_${field}`;

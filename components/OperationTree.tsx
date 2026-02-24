@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronRight, ChevronDown, FileText, Settings, AlertTriangle, CheckCircle, Database, Split, Power, Plus, Trash2, GitCommit, Play, Layers } from 'lucide-react';
+import { ChevronRight, ChevronDown, FileText, Database, Split, Power, Plus, Trash2, Layers } from 'lucide-react';
 import { OperationNode, AppearanceConfig } from '../types';
 
 interface OperationTreeProps {

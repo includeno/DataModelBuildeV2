@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { RefreshCw, LayoutDashboard, ChevronDown, ChevronRight, Database, Table as TableIcon, Download, List, FileDown } from 'lucide-react';
 import { ExecutionResult, OperationNode, SubTableConfig } from '../types';
 import { Button } from './Button';
@@ -29,7 +29,7 @@ export const ComplexDataPreview: React.FC<ComplexDataPreviewProps> = ({
   const multiCmd = selectedNode.commands.find(c => c.type === 'multi_table');
   const subTables = multiCmd?.config.subTables || [];
 
-  const [mainPageSize, setMainPageSize] = useState(50);
+  const [mainPageSize] = useState(50);
   const [subTableStates, setSubTableStates] = useState<Record<string, SubTableViewState>>({});
   const [expandedRowIndices, setExpandedRowIndices] = useState<Set<number>>(new Set());
   const [activeSubTab, setActiveSubTab] = useState<string>('');
@@ -180,7 +180,7 @@ export const ComplexDataPreview: React.FC<ComplexDataPreviewProps> = ({
         {isExportMenuOpen && <div className="fixed inset-0 z-20" onClick={() => setIsExportMenuOpen(false)} />}
         
         {/* Header Bar */}
-        <div className="px-5 py-2 border-b border-gray-200 flex justify-between items-center bg-white sticky top-0 z-10 shadow-sm">
+        <div className="px-5 py-2 border-b border-gray-200 flex justify-between items-center bg-white sticky top-0 z-40 shadow-sm">
             <div className="flex items-center space-x-3">
                 <div className="flex items-center space-x-2">
                     <div className="p-1 bg-blue-100 rounded text-blue-600">
@@ -212,13 +212,13 @@ export const ComplexDataPreview: React.FC<ComplexDataPreviewProps> = ({
                      Export
                  </Button>
                  {isExportMenuOpen && (
-                     <div className="absolute right-0 top-full mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-xl z-30 flex flex-col animate-in fade-in zoom-in-95 duration-100">
-                          <button onClick={handleExportCsvPage} className="text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 flex items-center">
-                              <List className="w-4 h-4 mr-2 text-gray-400" /> Export Current Page
+                     <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-lg z-50 flex flex-col">
+                          <button onClick={handleExportCsvPage} className="text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2 transition-colors">
+                              <List className="w-4 h-4 text-gray-400" /> <span className="whitespace-nowrap">Export Current Page</span>
                           </button>
                           {onExportFull && (
-                             <button onClick={() => { onExportFull(); setIsExportMenuOpen(false); }} className="text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 flex items-center border-t border-gray-100">
-                                 <FileDown className="w-4 h-4 mr-2 text-blue-500" /> Export All Rows (Full)
+                             <button onClick={() => { onExportFull(); setIsExportMenuOpen(false); }} className="text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2 border-t border-gray-100 transition-colors">
+                                 <FileDown className="w-4 h-4 text-blue-500" /> <span className="whitespace-nowrap">Export All Rows (Full)</span>
                              </button>
                           )}
                      </div>

@@ -259,7 +259,7 @@ function App() {
       setTree(updateNode(tree));
   };
 
-  const handleUpdateType = (opId: string, type: any) => {
+  const handleUpdateType = (_opId: string, _type: any) => {
         // Not used frequently as type is fixed usually
   };
 
@@ -357,7 +357,7 @@ function App() {
     setTree(toggleNode(tree, false));
   };
 
-  const handleExecute = async (page = 1, commandId?: string, viewId = "main") => {
+  const handleExecute = async (page = 1, _commandId?: string, viewId = "main") => {
       if (!selectedNode) return;
       setLoading(true);
       try {

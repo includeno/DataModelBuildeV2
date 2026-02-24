@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Upload, FileText, CheckCircle, X, AlertTriangle, FileSpreadsheet } from 'lucide-react';
+import { Upload, CheckCircle, X, AlertTriangle, FileSpreadsheet } from 'lucide-react';
 import { ApiConfig, Dataset } from '../types';
 import { api } from '../utils/api';
 import { Button } from './Button';

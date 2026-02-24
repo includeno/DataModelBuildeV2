@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { X, ArrowDown, Filter, GitCommit, Route, Link, ArrowDownAZ, FunctionSquare, Calculator, Sparkles, Database, Play, Loader2 } from 'lucide-react';
+import { X, ArrowDown, Filter, GitCommit, Route, Link, ArrowDownAZ, FunctionSquare, Calculator, Sparkles, Database, Loader2 } from 'lucide-react';
 import { OperationNode, Command, ApiConfig } from '../types';
 import { api } from '../utils/api';
 

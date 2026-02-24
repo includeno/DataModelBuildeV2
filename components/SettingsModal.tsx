@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { X, Server, Plus, Trash2, Palette, Check } from 'lucide-react';
+import { X, Server, Plus, Trash2, Palette } from 'lucide-react';
 import { Button } from './Button';
 import { AppearanceConfig } from '../types';
 

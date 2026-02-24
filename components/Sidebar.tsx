@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, Layers, Plus, Database, Search, Download, Upload, Settings, FoldVertical, UnfoldVertical } from 'lucide-react';
+import { ChevronDown, ChevronRight, Plus, Database, Search, Download, Upload, Settings, FoldVertical, UnfoldVertical } from 'lucide-react';
 import { OperationTree } from './OperationTree';
 import { OperationNode, Dataset, AppearanceConfig } from '../types';
 
