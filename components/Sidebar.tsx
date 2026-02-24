@@ -1,4 +1,3 @@
-
 import React, { useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, Layers, Plus, Database, Search, Download, Upload, Settings, FoldVertical, UnfoldVertical } from 'lucide-react';
 import { OperationTree } from './OperationTree';
@@ -69,13 +68,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <aside 
-        className="bg-white border-r border-gray-200 flex flex-col z-10 shrink-0 h-full"
+        className="bg-white border-r border-gray-200 flex flex-col z-10 shrink-0 h-full max-h-full overflow-hidden"
         style={{ width: width }}
     >
       {/* Operations Section */}
       {currentView === 'workflow' && (
-          <div className={`flex flex-col ${isOpsExpanded ? 'flex-1 min-h-0' : 'flex-none'}`}>
-             <div className="p-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center select-none shrink-0">
+          <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+             <div className="p-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center select-none shrink-0 h-10">
                 <div className="flex items-center space-x-2 cursor-pointer" onClick={() => setIsOpsExpanded(!isOpsExpanded)}>
                     {isOpsExpanded ? <ChevronDown className="w-4 h-4 text-gray-500"/> : <ChevronRight className="w-4 h-4 text-gray-500"/>}
                     <span className="text-xs font-bold text-gray-600 uppercase tracking-wider">Operations</span>
@@ -95,18 +94,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept=".json" />
                      </div>
 
-                     <button onClick={(e) => { e.stopPropagation(); onAddChild('root'); }} className="p-1 hover:bg-blue-100 rounded text-blue-600" title="Add Setup Node"><Plus className="w-4 h-4" /></button>
+                     <button onClick={(e) => { e.stopPropagation(); onAddChild('root'); }} className="p-1 hover:bg-blue-100 rounded text-blue-600" title="Add Data Setup"><Plus className="w-4 h-4" /></button>
                 </div>
              </div>
              
              {isOpsExpanded && (
-                <div className="flex-1 overflow-auto py-2">
-                    {tree.children?.map(node => (
+                <div className="flex-1 overflow-y-auto overflow-x-hidden py-2 pr-1 custom-scrollbar">
+                    {/* Render children of the root (Setup Nodes) as top-level items */}
+                    {tree.children?.map(child => (
                         <OperationTree 
-                            key={node.id} 
-                            node={node} 
+                            key={child.id}
+                            node={child} 
                             selectedId={selectedNodeId} 
-                            onSelect={onSelectNode}
+                            onSelect={onSelectNode} 
                             onToggleEnabled={onToggleEnabled}
                             onAddChild={onAddChild}
                             onDelete={onDeleteNode}
@@ -115,22 +115,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             collapseTrigger={collapseAllCounter}
                             globalAction={lastGlobalAction}
                             appearance={appearance}
+                            level={0}
                         />
                     ))}
                     {(!tree.children || tree.children.length === 0) && (
-                        <div className="text-center mt-10 text-gray-400 text-sm p-4 italic">
-                            No operations yet.<br/>
-                            Click <Plus className="w-3 h-3 inline text-blue-500"/> to add a Setup node.
-                        </div>
+                        <div className="text-xs text-gray-400 text-center py-4 italic">No Data Setups. Click + to add one.</div>
                     )}
+                    {/* Bottom padding to prevent last item being cut off */}
+                    <div className="h-4"></div> 
                 </div>
              )}
           </div>
       )}
 
       {/* Data Sources Section */}
-      <div className={`flex flex-col border-t border-gray-200 bg-white ${currentView === 'sql' ? 'flex-1' : (!isOpsExpanded ? 'flex-1' : (isDataExpanded ? 'min-h-[160px] h-1/4 max-h-[300px]' : 'flex-none'))}`}>
-         <div className="p-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center cursor-pointer hover:bg-gray-100 select-none shrink-0" onClick={() => setIsDataExpanded(!isDataExpanded)}>
+      <div 
+        className={`flex flex-col border-t border-gray-200 bg-white shrink-0 transition-all duration-300 ease-in-out ${
+            currentView === 'sql' ? 'flex-1' : 
+            (!isOpsExpanded ? 'flex-1' : 
+            (isDataExpanded ? 'h-1/3 min-h-[150px]' : 'h-10'))
+        }`}
+      >
+         <div className="p-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center cursor-pointer hover:bg-gray-100 select-none shrink-0 h-10" onClick={() => setIsDataExpanded(!isDataExpanded)}>
              <div className="flex items-center space-x-2">
                  {isDataExpanded ? <ChevronDown className="w-4 h-4 text-gray-500"/> : <ChevronRight className="w-4 h-4 text-gray-500"/>}
                  <span className="text-xs font-bold text-gray-600 uppercase tracking-wider">Datasets</span>
@@ -139,7 +145,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
          </div>
          
          {isDataExpanded && (
-             <div className="flex-1 overflow-y-auto p-2">
+             <div className="flex-1 overflow-y-auto p-2 custom-scrollbar">
                 {!sessionId ? (
                     <div className="flex flex-col items-center justify-center h-full text-center p-4 text-gray-400 italic text-xs">Create a session to manage data.</div>
                 ) : datasets.length === 0 ? (

@@ -78,8 +78,7 @@ const MOCK_DATASETS: Dataset[] = [
 ];
 
 const MOCK_SESSIONS: SessionMetadata[] = [
-    { sessionId: "mock-session-demo", displayName: "Demo Session", createdAt: Date.now() - 100000 },
-    { sessionId: "mock-session-archive", displayName: "", createdAt: Date.now() - 86400000 }
+    { sessionId: "mock-session-demo", displayName: "Mock Demo Session", createdAt: Date.now() },
 ];
 
 const MOCK_SESSION_STATES: Record<string, any> = {};

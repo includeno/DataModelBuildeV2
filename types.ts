@@ -1,7 +1,8 @@
 
+
 export type CommandType = 'filter' | 'join' | 'transform' | 'group' | 'sort' | 'pivot' | 'export' | 'source' | 'custom' | 'save' | 'multi_table' | 'view' | 'define_variable';
 
-export type OperationType = 'dataset' | 'process' | 'setup';
+export type OperationType = 'dataset' | 'process' | 'setup' | 'root';
 
 export type DataType = 'string' | 'number' | 'boolean' | 'date' | 'timestamp' | 'json';
 
@@ -127,6 +128,22 @@ export interface Dataset {
   fields: string[];
   fieldTypes?: Record<string, FieldInfo>; 
   totalCount?: number;
+}
+
+export interface SqlHistoryItem {
+  id: string;
+  timestamp: number;
+  query: string;
+  status: 'success' | 'error';
+  durationMs?: number;
+  rowCount?: number;
+  errorMessage?: string;
+}
+
+export interface SessionState {
+  tree: OperationNode;
+  datasets: Dataset[];
+  sqlHistory?: SqlHistoryItem[];
 }
 
 export interface SessionMetadata {

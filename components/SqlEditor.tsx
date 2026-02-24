@@ -1,8 +1,8 @@
 
-import React, { useState, useRef, useEffect } from 'react';
-import { Play, Plus, X, Clock, CheckCircle, XCircle, Table as TableIcon, History, Terminal, Copy, Database } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Play, Plus, X, Clock, CheckCircle, XCircle, Table as TableIcon, History, Terminal, Copy } from 'lucide-react';
 import { Button } from './Button';
-import { ExecutionResult, ApiConfig } from '../types';
+import { ExecutionResult, ApiConfig, SqlHistoryItem } from '../types';
 import { api } from '../utils/api';
 import { DataPreview } from './DataPreview';
 
@@ -11,6 +11,8 @@ interface SqlEditorProps {
   apiConfig: ApiConfig;
   targetTable?: string | null;
   onClearTarget?: () => void;
+  history?: SqlHistoryItem[];
+  onUpdateHistory?: (history: SqlHistoryItem[]) => void;
 }
 
 interface SqlTab {
@@ -24,28 +26,23 @@ interface SqlTab {
   executionTime?: number;
 }
 
-interface HistoryItem {
-  id: string;
-  timestamp: number;
-  query: string;
-  status: 'success' | 'error';
-  durationMs?: number;
-  rowCount?: number;
-  errorMessage?: string;
-}
-
-export const SqlEditor: React.FC<SqlEditorProps> = ({ sessionId, apiConfig, targetTable, onClearTarget }) => {
+export const SqlEditor: React.FC<SqlEditorProps> = ({ 
+    sessionId, 
+    apiConfig, 
+    targetTable, 
+    onClearTarget,
+    history = [],
+    onUpdateHistory
+}) => {
   // --- STATE ---
   const [tabs, setTabs] = useState<SqlTab[]>([
     { id: '1', title: 'Query 1', query: '', result: null, loading: false, error: null }
   ]);
   const [activeTabId, setActiveTabId] = useState<string>('1');
-  const [history, setHistory] = useState<HistoryItem[]>([]);
   const [showHistory, setShowHistory] = useState(false);
 
   // Derived state
   const activeTab = tabs.find(t => t.id === activeTabId) || tabs[0];
-  const scrollRef = useRef<HTMLDivElement>(null);
 
   // --- EFFECTS ---
   
@@ -149,7 +146,7 @@ export const SqlEditor: React.FC<SqlEditorProps> = ({ sessionId, apiConfig, targ
   };
 
   const addToHistory = (query: string, status: 'success' | 'error', durationMs: number, rowCount?: number, errorMessage?: string) => {
-      const newItem: HistoryItem = {
+      const newItem: SqlHistoryItem = {
           id: String(Date.now()),
           timestamp: Date.now(),
           query,
@@ -158,7 +155,15 @@ export const SqlEditor: React.FC<SqlEditorProps> = ({ sessionId, apiConfig, targ
           rowCount,
           errorMessage
       };
-      setHistory(prev => [newItem, ...prev]);
+      if (onUpdateHistory) {
+          onUpdateHistory([newItem, ...history]);
+      }
+  };
+
+  const clearHistory = () => {
+      if (onUpdateHistory) {
+          onUpdateHistory([]);
+      }
   };
 
   const restoreFromHistory = (query: string) => {
@@ -300,7 +305,7 @@ export const SqlEditor: React.FC<SqlEditorProps> = ({ sessionId, apiConfig, targ
                 <div className="w-72 bg-white border-l border-gray-200 flex flex-col shrink-0 animate-in slide-in-from-right-10 duration-200">
                     <div className="p-3 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
                         <span className="text-xs font-bold text-gray-600 uppercase tracking-wider">Execution Log</span>
-                        <button onClick={() => setHistory([])} className="text-[10px] text-gray-400 hover:text-red-500">Clear</button>
+                        <button onClick={clearHistory} className="text-[10px] text-gray-400 hover:text-red-500">Clear</button>
                     </div>
                     <div className="flex-1 overflow-y-auto p-2 space-y-2">
                         {history.length === 0 ? (

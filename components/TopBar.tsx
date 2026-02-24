@@ -130,13 +130,16 @@ export const TopBar: React.FC<TopBarProps> = ({
                                           </button>
                                       )}
 
-                                      <button 
-                                          onClick={(e) => onSessionDelete(e, s.sessionId)}
-                                          className={`p-1.5 rounded-md text-gray-400 hover:text-red-600 hover:bg-red-50 transition-all ${sessions.length === 1 ? 'hidden' : 'opacity-0 group-hover:opacity-100'}`}
-                                          title="Delete Session"
-                                      >
-                                          <Trash2 className="w-4 h-4" />
-                                      </button>
+                                      {/* Only allow deleting if NOT mock mode */}
+                                      {!apiConfig.isMock && (
+                                          <button 
+                                              onClick={(e) => onSessionDelete(e, s.sessionId)}
+                                              className={`p-1.5 rounded-md text-gray-400 hover:text-red-600 hover:bg-red-50 transition-all ${sessions.length === 1 ? 'hidden' : 'opacity-0 group-hover:opacity-100'}`}
+                                              title="Delete Session"
+                                          >
+                                              <Trash2 className="w-4 h-4" />
+                                          </button>
+                                      )}
                                   </div>
                               </div>
                           ))}
@@ -145,24 +148,27 @@ export const TopBar: React.FC<TopBarProps> = ({
                           )}
                       </div>
                       
-                      <div className="p-2 border-t border-gray-100 bg-gray-50/50 rounded-b-lg">
-                          <button 
-                              onClick={() => {
-                                  onSessionCreate();
-                                  setIsSessionMenuOpen(false);
-                              }}
-                              className="w-full flex items-center justify-center space-x-2 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 hover:border-gray-400 text-sm font-medium py-2 rounded-md transition-colors shadow-sm"
-                          >
-                              <Plus className="w-4 h-4 text-green-600" />
-                              <span>Create New Session</span>
-                          </button>
-                      </div>
+                      {/* Create Button Footer - Hidden in Mock Mode */}
+                      {!apiConfig.isMock && (
+                          <div className="p-2 border-t border-gray-100 bg-gray-50/50 rounded-b-lg">
+                              <button 
+                                  onClick={() => {
+                                      onSessionCreate();
+                                      setIsSessionMenuOpen(false);
+                                  }}
+                                  className="w-full flex items-center justify-center space-x-2 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 hover:border-gray-400 text-sm font-medium py-2 rounded-md transition-colors shadow-sm"
+                              >
+                                  <Plus className="w-4 h-4 text-green-600" />
+                                  <span>Create New Session</span>
+                              </button>
+                          </div>
+                      )}
                   </div>
               )}
           </div>
         </div>
 
-        {/* VIEW SWITCHER TABS - Hide on mobile if space is tight, or icon only? Keep for now */}
+        {/* VIEW SWITCHER TABS */}
         <div className="hidden md:flex items-center bg-gray-100 p-1 rounded-lg">
              <button 
                 onClick={() => onViewChange('workflow')}
@@ -178,7 +184,7 @@ export const TopBar: React.FC<TopBarProps> = ({
              </button>
         </div>
         
-        {/* Mobile View Switcher - Icon Only */}
+        {/* Mobile View Switcher */}
         <div className="flex md:hidden items-center bg-gray-100 p-1 rounded-lg mr-2">
              <button 
                 onClick={() => onViewChange('workflow')}
@@ -195,7 +201,7 @@ export const TopBar: React.FC<TopBarProps> = ({
         </div>
 
         <div className="flex items-center space-x-2">
-             {/* Server Status Badge (Display Only) */}
+             {/* Server Status Badge */}
              <div 
                 className={`flex items-center px-2 md:px-3 py-1.5 text-xs font-medium rounded-full border cursor-default select-none ${
                     apiConfig.isMock 

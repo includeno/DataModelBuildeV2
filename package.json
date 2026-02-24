@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:aistudio": "vite --mode aistudio",
     "backend": "cd backend && python -m uvicorn main:app --reload --port 8000",
+    "build": "tsc && vite build",
     "build:web": "tsc && vite build",
     "build:tauri": "tauri build",
     "build:docker": "docker build -t dataflow-backend ./backend",

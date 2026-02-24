@@ -158,6 +158,24 @@ class ExecutionEngine:
                 if found: return found
         return None
 
+    def _resolve_table_from_link_id(self, tree: OperationNode, link_id: str) -> Optional[str]:
+        """Resolves a linkId to a table name by traversing the tree."""
+        if not tree:
+            return None
+        
+        # Check current node commands
+        for cmd in tree.commands:
+            if cmd.type == 'source' and cmd.config.linkId == link_id:
+                return cmd.config.mainTable
+        
+        # Check children
+        if tree.children:
+            for child in tree.children:
+                res = self._resolve_table_from_link_id(child, link_id)
+                if res:
+                    return res
+        return None
+
     def _apply_node_commands(self, df: Optional[pd.DataFrame], commands: List[Command], session_id: str, variables: Dict[str, Any], tree: OperationNode, limit_command_id: str = None) -> Optional[pd.DataFrame]:
         sorted_cmds = sorted(commands, key=lambda x: x.order)
         
@@ -166,6 +184,11 @@ class ExecutionEngine:
                 # 1. Handle Context/Source Loading (Common to all commands)
                 source = cmd.config.dataSource
                 if source and source != 'stream':
+                     # Try to resolve source as a linkId first
+                     resolved_table = self._resolve_table_from_link_id(tree, source)
+                     if resolved_table:
+                         source = resolved_table
+                     
                      # If loading a specific source, replace df
                      df = storage.get_full_dataset(session_id, source)
                 

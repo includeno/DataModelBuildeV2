@@ -1,100 +1,85 @@
-
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { DataImportModal } from './components/DataImport';
-import { PathConditionsModal } from './components/PathConditionsModal';
-import { SettingsModal } from './components/SettingsModal';
-import { SessionSettingsModal } from './components/SessionSettingsModal';
-import { DatasetSchemaModal } from './components/DatasetSchemaModal';
-import { TopBar } from './components/TopBar';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Workspace } from './components/Workspace';
-import { OperationNode, Dataset, ExecutionResult, Command, SessionMetadata, ApiConfig, OperationType, SessionConfig, DataType, FieldInfo, AppearanceConfig } from './types';
+import { TopBar } from './components/TopBar';
+import { DataImportModal } from './components/DataImport';
+import { SettingsModal } from './components/SettingsModal';
+import { SessionSettingsModal } from './components/SessionSettingsModal';
+import { PathConditionsModal } from './components/PathConditionsModal';
+import { DatasetSchemaModal } from './components/DatasetSchemaModal';
+import { 
+  OperationNode, Dataset, Command, ExecutionResult, ApiConfig, 
+  SessionMetadata, AppearanceConfig, SessionConfig, DataType, FieldInfo, OperationType,
+  SqlHistoryItem, SessionState
+} from './types';
 import { api } from './utils/api';
 
-// --- INITIAL DATA ---
-const initialTree: OperationNode = {
+// Default Tree: Root container with one initial Data Setup
+const INITIAL_TREE: OperationNode = {
   id: 'root',
   type: 'operation',
-  operationType: 'dataset', // Root container
-  name: 'Root',
+  operationType: 'root', 
+  name: 'Project',
   enabled: true,
   commands: [],
-  children: []
+  children: [
+    {
+      id: 'setup_1',
+      type: 'operation',
+      operationType: 'setup',
+      name: 'Data Setup',
+      enabled: true,
+      commands: [],
+      children: []
+    }
+  ]
 };
 
-const DEFAULT_SERVERS = ['mockServer', 'http://localhost:8000'];
+// Default Settings
+const DEFAULT_APPEARANCE: AppearanceConfig = {
+  textSize: 13,
+  textColor: '#374151',
+  guideLineColor: '#E5E7EB',
+  showGuideLines: true
+};
 
-const App: React.FC = () => {
+function App() {
   // --- STATE ---
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
-  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
-
-  useEffect(() => {
-      const handleResize = () => {
-          const mobile = window.innerWidth < 768;
-          setIsMobile(mobile);
-          if (!mobile) setIsMobileSidebarOpen(false); 
-      };
-      window.addEventListener('resize', handleResize);
-      return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  const [availableServers, setAvailableServers] = useState<string[]>(() => {
-    const saved = localStorage.getItem('availableServers');
-    return saved ? JSON.parse(saved) : DEFAULT_SERVERS;
-  });
-  const [currentServer, setCurrentServer] = useState<string>(() => {
-    return localStorage.getItem('currentServer') || 'mockServer';
-  });
-  
-  // Appearance Settings
-  const [appearance, setAppearance] = useState<AppearanceConfig>(() => {
-    const saved = localStorage.getItem('appearanceSettings');
-    return saved ? JSON.parse(saved) : {
-        textSize: 12,
-        textColor: '#4b5563', // gray-600
-        guideLineColor: '#e5e7eb', // gray-200
-        showGuideLines: true
-    };
-  });
-
-  useEffect(() => {
-      localStorage.setItem('appearanceSettings', JSON.stringify(appearance));
-  }, [appearance]);
-  
-  const [sessions, setSessions] = useState<SessionMetadata[]>([]);
   const [sessionId, setSessionId] = useState<string>('');
-  const [sessionDisplayName, setSessionDisplayName] = useState<string>('');
-  const [sessionSettings, setSessionSettings] = useState<SessionConfig>({ cascadeDisable: false, panelPosition: 'right' });
-  const [isSessionLoading, setIsSessionLoading] = useState(false); 
-
+  const [sessionName, setSessionName] = useState<string>('');
+  const [sessions, setSessions] = useState<SessionMetadata[]>([]);
+  const [tree, setTree] = useState<OperationNode>(INITIAL_TREE);
+  const [datasets, setDatasets] = useState<Dataset[]>([]);
+  const [sqlHistory, setSqlHistory] = useState<SqlHistoryItem[]>([]);
+  const [selectedNodeId, setSelectedNodeId] = useState<string>('setup_1');
   const [currentView, setCurrentView] = useState<'workflow' | 'sql'>('workflow');
+  
+  // UI State
+  const [isImportOpen, setIsImportOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isSessionSettingsOpen, setIsSessionSettingsOpen] = useState(false);
+  const [isPathModalOpen, setIsPathModalOpen] = useState(false);
+  const [isSchemaModalOpen, setIsSchemaModalOpen] = useState(false);
+  const [selectedDatasetForSchema, setSelectedDatasetForSchema] = useState<Dataset | null>(null);
+
+  const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
+  const [rightPanelWidth, setRightPanelWidth] = useState(400); // Or Height if vertical
+  const [sidebarWidth] = useState(260);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [previewData, setPreviewData] = useState<ExecutionResult | null>(null);
+  const [isResizing, setIsResizing] = useState(false);
+  
+  // Configuration State
+  const [apiConfig, setApiConfig] = useState<ApiConfig>({ baseUrl: 'http://localhost:8000', isMock: true });
+  const [knownServers, setKnownServers] = useState<string[]>(['mockServer', 'http://localhost:8000']);
+  const [appearance, setAppearance] = useState<AppearanceConfig>(DEFAULT_APPEARANCE);
+  const [sessionSettings, setSessionSettings] = useState<SessionConfig>({ cascadeDisable: false, panelPosition: 'right' });
+
+  // SQL State
   const [targetSqlTable, setTargetSqlTable] = useState<string | null>(null);
 
-  const [datasets, setDatasets] = useState<Dataset[]>([]);
-  const [tree, setTree] = useState<OperationNode>(initialTree);
-  const [selectedNodeId, setSelectedNodeId] = useState<string>(''); // Default empty
-  const [previewData, setPreviewData] = useState<ExecutionResult | null>(null);
-  const [loading, setLoading] = useState(false);
-  
-  const [sidebarWidth, setSidebarWidth] = useState(300);
-  const [rightPanelWidth, setRightPanelWidth] = useState(500);
-  const [isResizingSidebar, setIsResizingSidebar] = useState(false);
-  const [isResizingRight, setIsResizingRight] = useState(false);
-  const [isRightPanelOpen, setIsRightPanelOpen] = useState(false); 
-  
-  const [showImportModal, setShowImportModal] = useState(false);
-  const [showPathModal, setShowPathModal] = useState(false);
-  const [showSettingsModal, setShowSettingsModal] = useState(false);
-  const [showSessionSettingsModal, setShowSessionSettingsModal] = useState(false);
-  const [schemaModalDataset, setSchemaModalDataset] = useState<Dataset | null>(null);
-
   // --- DERIVED STATE ---
-  const apiConfig: ApiConfig = useMemo(() => ({
-    baseUrl: currentServer,
-    isMock: currentServer === 'mockServer'
-  }), [currentServer]);
-
   const selectedNode = useMemo(() => {
     const findNode = (node: OperationNode): OperationNode | null => {
       if (node.id === selectedNodeId) return node;
@@ -109,233 +94,163 @@ const App: React.FC = () => {
     return findNode(tree);
   }, [tree, selectedNodeId]);
 
-  const canExecute = useMemo(() => {
-      if (!selectedNode) return false;
-      if (selectedNode.operationType === 'setup') return false;
-      if (selectedNode.commands.length === 0) return false;
-      return true;
-  }, [selectedNode]);
+  // Flattened schema from all datasets
+  const globalInputSchema = useMemo(() => {
+     const schema: Record<string, DataType> = {};
+     datasets.forEach(ds => {
+         if (ds.fieldTypes) {
+             Object.entries(ds.fieldTypes).forEach(([k, v]) => schema[k] = (v as FieldInfo).type);
+         } else {
+             ds.fields.forEach(f => schema[f] = 'string');
+         }
+     });
+     return schema;
+  }, [datasets]);
 
-  // --- EFFECTS ---
-  useEffect(() => {
-    localStorage.setItem('availableServers', JSON.stringify(availableServers));
-    localStorage.setItem('currentServer', currentServer);
-  }, [availableServers, currentServer]);
 
+  // --- INITIALIZATION ---
   useEffect(() => {
     fetchSessions();
-    setDatasets([]);
-    setSessionId('');
-    setSessionDisplayName('');
-    setSessionSettings({ cascadeDisable: false, panelPosition: 'right' });
-    setPreviewData(null);
-    setTree(initialTree);
   }, [apiConfig]);
 
-  useEffect(() => {
-    if (!sessionId || isSessionLoading) return;
-    const timer = setTimeout(() => {
-        api.post(apiConfig, `/sessions/${sessionId}/state`, tree)
-           .catch(e => console.error("Auto-save failed", e));
-    }, 1000); 
-    return () => clearTimeout(timer);
-  }, [tree, sessionId, apiConfig, isSessionLoading]);
-
-  // Clear preview when selecting non-executable node
-  useEffect(() => {
-      if (!canExecute && previewData) {
-          setPreviewData(null);
-          setIsRightPanelOpen(false);
-      }
-  }, [canExecute]);
-
   const fetchSessions = async () => {
-    try {
-        const data = await api.get(apiConfig, '/sessions');
-        setSessions(data);
-        if (data.length > 0) handleSelectSession(data[0].sessionId);
-        else setSessionId('');
-    } catch (e) {
-        console.error("Failed to fetch sessions", e);
-        setSessions([]);
-        setSessionId('');
+      try {
+          const list = await api.get(apiConfig, '/sessions');
+          setSessions(list);
+      } catch (e) { console.error("Failed to fetch sessions", e); }
+  };
+
+  // --- RESIZING LOGIC ---
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing) return;
+      e.preventDefault();
+
+      const position = sessionSettings.panelPosition || 'right';
+      
+      if (position === 'right') {
+          const newWidth = document.body.clientWidth - e.clientX;
+          setRightPanelWidth(Math.max(200, Math.min(newWidth, document.body.clientWidth - 300)));
+      } else if (position === 'left') {
+          setRightPanelWidth(Math.max(200, Math.min(e.clientX, document.body.clientWidth - 300)));
+      } else if (position === 'bottom') {
+          const newHeight = document.body.clientHeight - e.clientY;
+          setRightPanelWidth(Math.max(100, Math.min(newHeight, document.body.clientHeight - 100)));
+      } else if (position === 'top') {
+          const headerHeight = 56;
+          setRightPanelWidth(Math.max(100, Math.min(e.clientY - headerHeight, document.body.clientHeight - 100)));
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      document.body.style.cursor = 'default';
+    };
+
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      
+      const position = sessionSettings.panelPosition || 'right';
+      if (position === 'right' || position === 'left') document.body.style.cursor = 'col-resize';
+      else document.body.style.cursor = 'row-resize';
     }
-  };
 
-  const fetchDatasets = async (sessId: string) => {
-      try {
-          const data = await api.get(apiConfig, `/sessions/${sessId}/datasets`);
-          setDatasets(data);
-      } catch (e) {
-          console.error("Failed to fetch datasets", e);
-      }
-  };
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'default';
+    };
+  }, [isResizing, sessionSettings.panelPosition]);
 
-  const fetchSessionState = async (sessId: string) => {
-      try {
-          const state = await api.get(apiConfig, `/sessions/${sessId}/state`);
-          if (state && state.id) {
-              setTree(state);
-              // Auto select first child if exists
-              if (state.children && state.children.length > 0) {
-                  setSelectedNodeId(state.children[0].id);
-              } else {
-                  setSelectedNodeId('');
-              }
-          } else {
-              setTree(initialTree);
-              setSelectedNodeId('');
-          }
-      } catch (e) {
-          console.error("Failed to fetch session state", e);
-          setTree(initialTree);
-          setSelectedNodeId('');
-      }
-  };
-
-  const fetchSessionMetadata = async (sessId: string) => {
-      try {
-          const meta = await api.get(apiConfig, `/sessions/${sessId}/metadata`);
-          setSessionDisplayName(meta.displayName || '');
-          setSessionSettings(meta.settings || { cascadeDisable: false, panelPosition: 'right' });
-      } catch (e) {
-          console.error("Failed to fetch metadata", e);
-      }
-  };
-
-  const handleSelectSession = async (id: string) => {
-      setSessionId(id);
-      setIsSessionLoading(true);
-      await Promise.all([
-          fetchDatasets(id),
-          fetchSessionState(id),
-          fetchSessionMetadata(id)
-      ]);
-      setIsSessionLoading(false);
-  };
+  // --- HANDLERS ---
 
   const handleCreateSession = async () => {
       try {
           const res = await api.post(apiConfig, '/sessions', {});
-          await fetchSessions();
-          handleSelectSession(res.sessionId);
-      } catch (e) {
-          alert("Failed to create session");
-      }
+          setSessionId(res.sessionId);
+          setSessionName('New Session');
+          setTree(INITIAL_TREE);
+          setSqlHistory([]);
+          
+          if (apiConfig.isMock) {
+              // Ensure mock datasets are loaded for new mock sessions
+              const dss = await api.get(apiConfig, '/datasets');
+              setDatasets(dss);
+          } else {
+              setDatasets([]);
+          }
+          
+          fetchSessions();
+      } catch (e) { alert("Failed to create session"); }
+  };
+
+  const handleSelectSession = async (id: string) => {
+      setSessionId(id);
+      try {
+          // Load metadata
+          const meta = await api.get(apiConfig, `/sessions/${id}/metadata`);
+          if (meta) {
+              setSessionName(meta.displayName || id);
+              if (meta.settings) setSessionSettings(meta.settings);
+          }
+          
+          // Load state (datasets, tree) if persisted (Mock doesn't persist properly in this simplified version but structure allows it)
+          // For now, we just reset tree to initial or specific mock state
+          const state = await api.get(apiConfig, `/sessions/${id}/state`) as SessionState;
+          if (state && state.tree) {
+              setTree(state.tree);
+              if (state.datasets) setDatasets(state.datasets);
+              if (state.sqlHistory) setSqlHistory(state.sqlHistory);
+          } else {
+              setTree(INITIAL_TREE);
+              setSqlHistory([]);
+              // If mock, ensure mock datasets are available
+              if (apiConfig.isMock) {
+                  const dss = await api.get(apiConfig, `/datasets`);
+                  setDatasets(dss);
+              } else {
+                  setDatasets([]);
+              }
+          }
+      } catch (e) { console.error(e); }
+  };
+
+  const handleSaveSessionSettings = async (name: string, config: SessionConfig) => {
+      setSessionName(name);
+      setSessionSettings(config);
+      await api.post(apiConfig, `/sessions/${sessionId}/metadata`, { displayName: name, settings: config });
+      fetchSessions();
   };
 
   const handleDeleteSession = async (e: React.MouseEvent, id: string) => {
       e.stopPropagation();
-      if (!confirm("Are you sure you want to delete this session?")) return;
-      try {
-          await api.delete(apiConfig, `/sessions/${id}`);
-          fetchSessions();
-      } catch (e) {
-          alert("Failed to delete session");
+      if (!confirm("Delete this session?")) return;
+      await api.delete(apiConfig, `/sessions/${id}`);
+      if (sessionId === id) {
+          setSessionId('');
+          setTree(INITIAL_TREE);
+          setSqlHistory([]);
       }
+      fetchSessions();
   };
 
-  const handleSaveSessionSettings = async (name: string, config: SessionConfig) => {
-      if (!sessionId) return;
-      try {
-          await api.post(apiConfig, `/sessions/${sessionId}/metadata`, {
-              displayName: name,
-              settings: config
-          });
-          setSessionDisplayName(name);
-          setSessionSettings(config);
-          
-          // Refresh session list to update name there
-          const data = await api.get(apiConfig, '/sessions');
-          setSessions(data);
-      } catch (e) {
-          throw e;
-      }
-  };
-
-  // --- TREE OPERATIONS ---
-  
-  const handleAddChild = (parentId: string) => {
-    const isRoot = parentId === 'root';
-    
-    // If adding to root, create a Setup Node
-    const operationType: OperationType = isRoot ? 'setup' : 'process';
-    const defaultName = isRoot ? 'Import Datasets' : 'New Operation';
-    
-    const newNode: OperationNode = {
-      id: `op_${Date.now()}`,
-      type: 'operation',
-      operationType: operationType,
-      name: defaultName,
-      enabled: true,
-      commands: isRoot 
-          ? [{ id: `cmd_src_${Date.now()}`, type: 'source', config: { mainTable: '' }, order: 1 }]
-          : [],
-      children: []
-    };
-
-    const addToNode = (node: OperationNode): OperationNode => {
-      if (node.id === parentId) {
-        return { ...node, children: [...(node.children || []), newNode] };
-      }
-      if (node.children) {
-        return { ...node, children: node.children.map(addToNode) };
-      }
-      return node;
-    };
-
-    setTree(addToNode(tree));
-    setSelectedNodeId(newNode.id);
-  };
-
-  const handleDeleteNode = (id: string) => {
-    if (id === 'root') return;
-    const deleteFromNode = (node: OperationNode): OperationNode => {
-      if (node.children) {
-        return {
-          ...node,
-          children: node.children.filter(child => child.id !== id).map(deleteFromNode)
-        };
-      }
-      return node;
-    };
-    setTree(deleteFromNode(tree));
-    if (selectedNodeId === id) setSelectedNodeId('');
-  };
-
-  const handleToggleEnabled = (id: string) => {
-    const toggleNode = (node: OperationNode, parentDisabled: boolean): OperationNode => {
-        let newNode = node;
-        
-        if (node.id === id) {
-            newNode = { ...node, enabled: !node.enabled };
-        } else if (parentDisabled && sessionSettings.cascadeDisable) {
-             newNode = node;
-        }
-
-        if (newNode.children) {
-            newNode.children = newNode.children.map(child => toggleNode(child, !newNode.enabled));
-        }
-        return newNode;
-    };
-    setTree(toggleNode(tree, false));
+  const handleUpdateSqlHistory = (newHistory: SqlHistoryItem[]) => {
+      setSqlHistory(newHistory);
+      // Persist state
+      api.post(apiConfig, `/sessions/${sessionId}/state`, { tree, datasets, sqlHistory: newHistory });
   };
 
   const handleUpdateCommands = (opId: string, newCommands: Command[]) => {
-    const updateNode = (node: OperationNode): OperationNode => {
-      if (node.id === opId) {
-        return { ...node, commands: newCommands };
-      }
-      if (node.children) {
-        return { ...node, children: node.children.map(updateNode) };
-      }
-      return node;
-    };
-    setTree(updateNode(tree));
+      const updateNode = (node: OperationNode): OperationNode => {
+          if (node.id === opId) return { ...node, commands: newCommands };
+          if (node.children) return { ...node, children: node.children.map(updateNode) };
+          return node;
+      };
+      setTree(updateNode(tree));
   };
 
   const handleUpdateName = (name: string) => {
-      if (!selectedNodeId) return;
       const updateNode = (node: OperationNode): OperationNode => {
           if (node.id === selectedNodeId) return { ...node, name };
           if (node.children) return { ...node, children: node.children.map(updateNode) };
@@ -344,332 +259,305 @@ const App: React.FC = () => {
       setTree(updateNode(tree));
   };
 
-  const handleUpdateType = (opId: string, type: OperationType) => {
-      const updateNode = (node: OperationNode): OperationNode => {
-          if (node.id === opId) return { ...node, operationType: type };
-          if (node.children) return { ...node, children: node.children.map(updateNode) };
+  const handleUpdateType = (opId: string, type: any) => {
+        // Not used frequently as type is fixed usually
+  };
+
+  const handleAddChild = (parentId: string) => {
+      // Find parent to determine what type of child to add
+      const findNode = (node: OperationNode): OperationNode | null => {
+          if (node.id === parentId) return node;
+          if (node.children) {
+              for (const child of node.children) {
+                  const found = findNode(child);
+                  if (found) return found;
+              }
+          }
+          return null;
+      };
+
+      const parent = findNode(tree);
+      if (!parent) return;
+
+      let newOpType: OperationType = 'process';
+      let newName = 'New Operation';
+
+      // If adding to root, we create a new Setup node
+      if (parent.operationType === 'root') {
+          newOpType = 'setup';
+          newName = 'Data Setup';
+      }
+
+      const newNode: OperationNode = {
+          id: `op_${Date.now()}`,
+          type: 'operation',
+          operationType: newOpType,
+          name: newName,
+          enabled: true,
+          commands: [],
+          children: []
+      };
+      
+      const addNode = (node: OperationNode): OperationNode => {
+          if (node.id === parentId) {
+              return { ...node, children: [...(node.children || []), newNode] };
+          }
+          if (node.children) {
+              return { ...node, children: node.children.map(addNode) };
+          }
           return node;
       };
-      setTree(updateNode(tree));
+      setTree(addNode(tree));
+      setSelectedNodeId(newNode.id);
   };
 
-  const handleImport = async (dataset: Dataset) => {
-      setDatasets(prev => [...prev, dataset]);
+  const handleDeleteNode = (id: string) => {
+      if (id === 'root') return;
+      const deleteNode = (node: OperationNode): OperationNode => {
+          if (node.children) {
+              return { ...node, children: node.children.filter(c => c.id !== id).map(deleteNode) };
+          }
+          return node;
+      };
+      setTree(deleteNode(tree));
+      if (selectedNodeId === id) setSelectedNodeId('root');
   };
 
-  const handleUpdateSchema = async (datasetId: string, fieldTypes: Record<string, FieldInfo>) => {
+  const handleToggleEnabled = (id: string) => {
+    console.log(`[App] Toggle Enabled Request for ID: ${id}`);
+    console.log(`[App] Cascade Disable Setting: ${sessionSettings.cascadeDisable}`);
+
+    const toggleNode = (node: OperationNode, parentDisabled: boolean): OperationNode => {
+        let newNode = node;
+        
+        // 1. Check if this is the target node
+        if (node.id === id) {
+            const newValue = !node.enabled;
+            console.log(`[App] Toggling target node '${node.name}' (${node.id}) to ${newValue}`);
+            newNode = { ...node, enabled: newValue };
+        } 
+        // 2. Check cascade disable logic
+        else if (parentDisabled && sessionSettings.cascadeDisable) {
+             // Cascade disable: If parent is disabled, this node becomes disabled
+             if (node.enabled) {
+                 console.log(`[App] Cascade disabling child node '${node.name}' (${node.id}) because parent is disabled`);
+                 newNode = { ...node, enabled: false };
+             }
+        }
+        
+        // Calculate the 'effective' disable state for children
+        // Even if this node is enabled, if it was force-disabled by cascade, children should know
+        const isSelfDisabled = !newNode.enabled;
+        
+        if (newNode.children) {
+            newNode.children = newNode.children.map(child => toggleNode(child, isSelfDisabled));
+        }
+        return newNode;
+    };
+    setTree(toggleNode(tree, false));
+  };
+
+  const handleExecute = async (page = 1, commandId?: string, viewId = "main") => {
+      if (!selectedNode) return;
+      setLoading(true);
       try {
-          await api.post(apiConfig, `/sessions/${sessionId}/datasets/update`, { datasetId, fieldTypes });
-          // Update local state
-          setDatasets(prev => prev.map(d => 
-              (d.id === datasetId || d.name === datasetId) 
-                  ? { ...d, fieldTypes } 
-                  : d
-          ));
-      } catch (e) {
-          console.error("Failed to update schema", e);
-          throw e;
-      }
-  };
-
-  const handleExecute = async (page: number = 1, targetCommandId?: string) => {
-    if (!selectedNodeId || !canExecute) return;
-    setLoading(true);
-    
-    // Auto-open panel if closed
-    if (!isRightPanelOpen) setIsRightPanelOpen(true);
-
-    try {
-        const pageSize = selectedNode?.pageSize || 50;
-        const result = await api.post(apiConfig, '/execute', {
-            sessionId,
-            tree,
-            targetNodeId: selectedNodeId,
-            targetCommandId, // Pass the specific command ID if provided
-            page,
-            pageSize
-        });
-        setPreviewData(result);
-    } catch (e: any) {
-        console.error("Execution failed", e);
-        alert(`Execution failed: ${e.message}`);
-    } finally {
-        setLoading(false);
-    }
-  };
-
-  const handleAnalyzeOverlap = async (nodeId: string) => {
-      try {
-          const res = await api.post(apiConfig, '/analyze', {
+          // If specific commandId is provided, we might be doing a partial run.
+          // For now, the API mostly executes the node. 
+          // commandId could be used to truncate commands list in a future improvement.
+          const res = await api.post(apiConfig, '/execute', {
               sessionId,
               tree,
-              parentNodeId: nodeId
+              targetNodeId: selectedNodeId,
+              page,
+              pageSize: selectedNode.pageSize || 50,
+              viewId
           });
-          alert(res.report.join('\n'));
+          setPreviewData(res);
+          // Persist state
+          api.post(apiConfig, `/sessions/${sessionId}/state`, { tree, datasets });
       } catch (e: any) {
-          alert(`Analysis failed: ${e.message}`);
+          alert(`Execution Error: ${e.message}`);
+      } finally {
+          setLoading(false);
       }
   };
 
-  const handleExportFull = async () => {
-     if (!selectedNodeId) return;
-     try {
-         await api.export(apiConfig, '/export', {
-             sessionId,
-             tree,
-             targetNodeId: selectedNodeId
-         });
-     } catch (e) {
-         console.error("Export failed", e);
-     }
-  };
-
-  const handleExportOperations = () => {
-      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(tree, null, 2));
-      const downloadAnchorNode = document.createElement('a');
-      downloadAnchorNode.setAttribute("href", dataStr);
-      downloadAnchorNode.setAttribute("download", `pipeline_${sessionId}.json`);
-      document.body.appendChild(downloadAnchorNode);
-      downloadAnchorNode.click();
-      downloadAnchorNode.remove();
-  };
-
-  const handleImportOperations = (file: File) => {
-      const reader = new FileReader();
-      reader.onload = async (e) => {
-          try {
-              const text = e.target?.result;
-              if (typeof text === 'string') {
-                  const importedTree: any = JSON.parse(text);
-                  
-                  // Validate basic structure
-                  if (importedTree && importedTree.id && importedTree.type === 'operation') {
-                      setTree(importedTree as OperationNode);
-                  } else {
-                      alert("Invalid operation file format");
-                  }
-              }
-          } catch (err) {
-              alert("Failed to parse JSON file");
-          }
-      };
-      reader.readAsText(file);
-  };
-
-  const handleUpdatePageSize = (size: number) => {
-      if (!selectedNodeId) return;
-      const updateNode = (node: OperationNode): OperationNode => {
-          if (node.id === selectedNodeId) return { ...node, pageSize: size };
-          if (node.children) return { ...node, children: node.children.map(updateNode) };
-          return node;
-      };
-      setTree(updateNode(tree));
-      // Optionally trigger re-run
-      setTimeout(() => handleExecute(1), 50);
-  };
-
-  // --- LAYOUT ---
-  
-  const handleMouseDown = (e: React.MouseEvent, type: 'sidebar' | 'right') => {
-      e.preventDefault();
-      if (type === 'sidebar') setIsResizingSidebar(true);
-      else setIsResizingRight(true);
-  };
-
-  useEffect(() => {
-      const handleMouseMove = (e: MouseEvent) => {
-          if (isResizingSidebar) {
-              setSidebarWidth(Math.max(200, Math.min(600, e.clientX)));
-          }
-          if (isResizingRight) {
-              if (sessionSettings.panelPosition === 'bottom') {
-                   setRightPanelWidth(Math.max(200, Math.min(window.innerHeight - 100, window.innerHeight - e.clientY)));
-              } else if (sessionSettings.panelPosition === 'top') {
-                   setRightPanelWidth(Math.max(200, Math.min(window.innerHeight - 100, e.clientY - 56)));
-              } else if (sessionSettings.panelPosition === 'left') {
-                   setRightPanelWidth(Math.max(300, Math.min(window.innerWidth - 300, e.clientX - sidebarWidth)));
-              } else {
-                   // Right
-                   setRightPanelWidth(Math.max(300, Math.min(window.innerWidth - 300, window.innerWidth - e.clientX)));
-              }
-          }
-      };
-      const handleMouseUp = () => {
-          setIsResizingSidebar(false);
-          setIsResizingRight(false);
-      };
-      if (isResizingSidebar || isResizingRight) {
-          document.addEventListener('mousemove', handleMouseMove);
-          document.addEventListener('mouseup', handleMouseUp);
-      }
-      return () => {
-          document.removeEventListener('mousemove', handleMouseMove);
-          document.removeEventListener('mouseup', handleMouseUp);
-      };
-  }, [isResizingSidebar, isResizingRight, sessionSettings.panelPosition, sidebarWidth]);
-
-  // Schema for Command Editor auto-complete
-  const inputSchema: Record<string, DataType> = useMemo(() => {
-      const s: Record<string, DataType> = {};
-      datasets.forEach(d => {
-          if (d.fieldTypes) {
-              Object.entries(d.fieldTypes).forEach(([k, v]) => s[k] = (v as FieldInfo).type);
-          } else {
-              d.fields.forEach(f => s[f] = 'string');
-          }
-      });
-      return s;
-  }, [datasets]);
-
-  const handleOpenTableInSql = (tableName: string) => {
-      setTargetSqlTable(tableName);
-      setCurrentView('sql');
-      if (isMobile) setIsMobileSidebarOpen(false);
-  };
-
-  const handleOpenSchema = (tableName: string) => {
-      const ds = datasets.find(d => d.name === tableName);
-      if (ds) {
-          setSchemaModalDataset(ds);
-      }
+  const handleSchemaSave = async (datasetId: string, fieldTypes: any) => {
+      // Update local state
+      const updated = datasets.map(d => d.id === datasetId ? { ...d, fieldTypes } : d);
+      setDatasets(updated);
+      // Persist to backend if needed
+      await api.post(apiConfig, `/sessions/${sessionId}/datasets/update`, { datasetId, fieldTypes });
   };
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden bg-gray-50">
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-white text-slate-900">
       <TopBar 
-          sessionId={sessionId}
-          sessionName={sessionDisplayName}
-          sessions={sessions}
-          currentView={currentView}
-          apiConfig={apiConfig}
-          isRightPanelOpen={isRightPanelOpen}
-          onSessionSelect={handleSelectSession}
-          onSessionCreate={handleCreateSession}
-          onSessionDelete={handleDeleteSession}
-          onViewChange={setCurrentView}
-          onSettingsOpen={() => setShowSettingsModal(true)}
-          onSessionSettingsOpen={() => setShowSessionSettingsModal(true)}
-          onExecute={() => handleExecute(1)}
-          onToggleRightPanel={() => setIsRightPanelOpen(!isRightPanelOpen)}
-          onToggleMobileSidebar={() => setIsMobileSidebarOpen(!isMobileSidebarOpen)}
-          canExecute={canExecute}
+        sessionId={sessionId}
+        sessionName={sessionName}
+        sessions={sessions}
+        currentView={currentView}
+        apiConfig={apiConfig}
+        isRightPanelOpen={isRightPanelOpen}
+        onSessionSelect={handleSelectSession}
+        onSessionCreate={handleCreateSession}
+        onSessionDelete={handleDeleteSession}
+        onViewChange={setCurrentView}
+        onSettingsOpen={() => setIsSettingsOpen(true)}
+        onSessionSettingsOpen={() => setIsSessionSettingsOpen(true)}
+        onExecute={() => handleExecute(1)}
+        onToggleRightPanel={() => setIsRightPanelOpen(!isRightPanelOpen)}
+        onToggleMobileSidebar={() => setIsMobileSidebarOpen(!isMobileSidebarOpen)}
       />
 
       <div className="flex flex-1 overflow-hidden relative">
-        {/* Mobile Sidebar Overlay */}
-        {isMobile && isMobileSidebarOpen && (
-            <div className="absolute inset-0 z-20 bg-black/50" onClick={() => setIsMobileSidebarOpen(false)} />
-        )}
-        
-        {/* Sidebar */}
-        <div className={`
-             ${isMobile ? 'absolute inset-y-0 left-0 z-30 shadow-xl transition-transform duration-300' : 'relative z-10'}
-             ${isMobile && !isMobileSidebarOpen ? '-translate-x-full' : 'translate-x-0'}
-        `}>
-            <Sidebar
-              width={isMobile ? 280 : sidebarWidth}
-              currentView={currentView}
-              sessionId={sessionId}
-              tree={tree}
-              datasets={datasets}
-              selectedNodeId={selectedNodeId}
-              onSelectNode={(id) => { setSelectedNodeId(id); if (isMobile) setIsMobileSidebarOpen(false); }}
-              onToggleEnabled={handleToggleEnabled}
-              onAddChild={handleAddChild}
-              onDeleteNode={handleDeleteNode}
-              onImportClick={() => setShowImportModal(true)}
-              onOpenTableInSql={handleOpenTableInSql}
-              onExportOperations={handleExportOperations}
-              onImportOperations={handleImportOperations}
-              onAnalyzeOverlap={handleAnalyzeOverlap}
-              onOpenSchema={handleOpenSchema}
-              appearance={appearance}
-            />
-            {!isMobile && (
-                <div 
-                    className="absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-blue-400 z-20"
-                    onMouseDown={(e) => handleMouseDown(e, 'sidebar')}
-                />
-            )}
-        </div>
+         {/* Mobile Sidebar Overlay */}
+         {isMobileSidebarOpen && (
+             <div className="absolute inset-0 z-40 bg-black/50 md:hidden" onClick={() => setIsMobileSidebarOpen(false)}>
+                 <div className="h-full w-64 bg-white shadow-xl" onClick={e => e.stopPropagation()}>
+                    <Sidebar 
+                        width={260}
+                        currentView={currentView}
+                        sessionId={sessionId}
+                        tree={tree}
+                        datasets={datasets}
+                        selectedNodeId={selectedNodeId}
+                        onSelectNode={(id) => { setSelectedNodeId(id); setIsMobileSidebarOpen(false); }}
+                        onToggleEnabled={handleToggleEnabled}
+                        onAddChild={handleAddChild}
+                        onDeleteNode={handleDeleteNode}
+                        onImportClick={() => setIsImportOpen(true)}
+                        onOpenTableInSql={(t) => { setTargetSqlTable(t); setCurrentView('sql'); setIsMobileSidebarOpen(false); }}
+                        onOpenSchema={(name) => { 
+                            const ds = datasets.find(d => d.name === name); 
+                            if(ds) { setSelectedDatasetForSchema(ds); setIsSchemaModalOpen(true); setIsMobileSidebarOpen(false); }
+                        }}
+                        appearance={appearance}
+                    />
+                 </div>
+             </div>
+         )}
 
-        {/* Main Workspace */}
-        <Workspace 
-          currentView={currentView}
-          sessionId={sessionId}
-          apiConfig={apiConfig}
-          targetSqlTable={targetSqlTable}
-          onClearTargetSqlTable={() => setTargetSqlTable(null)}
-          selectedNode={selectedNode}
-          datasets={datasets}
-          inputFields={[]}
-          inputSchema={inputSchema}
-          onUpdateCommands={handleUpdateCommands}
-          onUpdateName={handleUpdateName}
-          onUpdateType={handleUpdateType}
-          onViewPath={() => setShowPathModal(true)}
-          isRightPanelOpen={isRightPanelOpen}
-          onCloseRightPanel={() => setIsRightPanelOpen(false)}
-          rightPanelWidth={rightPanelWidth}
-          onRightPanelResizeStart={() => isResizingRight ? null : setIsResizingRight(true)} // Logic handled in effect, just trigger state
-          previewData={previewData}
-          onClearPreview={() => setPreviewData(null)}
-          loading={loading}
-          onRefreshPreview={(page, cmdId) => handleExecute(page, cmdId)}
-          onUpdatePageSize={handleUpdatePageSize}
-          onExportFull={handleExportFull}
-          isMobile={isMobile}
-          tree={tree}
-          panelPosition={sessionSettings.panelPosition}
-        />
+         {/* Desktop Sidebar */}
+         <div className="hidden md:block h-full shrink-0">
+             <Sidebar 
+                width={sidebarWidth}
+                currentView={currentView}
+                sessionId={sessionId}
+                tree={tree}
+                datasets={datasets}
+                selectedNodeId={selectedNodeId}
+                onSelectNode={setSelectedNodeId}
+                onToggleEnabled={handleToggleEnabled}
+                onAddChild={handleAddChild}
+                onDeleteNode={handleDeleteNode}
+                onImportClick={() => setIsImportOpen(true)}
+                onOpenTableInSql={(t) => { setTargetSqlTable(t); setCurrentView('sql'); }}
+                onOpenSchema={(name) => { 
+                    const ds = datasets.find(d => d.name === name); 
+                    if(ds) { setSelectedDatasetForSchema(ds); setIsSchemaModalOpen(true); }
+                }}
+                appearance={appearance}
+             />
+         </div>
+
+         <Workspace 
+            currentView={currentView}
+            sessionId={sessionId}
+            apiConfig={apiConfig}
+            targetSqlTable={targetSqlTable}
+            onClearTargetSqlTable={() => setTargetSqlTable(null)}
+            selectedNode={selectedNode}
+            datasets={datasets}
+            inputFields={[]} 
+            inputSchema={globalInputSchema}
+            onUpdateCommands={handleUpdateCommands}
+            onUpdateName={handleUpdateName}
+            onUpdateType={handleUpdateType}
+            onViewPath={() => setIsPathModalOpen(true)}
+            isRightPanelOpen={isRightPanelOpen}
+            onCloseRightPanel={() => setIsRightPanelOpen(false)}
+            rightPanelWidth={rightPanelWidth}
+            onRightPanelResizeStart={() => setIsResizing(true)}
+            previewData={previewData}
+            onClearPreview={() => setPreviewData(null)}
+            loading={loading}
+            onRefreshPreview={(page, cmdId) => handleExecute(page, cmdId)}
+            onUpdatePageSize={(size) => {
+                 if(selectedNode) {
+                    const updatedNode = { ...selectedNode, pageSize: size };
+                    const updateTree = (n: OperationNode): OperationNode => {
+                        if (n.id === selectedNode.id) return updatedNode;
+                        if (n.children) return { ...n, children: n.children.map(updateTree) };
+                        return n;
+                    };
+                    setTree(updateTree(tree));
+                    handleExecute(1);
+                 }
+            }}
+            onExportFull={() => {
+                // Not fully implemented in mock
+                alert("Export triggered");
+            }}
+            isMobile={false}
+            tree={tree}
+            panelPosition={sessionSettings.panelPosition}
+            sqlHistory={sqlHistory}
+            onUpdateSqlHistory={handleUpdateSqlHistory}
+         />
       </div>
 
-      <DataImportModal
-        isOpen={showImportModal}
-        onClose={() => setShowImportModal(false)}
-        onImport={handleImport}
-        sessionId={sessionId}
-        apiConfig={apiConfig}
+      <DataImportModal 
+          isOpen={isImportOpen} 
+          onClose={() => setIsImportOpen(false)} 
+          onImport={(ds) => { setDatasets([...datasets, ds]); }}
+          sessionId={sessionId}
+          apiConfig={apiConfig}
+      />
+      
+      <SettingsModal
+          isOpen={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
+          servers={knownServers}
+          currentServer={apiConfig.baseUrl}
+          onSelectServer={(url) => { 
+              setApiConfig({ baseUrl: url, isMock: url === 'mockServer' }); 
+              // Reset session when switching servers
+              setSessionId(''); 
+              setTree(INITIAL_TREE);
+          }}
+          onAddServer={(url) => setKnownServers([...knownServers, url])}
+          onRemoveServer={(url) => setKnownServers(knownServers.filter(s => s !== url))}
+          appearance={appearance}
+          onUpdateAppearance={setAppearance}
+      />
+
+      <SessionSettingsModal
+          isOpen={isSessionSettingsOpen}
+          onClose={() => setIsSessionSettingsOpen(false)}
+          sessionId={sessionId}
+          initialDisplayName={sessionName}
+          initialSettings={sessionSettings}
+          onSave={handleSaveSessionSettings}
       />
 
       <PathConditionsModal
-        isOpen={showPathModal}
-        onClose={() => setShowPathModal(false)}
-        tree={tree}
-        targetNodeId={selectedNodeId}
-        sessionId={sessionId}
-        apiConfig={apiConfig}
-      />
-
-      <SettingsModal 
-        isOpen={showSettingsModal} 
-        onClose={() => setShowSettingsModal(false)}
-        servers={availableServers}
-        currentServer={currentServer}
-        onSelectServer={setCurrentServer}
-        onAddServer={(url) => setAvailableServers([...availableServers, url])}
-        onRemoveServer={(url) => setAvailableServers(availableServers.filter(s => s !== url))}
-        appearance={appearance}
-        onUpdateAppearance={setAppearance}
-      />
-
-      <SessionSettingsModal 
-        isOpen={showSessionSettingsModal}
-        onClose={() => setShowSessionSettingsModal(false)}
-        sessionId={sessionId}
-        initialDisplayName={sessionDisplayName}
-        initialSettings={sessionSettings}
-        onSave={handleSaveSessionSettings}
+          isOpen={isPathModalOpen}
+          onClose={() => setIsPathModalOpen(false)}
+          tree={tree}
+          targetNodeId={selectedNodeId}
+          sessionId={sessionId}
+          apiConfig={apiConfig}
       />
 
       <DatasetSchemaModal 
-        isOpen={!!schemaModalDataset}
-        onClose={() => setSchemaModalDataset(null)}
-        dataset={schemaModalDataset}
-        onSave={handleUpdateSchema}
+          isOpen={isSchemaModalOpen}
+          onClose={() => setIsSchemaModalOpen(false)}
+          dataset={selectedDatasetForSchema}
+          onSave={handleSchemaSave}
       />
     </div>
   );
-};
+}
 
 export default App;

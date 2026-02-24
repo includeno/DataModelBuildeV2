@@ -3,7 +3,7 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { Command, CommandType, Dataset, OperationType, AggregationConfig, OperationNode, DataType, HavingCondition, MappingRule, FilterGroup, FilterCondition, SubTableConfig, FieldInfo } from '../types';
 import { Button } from './Button';
-import { Trash2, Plus, GripVertical, Type, Hash, Calendar, Clock, CheckCircle, Code, Database, Play, Layers, Braces, Save, Share2, ArrowRight, AlertCircle, Filter as FilterIcon, Table, Calculator, List, Check, Wand2, Info, ChevronRight, ChevronDown, Split, LayoutDashboard, AlertTriangle, Settings2, ArrowRightLeft, Eye, Variable, X } from 'lucide-react';
+import { Trash2, Plus, GripVertical, Type, Database, Play, Layers, Braces, Save, Share2, ArrowRight, AlertCircle, Filter as FilterIcon, Table, Calculator, List, Check, Wand2, Info, ChevronRight, ChevronDown, Split, LayoutDashboard, AlertTriangle, Settings2, ArrowRightLeft, Eye, Variable, X } from 'lucide-react';
 
 interface CommandEditorProps {
   operationId: string;
@@ -26,19 +26,19 @@ const PYTHON_TEMPLATE = `def transform(row):
     val = row.get('id', 0)
     return val * 1.1`;
 
-const DATA_TYPE_ICONS: Record<string, any> = {
-    string: Type,
-    number: Hash,
-    boolean: CheckCircle,
-    date: Calendar,
-    timestamp: Clock,
-    json: Code,
-};
+// const DATA_TYPE_ICONS: Record<string, any> = {
+//     string: Type,
+//     number: Hash,
+//     boolean: CheckCircle,
+//     date: Calendar,
+//     timestamp: Clock,
+//     json: Code,
+// };
 
-const OPERATION_TYPES: {value: OperationType, label: string, icon: any}[] = [
-    { value: 'setup', label: 'Setup Source', icon: Settings2 },
-    { value: 'process', label: 'Process', icon: Play },
-];
+// const OPERATION_TYPES: {value: OperationType, label: string, icon: any}[] = [
+//     { value: 'setup', label: 'Setup Source', icon: Settings2 },
+//     { value: 'process', label: 'Process', icon: Play },
+// ];
 
 const OPERATORS: Record<string, { value: string; label: string }[]> = {
     string: [
@@ -534,10 +534,10 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
   operationType, 
   commands, 
   datasets,
-  inputSchema,
+  // inputSchema, // Unused
   onUpdateCommands,
   onUpdateName,
-  onUpdateType,
+  // onUpdateType, // Unused
   onViewPath,
   onRun,
   tree
@@ -698,9 +698,13 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                       idx !== index && c.config.alias === currentAlias
                   );
                   if (isDuplicateAlias) errors.push("Alias name must be unique.");
+
+                  // 3. Alias vs Variable Name Check (New Requirement)
+                  const isConflictWithVariable = variableCommands.some(c => c.config.variableName === currentAlias);
+                  if (isConflictWithVariable) errors.push("Alias conflicts with a variable name.");
               }
 
-              // 3. Alias vs Table Name Check
+              // 4. Alias vs Table Name Check
               if (currentAlias) {
                   const isConflictWithDataset = datasets.some(d => d.name === currentAlias);
                   if (isConflictWithDataset && currentAlias !== currentTable) {
@@ -814,7 +818,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                                 <ArrowRight className="w-4 h-4 text-gray-400 shrink-0" />
                                                 <input 
                                                     type="text" 
-                                                    className={`w-full px-3 py-2 border rounded-md focus:ring-1 text-sm font-bold bg-blue-50/50 placeholder-blue-200 ${hasError && (errors[0].includes('Alias') || errors[0].includes('unique')) ? 'border-red-300 text-red-700 focus:border-red-500 focus:ring-red-200' : 'border-gray-300 text-blue-700 focus:border-blue-500 focus:ring-blue-500'}`}
+                                                    className={`w-full px-3 py-2 border rounded-md focus:ring-1 text-sm font-bold bg-blue-50/50 placeholder-blue-200 ${hasError && (errors[0].includes('Alias') || errors[0].includes('unique') || errors[0].includes('conflicts')) ? 'border-red-300 text-red-700 focus:border-red-500 focus:ring-red-200' : 'border-gray-300 text-blue-700 focus:border-blue-500 focus:ring-blue-500'}`}
                                                     value={cmd.config.alias || ''}
                                                     onChange={(e) => handleUpdateSourceCmd(cmd.id, { alias: e.target.value })}
                                                     placeholder="e.g. Users"

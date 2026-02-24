@@ -5,7 +5,7 @@ import { CommandEditor } from './CommandEditor';
 import { SqlEditor } from './SqlEditor';
 import { DataPreview } from './DataPreview';
 import { ComplexDataPreview } from './ComplexDataPreview';
-import { OperationNode, Dataset, Command, ExecutionResult, ApiConfig, OperationType, DataType } from '../types';
+import { OperationNode, Dataset, Command, ExecutionResult, ApiConfig, OperationType, DataType, SqlHistoryItem } from '../types';
 import { api } from '../utils/api';
 
 interface WorkspaceProps {
@@ -35,6 +35,8 @@ interface WorkspaceProps {
   isMobile: boolean;
   tree?: OperationNode;
   panelPosition?: 'right' | 'left' | 'top' | 'bottom';
+  sqlHistory?: SqlHistoryItem[];
+  onUpdateSqlHistory?: (history: SqlHistoryItem[]) => void;
 }
 
 export const Workspace: React.FC<WorkspaceProps> = ({
@@ -63,7 +65,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   onExportFull,
   isMobile,
   tree,
-  panelPosition = 'right'
+  panelPosition = 'right',
+  sqlHistory,
+  onUpdateSqlHistory
 }) => {
   const [activeTab, setActiveTab] = useState<string>('');
 
@@ -274,6 +278,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                     apiConfig={apiConfig} 
                     targetTable={targetSqlTable}
                     onClearTarget={onClearTargetSqlTable}
+                    history={sqlHistory}
+                    onUpdateHistory={onUpdateSqlHistory}
                 />
             </div>
         ) : (

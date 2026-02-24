@@ -25,8 +25,8 @@ def test_switch_to_mock_and_query(page: Page):
     # 1. Open Settings
     page.get_by_title("Global Settings (Connection & Appearance)").click()
     
-    # 2. Select Mock Server
-    page.get_by_text("Mock Server").click()
+    # 2. Select Mock Server (Use exact text match to avoid ambiguity with current status indicator)
+    page.get_by_text("Mock Server", exact=True).click()
     page.get_by_role("button", name="Done").click()
     
     # 3. Create Session (Mock)
@@ -89,9 +89,10 @@ def test_e2e_backend_workflow(page: Page):
     file_chooser = fc_info.value
     file_chooser.set_files("temp_test_data.csv")
     
-    # Confirm Upload
+    # Confirm Upload (Look for button specifically in the modal dialog/overlay)
     page.wait_for_selector("input[value='temp_test_data']")
-    page.get_by_role("button", name="Import Dataset").click()
+    # Target the primary action button inside the modal to avoid matching sidebar button
+    page.locator("div.fixed button").filter(has_text="Import Dataset").click()
     
     # 4. Build Pipeline
     # Select Root (should auto-select 'temp_test_data' source if it's the first one, or user selects it)
