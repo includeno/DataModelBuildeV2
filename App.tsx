@@ -173,6 +173,11 @@ function App() {
           setTree(INITIAL_TREE);
           setSqlHistory([]);
           
+          // Update name in backend immediately so list reflects it
+          try {
+              await api.post(apiConfig, `/sessions/${res.sessionId}/metadata`, { displayName: 'New Session' });
+          } catch (e) { console.error("Failed to set initial session name", e); }
+
           if (apiConfig.isMock) {
               // Ensure mock datasets are loaded for new mock sessions
               const dss = await api.get(apiConfig, '/datasets');

@@ -183,7 +183,9 @@ class ExecutionEngine:
             try:
                 # 1. Handle Context/Source Loading (Common to all commands)
                 source = cmd.config.dataSource
-                if source and source != 'stream':
+                # Only load source if we are at the start of the stream (df is None)
+                # OR if it is a View command explicitly asking to view a table
+                if source and source != 'stream' and (df is None or cmd.type == 'view'):
                      # Try to resolve source as a linkId first
                      resolved_table = self._resolve_table_from_link_id(tree, source)
                      if resolved_table:
@@ -193,7 +195,11 @@ class ExecutionEngine:
                      df = storage.get_full_dataset(session_id, source)
                 
                 # Legacy fallback for Source Type
-                if cmd.type == 'source' or (cmd.type not in ['join', 'group', 'multi_table', 'view', 'define_variable'] and cmd.config.mainTable):
+                if cmd.type == 'source':
+                    table_name = cmd.config.mainTable
+                    if table_name:
+                        df = storage.get_full_dataset(session_id, table_name)
+                elif df is None and (cmd.type not in ['join', 'group', 'multi_table', 'view', 'define_variable'] and cmd.config.mainTable):
                     table_name = cmd.config.mainTable
                     if table_name:
                         df = storage.get_full_dataset(session_id, table_name)

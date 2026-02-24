@@ -585,12 +585,13 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
       return aliases;
   }, [tree]);
 
+  const ancestors = useMemo(() => {
+      if (!tree) return [];
+      return getAncestors(tree, operationId) || [];
+  }, [tree, operationId]);
+
   // Collect outputs from Ancestor nodes (Parent -> Parent -> Root)
   const ancestorOutputs = useMemo(() => {
-      if (!tree) return [];
-      const ancestors = getAncestors(tree, operationId);
-      if (!ancestors) return [];
-
       const outputs = new Set<string>();
       ancestors.forEach(node => {
           node.commands.forEach(cmd => {
@@ -1169,6 +1170,9 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                 // Combine Ancestor + Local Variables for this command's context and deduplicate
                 const currentScopeVariables = Array.from(new Set([...ancestorVariables, ...localVariables]));
 
+                const isSourceRequired = index === 0 && (!ancestors || ancestors.length === 0);
+                const isMissingSource = isSourceRequired && !cmd.config.dataSource;
+
                 return (
                 <React.Fragment key={cmd.id}>
                     <InsertDivider index={index} onInsert={insertCommand} />
@@ -1204,15 +1208,15 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                         </div>
 
                         {cmd.type !== 'view' && (
-                            <div className={`px-3 py-1.5 border-b border-gray-100 flex items-center space-x-2 ${!cmd.config.dataSource ? 'bg-red-50/50' : 'bg-gray-50'}`}>
-                                <Database className={`w-3 h-3 ${!cmd.config.dataSource ? 'text-red-400' : 'text-gray-400'}`} />
+                            <div className={`px-3 py-1.5 border-b border-gray-100 flex items-center space-x-2 ${isMissingSource ? 'bg-red-50/50' : 'bg-gray-50'}`}>
+                                <Database className={`w-3 h-3 ${isMissingSource ? 'text-red-400' : 'text-gray-400'}`} />
                                 <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Select Dataset:</span>
                                 <select
                                         value={cmd.config.dataSource || ''}
                                         onChange={(e) => updateCommand(cmd.id, 'config.dataSource', e.target.value)}
-                                        className={`bg-transparent text-xs font-medium focus:outline-none cursor-pointer border-none p-0 pr-4 hover:underline ${!cmd.config.dataSource ? 'text-red-600' : 'text-blue-700'}`}
+                                        className={`bg-transparent text-xs font-medium focus:outline-none cursor-pointer border-none p-0 pr-4 hover:underline ${isMissingSource ? 'text-red-600' : 'text-blue-700'}`}
                                     >
-                                        <option value="">-- Select Source --</option>
+                                        <option value="">{isSourceRequired ? "-- Select Source --" : "Inherit (Use Incoming Data)"}</option>
                                         {availableSourceAliases.length > 0 && (
                                             <optgroup label="Data Sources">
                                                 {availableSourceAliases.map(sa => (

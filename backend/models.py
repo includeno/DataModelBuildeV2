@@ -32,6 +32,7 @@ class CommandConfig(BaseModel):
     # Source configs
     mainTable: Optional[str] = None
     alias: Optional[str] = None
+    linkId: Optional[str] = None
 
     # Variable Definition
     variableName: Optional[str] = None

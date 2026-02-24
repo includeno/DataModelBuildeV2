@@ -69,7 +69,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           <div className="relative flex items-center space-x-1">
               <button 
                   onClick={() => setIsSessionMenuOpen(!isSessionMenuOpen)}
-                  className={`flex items-center justify-between space-x-2 bg-white border hover:bg-gray-50 text-gray-900 px-2 md:px-3 py-1.5 rounded-md shadow-sm transition-all text-sm w-[140px] md:min-w-[180px] ${
+                  className={`flex items-center justify-between space-x-2 bg-white border hover:bg-gray-50 text-gray-900 px-2 md:px-3 py-1.5 rounded-md shadow-sm transition-all text-sm min-w-[160px] md:min-w-[240px] max-w-[320px] ${
                     !sessionId ? 'border-blue-400 ring-1 ring-blue-100' : 'border-gray-300'
                   }`}
               >
