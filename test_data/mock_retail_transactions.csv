@@ -1,0 +1,13 @@
+transaction_id,customer_id,region,product_category,order_amount,discount_rate,order_date,payment_method,is_member
+TXN0001,CUST001,East,Electronics,1299.00,0.10,2025-01-03,CreditCard,true
+TXN0002,CUST002,North,Home,230.50,0.05,2025-01-05,Alipay,false
+TXN0003,CUST003,South,Grocery,89.20,0.00,2025-01-06,WeChatPay,true
+TXN0004,CUST004,West,Fashion,560.00,0.20,2025-01-07,CreditCard,true
+TXN0005,CUST002,North,Electronics,999.00,0.15,2025-01-09,Cash,false
+TXN0006,CUST005,East,Sports,320.40,0.08,2025-01-10,WeChatPay,true
+TXN0007,CUST006,South,Home,120.00,0.00,2025-01-12,Alipay,false
+TXN0008,CUST001,East,Grocery,45.80,0.00,2025-01-12,CreditCard,true
+TXN0009,CUST007,West,Fashion,410.00,0.12,2025-01-13,CreditCard,false
+TXN0010,CUST008,North,Sports,780.00,0.18,2025-01-15,WeChatPay,true
+TXN0011,CUST009,South,Electronics,1500.00,0.20,2025-01-16,Alipay,true
+TXN0012,CUST010,East,Home,275.00,0.05,2025-01-18,CreditCard,false

@@ -4,7 +4,7 @@ uvicorn
 pandas
 python-multipart
 pytest
-httpx
+httpx==0.27.2
 duckdb
 numpy
 openpyxl

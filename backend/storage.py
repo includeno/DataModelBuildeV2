@@ -16,11 +16,19 @@ class SessionStorage:
             os.makedirs(SESSIONS_DIR)
 
     def clear(self):
-        """Clears all sessions data."""
+        """Remove all session data (used by tests for isolation)."""
         if os.path.exists(SESSIONS_DIR):
-            shutil.rmtree(SESSIONS_DIR)
-        if not os.path.exists(SESSIONS_DIR):
-            os.makedirs(SESSIONS_DIR)
+            for name in os.listdir(SESSIONS_DIR):
+                path = os.path.join(SESSIONS_DIR, name)
+                try:
+                    if os.path.isdir(path):
+                        shutil.rmtree(path)
+                    else:
+                        os.remove(path)
+                except Exception:
+                    pass
+        else:
+            os.makedirs(SESSIONS_DIR, exist_ok=True)
 
     def _get_session_path(self, session_id: str) -> str:
         return os.path.join(SESSIONS_DIR, session_id)
@@ -175,7 +183,7 @@ class SessionStorage:
         con = duckdb.connect(db_path)
         try:
             return con.execute(f"SELECT * FROM {table_name}").df()
-        except Exception:
+        except:
             return None
         finally:
             con.close()

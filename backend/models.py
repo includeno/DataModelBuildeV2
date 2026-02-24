@@ -21,7 +21,6 @@ class SubTableConfig(BaseModel):
 class CommandConfig(BaseModel):
     # New: Context selection
     dataSource: Optional[str] = "stream" # 'stream' or table_name
-    linkId: Optional[str] = None # For linking to source commands
 
     field: Optional[str] = None
     operator: Optional[str] = None
@@ -89,7 +88,10 @@ class OperationNode(BaseModel):
     commands: List[Command]
     children: Optional[List['OperationNode']] = None
 
-OperationNode.update_forward_refs()
+try:
+    OperationNode.model_rebuild()
+except AttributeError:
+    OperationNode.update_forward_refs()
 
 class ExecuteRequest(BaseModel):
     session_id: str = Field(..., alias="sessionId")

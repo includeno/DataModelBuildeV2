@@ -29,7 +29,10 @@ def clean_df_for_json(df: pd.DataFrame) -> List[dict]:
     Replace NaN, Infinity, -Infinity with None for valid JSON serialization.
     """
     # Replace infinite values with NaN
-    df = df.replace([np.inf, -np.inf], np.nan)
+    df = df.copy()
+    num_cols = df.select_dtypes(include=[np.number]).columns
+    if len(num_cols) > 0:
+        df[num_cols] = df[num_cols].replace([np.inf, -np.inf], np.nan)
     
     # Preprocessing to handle NaNs (restored as requested)
     df = df.where(pd.notnull(df), None)

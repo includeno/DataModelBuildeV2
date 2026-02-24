@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 from main import app
 from storage import storage
 import os
+from pathlib import Path
 
 client = TestClient(app)
 
@@ -79,6 +80,44 @@ def test_csv_upload_and_query():
     # Check Aggregation Results
     row_dev = next(r for r in data["rows"] if r["role"] == "Dev")
     assert row_dev["avg_salary"] == 110000.0  # (100k + 120k) / 2
+
+
+def test_upload_mock_retail_dataset_and_query():
+    """Verify CSV mock dataset can be uploaded and queried with aggregations."""
+    session_id = client.post("/sessions").json()["sessionId"]
+    csv_path = Path(__file__).resolve().parent.parent / "test_data" / "mock_retail_transactions.csv"
+
+    with csv_path.open("rb") as f:
+        files = {"file": ("mock_retail_transactions.csv", f.read(), "text/csv")}
+        upload_res = client.post(
+            "/upload",
+            files=files,
+            data={"sessionId": session_id, "name": "mock_retail_transactions"},
+        )
+
+    assert upload_res.status_code == 200
+    assert upload_res.json()["totalCount"] == 12
+
+    query_res = client.post(
+        "/query",
+        json={
+            "sessionId": session_id,
+            "query": """
+                SELECT region, COUNT(*) AS cnt, ROUND(AVG(order_amount), 2) AS avg_amt
+                FROM mock_retail_transactions
+                GROUP BY region
+                ORDER BY region
+            """,
+            "page": 1,
+            "pageSize": 10,
+        },
+    )
+
+    assert query_res.status_code == 200
+    rows = query_res.json()["rows"]
+    assert len(rows) == 4
+    east = next(r for r in rows if r["region"] == "East")
+    assert east["cnt"] == 4
 
 # --- Engine Execution Tests ---
 
