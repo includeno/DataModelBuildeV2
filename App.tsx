@@ -382,6 +382,58 @@ function App() {
       }
   };
 
+  const handleExportFull = async () => {
+      if (!selectedNode) return;
+      
+      try {
+          // Fetch all data (using a large page size for now)
+          const res = await api.post(apiConfig, '/execute', {
+              sessionId,
+              tree,
+              targetNodeId: selectedNodeId,
+              page: 1,
+              pageSize: 100000, // Large limit for full export
+              viewId: 'main'
+          });
+
+          if (!res || !res.rows || res.rows.length === 0) {
+              alert("No data to export");
+              return;
+          }
+
+          // Convert to CSV
+          const headers = res.columns || Object.keys(res.rows[0]);
+          const csvContent = [
+              headers.join(','),
+              ...res.rows.map((row: any) => {
+                  return headers.map((fieldName: string) => {
+                      let val = row[fieldName];
+                      if (val === null || val === undefined) return '';
+                      val = String(val).replace(/"/g, '""');
+                      if (val.search(/("|,|\n)/g) >= 0) {
+                          val = `"${val}"`;
+                      }
+                      return val;
+                  }).join(',');
+              })
+          ].join('\n');
+
+          // Download
+          const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.setAttribute('download', `export_full_${selectedNode.name}_${Date.now()}.csv`);
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+
+      } catch (e: any) {
+          console.error("Export failed", e);
+          alert(`Export Failed: ${e.message}`);
+      }
+  };
+
   const handleSchemaSave = async (datasetId: string, fieldTypes: any) => {
       // Update local state
       const updated = datasets.map(d => d.id === datasetId ? { ...d, fieldTypes } : d);
@@ -495,10 +547,7 @@ function App() {
                     handleExecute(1);
                  }
             }}
-            onExportFull={() => {
-                // Not fully implemented in mock
-                alert("Export triggered");
-            }}
+            onExportFull={handleExportFull}
             isMobile={false}
             tree={tree}
             panelPosition={sessionSettings.panelPosition}
