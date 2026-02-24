@@ -335,8 +335,45 @@ class ExecutionEngine:
                  s_str = series.astype(str)
                  if op == '=': return s_str == v
                  if op == '!=': return s_str != v
-                 if op == 'contains': return s_str.str.contains(v, case=False, na=False)
-                 if op == 'not_contains': return ~s_str.str.contains(v, case=False, na=False)
+                 
+                 if op == 'contains': 
+                     vals = [x.strip() for x in v.split(',')]
+                     if len(vals) > 1:
+                         mask = pd.Series([False] * len(df), index=df.index)
+                         for val in vals:
+                             mask = mask | s_str.str.contains(val, case=False, na=False)
+                         return mask
+                     return s_str.str.contains(v, case=False, na=False)
+
+                 if op == 'not_contains': 
+                     vals = [x.strip() for x in v.split(',')]
+                     if len(vals) > 1:
+                         mask = pd.Series([False] * len(df), index=df.index)
+                         for val in vals:
+                             mask = mask | s_str.str.contains(val, case=False, na=False)
+                         return ~mask
+                     return ~s_str.str.contains(v, case=False, na=False)
+                 
+                 if op == 'in_list':
+                     vals = [x.strip() for x in v.split(',')]
+                     if cond.get('dataType') == 'number':
+                         try:
+                             num_vals = [float(x) for x in vals if x.strip()]
+                             return series.isin(num_vals)
+                         except:
+                             pass
+                     return s_str.isin(vals)
+
+                 if op == 'not_in_list':
+                     vals = [x.strip() for x in v.split(',')]
+                     if cond.get('dataType') == 'number':
+                         try:
+                             num_vals = [float(x) for x in vals if x.strip()]
+                             return ~series.isin(num_vals)
+                         except:
+                             pass
+                     return ~s_str.isin(vals)
+
                  if op == 'starts_with': return s_str.str.startswith(v, na=False)
                  if op == 'ends_with': return s_str.str.endswith(v, na=False)
                  if op == 'is_empty': return (s_str == '') | series.isna()
