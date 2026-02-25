@@ -1,7 +1,7 @@
 
 
-import React, { useState } from 'react';
-import { Download, RefreshCw, Table as TableIcon, ChevronLeft, ChevronRight, FileDown, List } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Download, RefreshCw, Table as TableIcon, ChevronLeft, ChevronRight, FileDown, List, Columns, Check } from 'lucide-react';
 import { Button } from './Button';
 import { ExecutionResult } from '../types';
 
@@ -13,6 +13,7 @@ interface DataPreviewProps {
   onPageChange?: (newPage: number) => void;
   onUpdatePageSize?: (size: number) => void;
   onExportFull?: () => void;
+  sourceId?: string;
 }
 
 export const DataPreview: React.FC<DataPreviewProps> = ({ 
@@ -22,15 +23,50 @@ export const DataPreview: React.FC<DataPreviewProps> = ({
   onRefresh, 
   onPageChange,
   onUpdatePageSize,
-  onExportFull
+  onExportFull,
+  sourceId
 }) => {
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const [isColumnMenuOpen, setIsColumnMenuOpen] = useState(false);
+  const [visibleColumns, setVisibleColumns] = useState<string[] | null>(null);
+  const prevColumnsRef = useRef<string[]>([]);
+  const prevSourceIdRef = useRef<string | undefined>(undefined);
+
+  // Initialize visible columns when data changes
+  useEffect(() => {
+      if (data) {
+          const cols = data.columns || Object.keys(data.rows[0] || {});
+          const prevCols = prevColumnsRef.current;
+          const prevSourceId = prevSourceIdRef.current;
+          
+          // Check if columns have changed OR sourceId has changed
+          const isSameColumns = cols.length === prevCols.length && cols.every((col, i) => col === prevCols[i]);
+          const isSameSource = sourceId === prevSourceId;
+          
+          if (!isSameColumns || !isSameSource) {
+              setVisibleColumns(cols);
+              prevColumnsRef.current = cols;
+              prevSourceIdRef.current = sourceId;
+          }
+      }
+  }, [data, sourceId]);
+
+  const columns = data?.columns || (data?.rows?.[0] ? Object.keys(data.rows[0]) : []);
+  const activeCols = visibleColumns === null ? columns : visibleColumns;
+
+  const toggleColumn = (col: string) => {
+      if (activeCols.includes(col)) {
+          setVisibleColumns(activeCols.filter(c => c !== col));
+      } else {
+          setVisibleColumns([...activeCols, col]);
+      }
+  };
 
   const handleExportCsvPage = () => {
     if (!data || !data.rows.length) return;
 
-    // Get headers
-    const headers = data.columns || Object.keys(data.rows[0]);
+    // Get headers (use visible columns)
+    const headers = activeCols;
     
     // Convert rows to CSV format
     const csvContent = [
@@ -87,15 +123,14 @@ export const DataPreview: React.FC<DataPreviewProps> = ({
     );
   }
 
-  const columns = data.columns || Object.keys(data.rows[0]);
   const page = data.page || 1;
   const currentPageSize = pageSize || data.pageSize || 50;
   const totalPages = Math.ceil(data.totalCount / currentPageSize);
 
   return (
     <div className="flex flex-col h-full bg-white relative">
-      {isExportMenuOpen && (
-          <div className="fixed inset-0 z-20" onClick={() => setIsExportMenuOpen(false)} />
+      {(isExportMenuOpen || isColumnMenuOpen) && (
+          <div className="fixed inset-0 z-20" onClick={() => { setIsExportMenuOpen(false); setIsColumnMenuOpen(false); }} />
       )}
       
       <div className="px-5 py-2 border-b border-gray-200 flex justify-between items-center bg-white sticky top-0 z-40">
@@ -130,6 +165,48 @@ export const DataPreview: React.FC<DataPreviewProps> = ({
                 <RefreshCw className="w-4 h-4" />
             </button>
             
+            <div className="relative">
+                <Button 
+                    variant="secondary" 
+                    size="sm" 
+                    icon={<Columns className="w-3.5 h-3.5"/>}
+                    onClick={() => setIsColumnMenuOpen(!isColumnMenuOpen)}
+                >
+                    Columns
+                </Button>
+                
+                {isColumnMenuOpen && (
+                    <div className="absolute right-0 top-full mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-50 flex flex-col max-h-80 overflow-hidden">
+                        <div className="p-2 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                            <span className="text-xs font-semibold text-gray-600">Visible Columns</span>
+                            <button 
+                                onClick={() => setVisibleColumns(columns)}
+                                className="text-[10px] text-blue-600 hover:text-blue-800 font-medium"
+                            >
+                                Reset All
+                            </button>
+                        </div>
+                        <div className="overflow-y-auto p-1">
+                            {columns.map(col => (
+                                <label 
+                                    key={col} 
+                                    className="flex items-center space-x-2 px-2 py-1.5 hover:bg-gray-50 rounded cursor-pointer select-none transition-colors"
+                                    onClick={(e) => {
+                                        e.preventDefault();
+                                        toggleColumn(col);
+                                    }}
+                                >
+                                    <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center transition-colors ${activeCols.includes(col) ? 'bg-blue-500 border-blue-500' : 'border-gray-300 bg-white'}`}>
+                                        {activeCols.includes(col) && <Check className="w-2.5 h-2.5 text-white" strokeWidth={3} />}
+                                    </div>
+                                    <span className="text-xs text-gray-700 truncate flex-1" title={col}>{col}</span>
+                                </label>
+                            ))}
+                        </div>
+                    </div>
+                )}
+            </div>
+
             <div className="relative">
                 <Button 
                     variant="secondary" 
@@ -171,7 +248,7 @@ export const DataPreview: React.FC<DataPreviewProps> = ({
               <th className="sticky left-0 bg-gray-50 z-20 px-4 py-3 text-center text-[10px] font-bold text-gray-400 tracking-wider w-12 border-b border-gray-200">
                 #
               </th>
-              {columns.map((col) => (
+              {columns.filter(col => activeCols.includes(col)).map((col) => (
                 <th key={col} className="px-6 py-3 text-left text-[10px] font-bold text-gray-500 tracking-wider whitespace-nowrap border-b border-gray-200">
                   {col}
                 </th>
@@ -184,7 +261,7 @@ export const DataPreview: React.FC<DataPreviewProps> = ({
                 <td className="sticky left-0 bg-white group-hover:bg-blue-50/40 px-4 py-2.5 text-center text-xs text-gray-400 border-r border-gray-100 font-mono">
                   {(page - 1) * currentPageSize + idx + 1}
                 </td>
-                {columns.map((col) => (
+                {columns.filter(col => activeCols.includes(col)).map((col) => (
                   <td key={`${idx}-${col}`} className="px-6 py-2.5 text-sm text-gray-700 whitespace-nowrap font-medium">
                     {typeof row[col] === 'object' ? JSON.stringify(row[col]) : row[col]}
                   </td>

@@ -243,6 +243,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                           onPageChange={(page) => onRefreshPreview(page)}
                           onUpdatePageSize={onUpdatePageSize}
                           onExportFull={onExportFull}
+                          sourceId={selectedNode?.id}
                       />
                   )
               ) : (
