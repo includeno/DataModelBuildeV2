@@ -9,11 +9,12 @@ interface PathConditionsModalProps {
   onClose: () => void;
   tree: OperationNode;
   targetNodeId: string;
+  targetCommandId?: string;
   sessionId: string;
   apiConfig: ApiConfig;
 }
 
-export const PathConditionsModal: React.FC<PathConditionsModalProps> = ({ isOpen, onClose, tree, targetNodeId, sessionId, apiConfig }) => {
+export const PathConditionsModal: React.FC<PathConditionsModalProps> = ({ isOpen, onClose, tree, targetNodeId, targetCommandId, sessionId, apiConfig }) => {
   const [counts, setCounts] = useState<Record<string, number | null>>({});
   const [loadingCounts, setLoadingCounts] = useState<Record<string, boolean>>({});
 
@@ -54,6 +55,29 @@ export const PathConditionsModal: React.FC<PathConditionsModalProps> = ({ isOpen
     }
   };
 
+  const stringifyFilterGroup = (group: any): React.ReactNode => {
+      if (!group || !group.conditions || group.conditions.length === 0) return <span className="italic text-gray-400">Empty Filter</span>;
+      
+      return (
+          <span className="flex items-center flex-wrap gap-1">
+              {group.conditions.map((c: any, i: number) => (
+                  <React.Fragment key={i}>
+                      {i > 0 && <span className="text-blue-500 font-bold text-[10px] uppercase">{group.logicalOperator}</span>}
+                      {c.type === 'group' ? (
+                          <span className="bg-gray-100 rounded px-1 border border-gray-200">({stringifyFilterGroup(c)})</span>
+                      ) : (
+                          <span className="flex items-center gap-1 bg-white px-1 rounded border border-gray-200">
+                              <span className="font-semibold text-gray-600">{c.field}</span>
+                              <span className="text-blue-600 font-bold text-[10px]">{c.operator}</span>
+                              <span className="text-gray-900">{String(c.value)}</span>
+                          </span>
+                      )}
+                  </React.Fragment>
+              ))}
+          </span>
+      );
+  };
+
   const renderCommand = (cmd: Command, context: string) => {
       // Determine the specific table/context this command is acting on
       let specificContext = "";
@@ -77,6 +101,17 @@ export const PathConditionsModal: React.FC<PathConditionsModalProps> = ({ isOpen
 
       switch (cmd.type) {
           case 'filter':
+              if (cmd.config.filterRoot) {
+                   return (
+                      <div key={cmd.id} className="flex items-center text-sm bg-gray-50 border border-gray-100 rounded px-3 py-2 text-gray-700">
+                          <Filter className="w-3.5 h-3.5 text-gray-400 mr-2.5 shrink-0" />
+                          <span className="font-mono text-xs truncate flex items-center flex-wrap gap-1">
+                              <span className={`${contextClass} text-[10px] mr-1`}>[{contextLabel}]</span>
+                              {stringifyFilterGroup(cmd.config.filterRoot)}
+                          </span>
+                      </div>
+                   );
+              }
               return (
                   <div key={cmd.id} className="flex items-center text-sm bg-gray-50 border border-gray-100 rounded px-3 py-2 text-gray-700">
                       <Filter className="w-3.5 h-3.5 text-gray-400 mr-2.5 shrink-0" />
@@ -255,16 +290,26 @@ export const PathConditionsModal: React.FC<PathConditionsModalProps> = ({ isOpen
                                         {node.commands.length === 0 ? (
                                             <div className="text-xs text-gray-400 italic pl-1">No command</div>
                                         ) : (
-                                            node.commands.map(cmd => {
-                                                // Update context based on command type logic
-                                                if (cmd.type === 'source' && cmd.config.alias) {
-                                                    flowContext = cmd.config.alias;
-                                                } else if (cmd.config.dataSource && cmd.config.dataSource !== '') {
-                                                    flowContext = cmd.config.dataSource;
+                                            (() => {
+                                                let commandsToShow = node.commands;
+                                                if (node.id === targetNodeId && targetCommandId) {
+                                                    const cmdIndex = node.commands.findIndex(c => c.id === targetCommandId);
+                                                    if (cmdIndex !== -1) {
+                                                        commandsToShow = node.commands.slice(0, cmdIndex + 1);
+                                                    }
                                                 }
-                                                
-                                                return renderCommand(cmd, flowContext);
-                                            })
+
+                                                return commandsToShow.map(cmd => {
+                                                    // Update context based on command type logic
+                                                    if (cmd.type === 'source' && cmd.config.alias) {
+                                                        flowContext = cmd.config.alias;
+                                                    } else if (cmd.config.dataSource && cmd.config.dataSource !== '') {
+                                                        flowContext = cmd.config.dataSource;
+                                                    }
+                                                    
+                                                    return renderCommand(cmd, flowContext);
+                                                });
+                                            })()
                                         )}
                                     </div>
                                 </div>

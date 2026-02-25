@@ -3,7 +3,7 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { Command, CommandType, Dataset, OperationType, AggregationConfig, OperationNode, DataType, HavingCondition, MappingRule, FilterGroup, FilterCondition, SubTableConfig, FieldInfo } from '../types';
 import { Button } from './Button';
-import { Trash2, Plus, GripVertical, Type, Database, Play, Layers, Braces, ArrowRight, Filter as FilterIcon, Table, Calculator, List, Check, Info, ChevronDown, Split, LayoutDashboard, AlertTriangle, Settings2, Eye, Variable } from 'lucide-react';
+import { Trash2, Plus, GripVertical, Type, Database, Play, Layers, Braces, ArrowRight, Filter as FilterIcon, Table, Calculator, List, Check, Info, ChevronDown, Split, LayoutDashboard, AlertTriangle, Settings2, Eye, Variable, Route } from 'lucide-react';
 
 interface CommandEditorProps {
   operationId: string;
@@ -15,7 +15,7 @@ interface CommandEditorProps {
   onUpdateCommands: (operationId: string, newCommands: Command[]) => void;
   onUpdateName: (name: string) => void;
   onUpdateType: (operationId: string, type: OperationType) => void;
-  onViewPath: () => void;
+  onViewPath: (commandId?: string) => void;
   onRun?: (commandId?: string) => void;
   tree?: OperationNode; 
 }
@@ -767,7 +767,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                    </div>
                 </div>
                 <div className="flex items-center pl-4 border-l border-gray-200 ml-4">
-                     <button onClick={onViewPath} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors" title="View Logic Path"><Layers className="w-5 h-5" /></button>
+                     <button onClick={() => onViewPath()} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors" title="View Logic Path"><Layers className="w-5 h-5" /></button>
                 </div>
             </div>
             
@@ -1112,7 +1112,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
            </div>
         </div>
         <div className="flex items-center pl-4 border-l border-gray-200 ml-4">
-             <button onClick={onViewPath} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors" title="View Logic Path"><Layers className="w-5 h-5" /></button>
+             <button onClick={() => onViewPath()} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors" title="View Logic Path"><Layers className="w-5 h-5" /></button>
         </div>
       </div>
 
@@ -1199,6 +1199,13 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                             </div>
                             <div className="flex items-center space-x-2">
                                 {/* Run to Step Button */}
+                                <button 
+                                    onClick={() => onViewPath(cmd.id)}
+                                    className="p-1 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded transition-colors"
+                                    title="View Path Logic Synthesis"
+                                >
+                                    <Route className="w-3.5 h-3.5" />
+                                </button>
                                 <button 
                                     onClick={() => onRun && onRun(cmd.id)}
                                     className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"

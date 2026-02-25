@@ -59,6 +59,7 @@ function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSessionSettingsOpen, setIsSessionSettingsOpen] = useState(false);
   const [isPathModalOpen, setIsPathModalOpen] = useState(false);
+  const [targetCommandId, setTargetCommandId] = useState<string | undefined>(undefined);
   const [isSchemaModalOpen, setIsSchemaModalOpen] = useState(false);
   const [selectedDatasetForSchema, setSelectedDatasetForSchema] = useState<Dataset | null>(null);
 
@@ -531,7 +532,10 @@ function App() {
             onUpdateCommands={handleUpdateCommands}
             onUpdateName={handleUpdateName}
             onUpdateType={handleUpdateType}
-            onViewPath={() => setIsPathModalOpen(true)}
+            onViewPath={(cmdId) => { 
+                setTargetCommandId(cmdId);
+                setIsPathModalOpen(true); 
+            }}
             isRightPanelOpen={isRightPanelOpen}
             onCloseRightPanel={() => setIsRightPanelOpen(false)}
             rightPanelWidth={rightPanelWidth}
@@ -597,9 +601,13 @@ function App() {
 
       <PathConditionsModal
           isOpen={isPathModalOpen}
-          onClose={() => setIsPathModalOpen(false)}
+          onClose={() => {
+              setIsPathModalOpen(false);
+              setTargetCommandId(undefined);
+          }}
           tree={tree}
           targetNodeId={selectedNodeId}
+          targetCommandId={targetCommandId}
           sessionId={sessionId}
           apiConfig={apiConfig}
       />

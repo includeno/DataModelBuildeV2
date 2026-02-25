@@ -21,7 +21,7 @@ interface WorkspaceProps {
   onUpdateCommands: (opId: string, newCommands: Command[]) => void;
   onUpdateName: (name: string) => void;
   onUpdateType: (opId: string, type: OperationType) => void;
-  onViewPath: () => void;
+  onViewPath: (commandId?: string) => void;
   isRightPanelOpen: boolean;
   onCloseRightPanel: () => void;
   rightPanelWidth: number;
