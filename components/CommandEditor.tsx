@@ -88,7 +88,7 @@ OPERATORS['timestamp'] = OPERATORS['date'];
 
 const baseInputStyles = "w-full text-sm border border-gray-200 rounded-md focus:ring-2 focus:ring-blue-100 focus:border-blue-500 bg-white text-gray-900 shadow-sm transition-all hover:border-gray-300 py-1.5";
 const errorInputStyles = "w-full text-sm border border-red-300 rounded-md focus:ring-2 focus:ring-red-100 focus:border-red-500 bg-red-50 text-red-900 shadow-sm transition-all py-1.5";
-const codeAreaStyles = "w-full text-[11px] border border-gray-700 rounded-md focus:ring-2 focus:ring-blue-900 focus:border-blue-700 bg-[#1e1e1e] text-[#d4d4d4] font-mono shadow-sm transition-all py-2 px-3 leading-relaxed resize-none selection:bg-[#264f78]";
+const codeAreaStyles = "w-full text-[11px] border border-gray-700 rounded-md focus:ring-2 focus:ring-blue-900 focus:border-blue-700 bg-[#1e1e1e] text-[#d4d4d4] font-mono shadow-sm transition-all py-2 px-3 leading-relaxed resize-y selection:bg-[#264f78]";
 
 const flattenNodes = (root: OperationNode): OperationNode[] => {
     let result = [root];
@@ -472,19 +472,19 @@ const FilterGroupEditor: React.FC<FilterGroupEditorProps> = ({ group, activeSche
                         />
                     ) : (
                         <div key={item.id} className="grid grid-cols-12 gap-2 items-center bg-gray-50/50 p-2 rounded-md border border-gray-100 group/cond relative">
-                            <div className="col-span-5 relative">
+                            <div className="col-span-3 relative">
                                 <select 
-                                    className={`${baseInputStyles} py-1 pl-2`} 
+                                    className={`${baseInputStyles} py-1 pl-2 text-xs`} 
                                     value={item.field} 
                                     onChange={(e) => handleUpdateCondition(item.id, { field: e.target.value })}
                                 >
-                                    <option value="">Select Field...</option>
+                                    <option value="">Field...</option>
                                     {fieldNames.map(f => <option key={f} value={f}>{f}</option>)}
                                 </select>
                             </div>
                             <div className="col-span-3">
                                 <select 
-                                    className={`${baseInputStyles} py-1`} 
+                                    className={`${baseInputStyles} py-1 text-xs`} 
                                     value={item.operator} 
                                     onChange={(e) => handleUpdateCondition(item.id, { operator: e.target.value })}
                                 >
@@ -493,8 +493,18 @@ const FilterGroupEditor: React.FC<FilterGroupEditorProps> = ({ group, activeSche
                                     ))}
                                 </select>
                             </div>
+                            <div className="col-span-2">
+                                <select
+                                    className={`${baseInputStyles} py-1 text-xs font-mono text-blue-600 bg-blue-50/50 border-blue-100`}
+                                    value={item.valueType || 'raw'}
+                                    onChange={(e) => handleUpdateCondition(item.id, { valueType: e.target.value as 'raw' | 'variable' })}
+                                >
+                                    <option value="raw">Raw</option>
+                                    <option value="variable">Variable</option>
+                                </select>
+                            </div>
                             <div className="col-span-3 relative">
-                                {(item.operator === 'in_variable' || item.operator === 'not_in_variable') ? (
+                                {(item.valueType === 'variable' || item.operator === 'in_variable' || item.operator === 'not_in_variable') ? (
                                     <VariableSuggestionInput 
                                         value={String(item.value)} 
                                         onChange={(val) => handleUpdateCondition(item.id, { value: val })}
@@ -1479,7 +1489,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                             <div key={mapping.id} className="flex space-x-3 items-start border p-3 rounded-lg bg-gray-50">
                                                 <div className="flex-1 space-y-2">
                                                     {mapping.mode === 'python' ? (
-                                                        <textarea className={codeAreaStyles} rows={3} value={mapping.expression} onChange={(e) => updateMappingRule(cmd.id, cmd.config.mappings || [], i, 'expression', e.target.value)} placeholder={PYTHON_TEMPLATE} />
+                                                        <textarea className={codeAreaStyles} rows={5} value={mapping.expression} onChange={(e) => updateMappingRule(cmd.id, cmd.config.mappings || [], i, 'expression', e.target.value)} placeholder={PYTHON_TEMPLATE} />
                                                     ) : (
                                                         <input className={baseInputStyles} value={mapping.expression} onChange={(e) => updateMappingRule(cmd.id, cmd.config.mappings || [], i, 'expression', e.target.value)} placeholder="Expression" />
                                                     )}

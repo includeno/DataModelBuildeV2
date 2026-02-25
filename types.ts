@@ -38,6 +38,7 @@ export interface FilterCondition {
   field: string;
   operator: string;
   value: string | number | string[];
+  valueType?: 'raw' | 'variable';
   dataType?: DataType;
 }
 

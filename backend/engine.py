@@ -291,6 +291,8 @@ class ExecutionEngine:
         field = cond.get('field')
         op = cond.get('operator')
         val = cond.get('value')
+        value_type = cond.get('valueType')
+
         if field not in df.columns: 
             return pd.Series([True] * len(df), index=df.index)
 
@@ -298,7 +300,14 @@ class ExecutionEngine:
         
         # Variable Resolution in Value
         target_val = val
-        if isinstance(target_val, str) and target_val.startswith('{') and target_val.endswith('}'):
+        
+        if value_type == 'variable':
+             var_name = str(val)
+             if var_name.startswith('{') and var_name.endswith('}'):
+                 var_name = var_name[1:-1]
+             if var_name in variables:
+                 target_val = variables[var_name]
+        elif isinstance(target_val, str) and target_val.startswith('{') and target_val.endswith('}'):
             var_name = target_val[1:-1]
             if var_name in variables:
                 target_val = variables[var_name]
@@ -331,31 +340,46 @@ class ExecutionEngine:
                  if op == '=': return series == v
                  if op == '!=': return series != v
              else:
-                 v = str(target_val)
+                 v = str(target_val) # Fallback string representation for simple ops
                  s_str = series.astype(str)
                  if op == '=': return s_str == v
                  if op == '!=': return s_str != v
                  
                  if op == 'contains': 
-                     vals = [x.strip() for x in v.split(',')]
-                     if len(vals) > 1:
+                     vals = []
+                     if isinstance(target_val, list):
+                         vals = [str(x) for x in target_val]
+                     else:
+                         vals = [x.strip() for x in str(target_val).split(',')]
+                     
+                     if len(vals) > 0:
                          mask = pd.Series([False] * len(df), index=df.index)
                          for val in vals:
                              mask = mask | s_str.str.contains(val, case=False, na=False)
                          return mask
-                     return s_str.str.contains(v, case=False, na=False)
+                     return pd.Series([False] * len(df), index=df.index)
 
                  if op == 'not_contains': 
-                     vals = [x.strip() for x in v.split(',')]
-                     if len(vals) > 1:
+                     vals = []
+                     if isinstance(target_val, list):
+                         vals = [str(x) for x in target_val]
+                     else:
+                         vals = [x.strip() for x in str(target_val).split(',')]
+
+                     if len(vals) > 0:
                          mask = pd.Series([False] * len(df), index=df.index)
                          for val in vals:
                              mask = mask | s_str.str.contains(val, case=False, na=False)
                          return ~mask
-                     return ~s_str.str.contains(v, case=False, na=False)
+                     return pd.Series([True] * len(df), index=df.index)
                  
                  if op == 'in_list':
-                     vals = [x.strip() for x in v.split(',')]
+                     vals = []
+                     if isinstance(target_val, list):
+                         vals = [str(x) for x in target_val]
+                     else:
+                         vals = [x.strip() for x in str(target_val).split(',')]
+                         
                      if cond.get('dataType') == 'number':
                          try:
                              num_vals = [float(x) for x in vals if x.strip()]
@@ -365,7 +389,12 @@ class ExecutionEngine:
                      return s_str.isin(vals)
 
                  if op == 'not_in_list':
-                     vals = [x.strip() for x in v.split(',')]
+                     vals = []
+                     if isinstance(target_val, list):
+                         vals = [str(x) for x in target_val]
+                     else:
+                         vals = [x.strip() for x in str(target_val).split(',')]
+
                      if cond.get('dataType') == 'number':
                          try:
                              num_vals = [float(x) for x in vals if x.strip()]

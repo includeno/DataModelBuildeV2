@@ -173,6 +173,7 @@ function App() {
           setSessionName('New Session');
           setTree(INITIAL_TREE);
           setSqlHistory([]);
+          setPreviewData(null); // Clear previous results
           
           // Update name in backend immediately so list reflects it
           try {
@@ -193,6 +194,7 @@ function App() {
 
   const handleSelectSession = async (id: string) => {
       setSessionId(id);
+      setPreviewData(null); // Clear previous results
       try {
           // Load metadata
           const meta = await api.get(apiConfig, `/sessions/${id}/metadata`);
@@ -237,6 +239,7 @@ function App() {
           setSessionId('');
           setTree(INITIAL_TREE);
           setSqlHistory([]);
+          setPreviewData(null); // Clear previous results
       }
       fetchSessions();
   };
@@ -366,6 +369,7 @@ function App() {
   const handleExecute = async (page = 1, _commandId?: string, viewId = "main") => {
       if (!selectedNode) return;
       setLoading(true);
+      setIsRightPanelOpen(true); // Ensure panel is open to show results
       try {
           // If specific commandId is provided, we might be doing a partial run.
           // For now, the API mostly executes the node. 

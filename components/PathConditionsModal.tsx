@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, ArrowDown, Filter, GitCommit, Route, Link, ArrowDownAZ, FunctionSquare, Calculator, Sparkles, Database, Loader2 } from 'lucide-react';
 import { OperationNode, Command, ApiConfig } from '../types';
 import { api } from '../utils/api';
@@ -15,8 +15,15 @@ interface PathConditionsModalProps {
 }
 
 export const PathConditionsModal: React.FC<PathConditionsModalProps> = ({ isOpen, onClose, tree, targetNodeId, targetCommandId, sessionId, apiConfig }) => {
-  const [counts, setCounts] = useState<Record<string, number | null>>({});
+  const [counts, setCounts] = useState<Record<string, { value: number; timestamp: number } | null>>({});
   const [loadingCounts, setLoadingCounts] = useState<Record<string, boolean>>({});
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -46,7 +53,7 @@ export const PathConditionsModal: React.FC<PathConditionsModalProps> = ({ isOpen
             page: 1,
             pageSize: 1
         });
-        setCounts(prev => ({ ...prev, [nodeId]: res.totalCount }));
+        setCounts(prev => ({ ...prev, [nodeId]: { value: res.totalCount, timestamp: Date.now() } }));
     } catch (e: any) {
         console.error("Failed to get count", e);
         alert("Failed to calculate count: " + e.message);
@@ -235,7 +242,8 @@ export const PathConditionsModal: React.FC<PathConditionsModalProps> = ({ isOpen
                     <div className="relative pl-2">
                          {displayPath.map((node, index) => {
                              const isLast = index === displayPath.length - 1;
-                             const count = counts[node.id];
+                             const countData = counts[node.id];
+                             const isExpired = countData ? (now - countData.timestamp > 30000) : true;
                              const isLoading = loadingCounts[node.id];
 
                              return (
@@ -268,10 +276,20 @@ export const PathConditionsModal: React.FC<PathConditionsModalProps> = ({ isOpen
 
                                         {/* Count Button/Display */}
                                         <div className="flex items-center">
-                                            {count !== undefined && count !== null ? (
-                                                <span className="text-xs font-mono font-medium text-gray-600 bg-gray-100 px-2 py-1 rounded border border-gray-200">
-                                                    {count.toLocaleString()} rows
-                                                </span>
+                                            {countData && !isExpired ? (
+                                                <div className="flex items-center space-x-2">
+                                                    <span className="text-xs font-mono font-medium text-gray-600 bg-gray-100 px-2 py-1 rounded border border-gray-200">
+                                                        {countData.value.toLocaleString()} rows
+                                                    </span>
+                                                    <button 
+                                                        onClick={() => handleCheckCount(node.id)}
+                                                        disabled={isLoading}
+                                                        className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                                                        title="Refresh count"
+                                                    >
+                                                        {isLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Calculator className="w-3 h-3" />}
+                                                    </button>
+                                                </div>
                                             ) : (
                                                 <button 
                                                     onClick={() => handleCheckCount(node.id)}
