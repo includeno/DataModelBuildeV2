@@ -87,6 +87,59 @@ def generate_sql_for_command(cmd: Command, variables: Dict[str, Any], input_tabl
 
     elif cmd.type == 'source':
         return f"SELECT * FROM {c.mainTable}"
+
+    elif cmd.type == 'view':
+        view_fields = c.viewFields or []
+        fields = [vf.field for vf in view_fields if getattr(vf, 'field', None)]
+        distinct_fields = [vf.field for vf in view_fields if getattr(vf, 'field', None) and getattr(vf, 'distinct', False)]
+
+        if distinct_fields:
+            select_fields = distinct_fields
+            distinct = "DISTINCT "
+        else:
+            select_fields = fields
+            distinct = ""
+
+        if select_fields:
+            seen = set()
+            deduped = []
+            for f in select_fields:
+                if f in seen:
+                    continue
+                seen.add(f)
+                deduped.append(f)
+            select_fields = deduped
+
+        if not select_fields:
+            select_fields = ["*"]
+
+        base_sql = f"SELECT {distinct}{', '.join(select_fields)} FROM {input_table}"
+
+        sort_parts = []
+        if c.viewSorts:
+            seen = set()
+            for s in c.viewSorts:
+                if not getattr(s, 'field', None):
+                    continue
+                if s.field in seen:
+                    continue
+                seen.add(s.field)
+                sort_dir = "ASC" if getattr(s, 'ascending', True) is not False else "DESC"
+                if select_fields == ["*"] or s.field in select_fields:
+                    sort_parts.append(f"{s.field} {sort_dir}")
+        elif c.viewSortField:
+            sort_dir = "ASC" if c.viewSortAscending is not False else "DESC"
+            if select_fields == ["*"] or c.viewSortField in select_fields:
+                sort_parts.append(f"{c.viewSortField} {sort_dir}")
+
+        if sort_parts:
+            base_sql = f"{base_sql} ORDER BY {', '.join(sort_parts)}"
+
+        limit = c.viewLimit
+        if isinstance(limit, int) and limit > 0:
+            base_sql = f"{base_sql} LIMIT {limit}"
+
+        return base_sql
         
     return f"-- SQL generation not supported for {cmd.type}"
 

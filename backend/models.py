@@ -19,6 +19,14 @@ class SubTableConfig(BaseModel):
     on: str
     label: str
 
+class ViewFieldConfig(BaseModel):
+    field: str
+    distinct: Optional[bool] = False
+
+class ViewSortConfig(BaseModel):
+    field: str
+    ascending: Optional[bool] = True
+
 class CommandConfig(BaseModel):
     # New: Context selection
     dataSource: Optional[str] = "stream" # 'stream' or table_name
@@ -74,6 +82,12 @@ class CommandConfig(BaseModel):
 
     # Multi Table
     subTables: Optional[List[SubTableConfig]] = None
+    # View command
+    viewFields: Optional[List[ViewFieldConfig]] = None
+    viewSortField: Optional[str] = None
+    viewSortAscending: Optional[bool] = True
+    viewSorts: Optional[List[ViewSortConfig]] = None
+    viewLimit: Optional[int] = None
 
 class Command(BaseModel):
     id: str

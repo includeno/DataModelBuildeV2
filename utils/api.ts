@@ -277,6 +277,73 @@ const applyMockCommand = (data: any[], cmd: Command, variables: Record<string, a
         return data.filter(row => evaluateFilterGroup(row, config.filterRoot!, variables));
     }
 
+    if (cmd.type === 'view') {
+        let result = [...data];
+        const viewFields = config.viewFields || [];
+        const fieldsRaw = viewFields.map((vf: any) => vf.field).filter(Boolean);
+        const distinctRaw = viewFields.filter((vf: any) => vf.distinct && vf.field).map((vf: any) => vf.field);
+        const dedupe = (arr: string[]) => {
+            const seen = new Set<string>();
+            return arr.filter(f => {
+                if (seen.has(f)) return false;
+                seen.add(f);
+                return true;
+            });
+        };
+        const fields = dedupe(fieldsRaw);
+        const distinctFields = dedupe(distinctRaw);
+        const selectFields = distinctFields.length > 0 ? distinctFields : fields;
+
+        if (selectFields.length > 0) {
+            result = result.map(r => {
+                const out: any = {};
+                selectFields.forEach(f => { out[f] = r[f]; });
+                return out;
+            });
+        }
+
+        if (distinctFields.length > 0) {
+            const seen = new Set<string>();
+            result = result.filter(r => {
+                const key = distinctFields.map(f => String(r[f])).join('|');
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
+        }
+
+        const sorters = (config.viewSorts && config.viewSorts.length > 0)
+            ? config.viewSorts
+            : (config.viewSortField ? [{ field: config.viewSortField, ascending: config.viewSortAscending !== false }] : []);
+
+        if (sorters.length > 0) {
+            const seen = new Set<string>();
+            const deduped = sorters.filter(s => {
+                if (!s.field) return false;
+                if (seen.has(s.field)) return false;
+                seen.add(s.field);
+                return true;
+            });
+            result = [...result].sort((a, b) => {
+                for (const s of deduped) {
+                    const field = s.field;
+                    const asc = s.ascending !== false;
+                    const valA = a[field];
+                    const valB = b[field];
+                    if (valA < valB) return asc ? -1 : 1;
+                    if (valA > valB) return asc ? 1 : -1;
+                }
+                return 0;
+            });
+        }
+
+        if (config.viewLimit && config.viewLimit > 0) {
+            result = result.slice(0, config.viewLimit);
+        }
+
+        return result;
+    }
+
     if (cmd.type === 'sort') {
         if (!config.field) return data;
         return [...data].sort((a, b) => {

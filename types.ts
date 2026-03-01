@@ -56,6 +56,16 @@ export interface SubTableConfig {
   label: string;
 }
 
+export interface ViewFieldConfig {
+  field: string;
+  distinct?: boolean;
+}
+
+export interface ViewSortConfig {
+  field: string;
+  ascending?: boolean;
+}
+
 export interface CommandConfig {
   dataSource?: string; 
 
@@ -96,6 +106,13 @@ export interface CommandConfig {
 
   // Multi Table Display
   subTables?: SubTableConfig[];
+
+  // View Command
+  viewFields?: ViewFieldConfig[];
+  viewSortField?: string;
+  viewSortAscending?: boolean;
+  viewSorts?: ViewSortConfig[];
+  viewLimit?: number;
 
   groupBy?: string[];
   aggFunc?: string;

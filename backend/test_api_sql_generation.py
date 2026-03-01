@@ -25,6 +25,31 @@ def setup_session_with_data():
     
     return session_id
 
+def add_setup_node(tree: dict, tables: list[str]):
+    setup_cmds = []
+    for idx, table in enumerate(tables):
+        setup_cmds.append({
+            "id": f"setup_src_{idx}",
+            "type": "source",
+            "config": {
+                "mainTable": table,
+                "alias": table,
+                "linkId": f"link_{table}"
+            }
+        })
+    setup_node = {
+        "id": "setup",
+        "type": "operation",
+        "operationType": "setup",
+        "name": "Data Setup",
+        "enabled": True,
+        "commands": setup_cmds,
+        "children": []
+    }
+    children = tree.get("children") or []
+    tree["children"] = children + [setup_node]
+    return tree
+
 def test_generate_sql_two_not_equals_and():
     session_id = setup_session_with_data()
     
@@ -52,6 +77,8 @@ def test_generate_sql_two_not_equals_and():
         "children": []
     }
 
+    tree = add_setup_node(tree, ["users"])
+
     res = client.post("/generate_sql", json={
         "sessionId": session_id,
         "tree": tree,
@@ -63,10 +90,9 @@ def test_generate_sql_two_not_equals_and():
     sql = res.json()["sql"]
     print(sql)
     
-    # Verify CTE structure
-    assert "WITH" in sql
-    assert "step_0 AS" in sql
-    assert "step_1 AS" in sql
+    assert "WITH" not in sql
+    assert "step_" not in sql
+    assert "FROM users" in sql
     
     # Verify logic
     assert "role != 'admin'" in sql
@@ -89,6 +115,8 @@ def test_generate_sql_chain_linking():
         "children": []
     }
 
+    tree = add_setup_node(tree, ["users"])
+
     res = client.post("/generate_sql", json={
         "sessionId": session_id,
         "tree": tree,
@@ -100,14 +128,9 @@ def test_generate_sql_chain_linking():
     sql = res.json()["sql"]
     print(sql)
     
-    # step_0: source
-    # step_1: filter from step_0
-    # step_2: sort from step_1
-    
-    assert "step_0 AS (SELECT * FROM users)" in sql
-    assert "step_1 AS (SELECT * FROM step_0 WHERE" in sql
-    assert "step_2 AS (SELECT * FROM step_1 ORDER BY" in sql
-    assert "SELECT * FROM step_2" in sql
+    assert "FROM (SELECT * FROM users WHERE age > 20)" in sql
+    assert "ORDER BY name ASC" in sql
+    assert "step_" not in sql
 
 def test_generate_sql_multiple_sources_chain():
     # Test that if a new source command appears, it resets the input for that step
@@ -128,6 +151,8 @@ def test_generate_sql_multiple_sources_chain():
         "children": []
     }
 
+    tree = add_setup_node(tree, ["users"])
+
     res = client.post("/generate_sql", json={
         "sessionId": session_id,
         "tree": tree,
@@ -139,13 +164,9 @@ def test_generate_sql_multiple_sources_chain():
     sql = res.json()["sql"]
     print(sql)
     
-    assert "step_0 AS (SELECT * FROM users)" in sql
-    assert "step_1 AS (SELECT * FROM step_0 WHERE" in sql
-    # step_2 is source again
-    assert "step_2 AS (SELECT * FROM users)" in sql
-    # step_3 should select from step_2
-    assert "step_3 AS (SELECT * FROM step_2 WHERE" in sql
-    assert "SELECT * FROM step_3" in sql
+    assert "role = 'user'" in sql
+    assert "age > 20" not in sql
+    assert "step_" not in sql
 
 def test_generate_sql_or_condition():
     session_id = setup_session_with_data()
@@ -173,6 +194,8 @@ def test_generate_sql_or_condition():
         ],
         "children": []
     }
+
+    tree = add_setup_node(tree, ["users"])
 
     res = client.post("/generate_sql", json={
         "sessionId": session_id,
@@ -211,6 +234,8 @@ def test_generate_sql_in_list():
         "children": []
     }
 
+    tree = add_setup_node(tree, ["users"])
+
     res = client.post("/generate_sql", json={
         "sessionId": session_id,
         "tree": tree,
@@ -245,6 +270,8 @@ def test_generate_sql_contains():
         ],
         "children": []
     }
+
+    tree = add_setup_node(tree, ["users"])
 
     res = client.post("/generate_sql", json={
         "sessionId": session_id,
@@ -281,6 +308,8 @@ def test_generate_sql_group_by():
         "children": []
     }
 
+    tree = add_setup_node(tree, ["users"])
+
     res = client.post("/generate_sql", json={
         "sessionId": session_id,
         "tree": tree,
@@ -316,6 +345,8 @@ def test_generate_sql_join():
         "children": []
     }
 
+    tree = add_setup_node(tree, ["users", "other_table"])
+
     res = client.post("/generate_sql", json={
         "sessionId": session_id,
         "tree": tree,
@@ -326,4 +357,4 @@ def test_generate_sql_join():
     assert res.status_code == 200
     sql = res.json()["sql"]
     assert "LEFT JOIN other_table" in sql
-    assert "ON users.id = other_table.user_id" in sql
+    assert "ON t1.id = t2.user_id" in sql

@@ -3,7 +3,7 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { Command, CommandType, Dataset, OperationType, AggregationConfig, OperationNode, DataType, HavingCondition, MappingRule, FilterGroup, FilterCondition, SubTableConfig, FieldInfo } from '../types';
 import { Button } from './Button';
-import { Trash2, Plus, GripVertical, Type, Database, Play, Layers, Braces, ArrowRight, Filter as FilterIcon, Table, Calculator, List, Check, Info, ChevronDown, Split, LayoutDashboard, AlertTriangle, Settings2, Eye, Variable, Route, Code, Loader2, Copy, X } from 'lucide-react';
+import { Trash2, Plus, GripVertical, Type, Database, Play, Layers, Braces, ArrowRight, Filter as FilterIcon, Table, Calculator, List, Check, Info, ChevronDown, ChevronUp, Split, LayoutDashboard, AlertTriangle, Settings2, Eye, Variable, Route, Code, Loader2, Copy, X } from 'lucide-react';
 import { Reorder, useDragControls, DragControls } from 'framer-motion';
 
 interface CommandEditorProps {
@@ -1168,6 +1168,44 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
       const newList = [...(current || [])]; newList[idx] = { ...newList[idx], [key]: val };
       updateCommand(cmdId, 'config.subTables', newList);
   };
+  const addViewField = (cmdId: string, current: any[]) => {
+      updateCommand(cmdId, 'config.viewFields', [...(current || []), { field: '', distinct: false }]);
+  };
+  const removeViewField = (cmdId: string, current: any[], idx: number) => {
+      const newList = [...(current || [])]; newList.splice(idx, 1); updateCommand(cmdId, 'config.viewFields', newList);
+  };
+  const moveViewField = (cmdId: string, current: any[], idx: number, dir: 'up' | 'down') => {
+      const newList = [...(current || [])];
+      const swapIdx = dir === 'up' ? idx - 1 : idx + 1;
+      if (swapIdx < 0 || swapIdx >= newList.length) return;
+      const tmp = newList[idx];
+      newList[idx] = newList[swapIdx];
+      newList[swapIdx] = tmp;
+      updateCommand(cmdId, 'config.viewFields', newList);
+  };
+  const updateViewField = (cmdId: string, current: any[], idx: number, key: string, val: any) => {
+      const newList = [...(current || [])]; newList[idx] = { ...newList[idx], [key]: val };
+      updateCommand(cmdId, 'config.viewFields', newList);
+  };
+  const addViewSort = (cmdId: string, current: any[]) => {
+      updateCommand(cmdId, 'config.viewSorts', [...(current || []), { field: '', ascending: true }]);
+  };
+  const removeViewSort = (cmdId: string, current: any[], idx: number) => {
+      const newList = [...(current || [])]; newList.splice(idx, 1); updateCommand(cmdId, 'config.viewSorts', newList);
+  };
+  const moveViewSort = (cmdId: string, current: any[], idx: number, dir: 'up' | 'down') => {
+      const newList = [...(current || [])];
+      const swapIdx = dir === 'up' ? idx - 1 : idx + 1;
+      if (swapIdx < 0 || swapIdx >= newList.length) return;
+      const tmp = newList[idx];
+      newList[idx] = newList[swapIdx];
+      newList[swapIdx] = tmp;
+      updateCommand(cmdId, 'config.viewSorts', newList);
+  };
+  const updateViewSort = (cmdId: string, current: any[], idx: number, key: string, val: any) => {
+      const newList = [...(current || [])]; newList[idx] = { ...newList[idx], [key]: val };
+      updateCommand(cmdId, 'config.viewSorts', newList);
+  };
 
   const getFieldStyle = (value: string, availableFields: string[]) => {
       if (!value) return baseInputStyles;
@@ -1303,30 +1341,28 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                 >
                                     <Route className="w-3.5 h-3.5" />
                                 </button>
-                                {cmd.type !== 'view' && (
-                                    <button 
-                                        onClick={() => handleGenerateSql(cmd.id)}
-                                        disabled={
-                                            (cmd.type === 'transform' && cmd.config.mappings?.some(m => m.mode === 'python')) ||
-                                            (cmd.type === 'join' && cmd.config.joinTargetType === 'node')
-                                        }
-                                        className={`p-1 rounded transition-colors ${
-                                            (cmd.type === 'transform' && cmd.config.mappings?.some(m => m.mode === 'python')) ||
-                                            (cmd.type === 'join' && cmd.config.joinTargetType === 'node')
-                                            ? 'text-gray-300 cursor-not-allowed'
-                                            : 'text-gray-400 hover:text-blue-600 hover:bg-blue-50'
-                                        }`}
-                                        title={
-                                            (cmd.type === 'transform' && cmd.config.mappings?.some(m => m.mode === 'python'))
-                                            ? "SQL generation not supported for Python transformations"
-                                            : (cmd.type === 'join' && cmd.config.joinTargetType === 'node')
-                                            ? "SQL generation not supported for dynamic Node joins"
-                                            : "Generate SQL"
-                                        }
-                                    >
-                                        <Code className="w-3.5 h-3.5" />
-                                    </button>
-                                )}
+                                <button 
+                                    onClick={() => handleGenerateSql(cmd.id)}
+                                    disabled={
+                                        (cmd.type === 'transform' && cmd.config.mappings?.some(m => m.mode === 'python')) ||
+                                        (cmd.type === 'join' && cmd.config.joinTargetType === 'node')
+                                    }
+                                    className={`p-1 rounded transition-colors ${
+                                        (cmd.type === 'transform' && cmd.config.mappings?.some(m => m.mode === 'python')) ||
+                                        (cmd.type === 'join' && cmd.config.joinTargetType === 'node')
+                                        ? 'text-gray-300 cursor-not-allowed'
+                                        : 'text-gray-400 hover:text-blue-600 hover:bg-blue-50'
+                                    }`}
+                                    title={
+                                        (cmd.type === 'transform' && cmd.config.mappings?.some(m => m.mode === 'python'))
+                                        ? "SQL generation not supported for Python transformations"
+                                        : (cmd.type === 'join' && cmd.config.joinTargetType === 'node')
+                                        ? "SQL generation not supported for dynamic Node joins"
+                                        : "Generate SQL"
+                                    }
+                                >
+                                    <Code className="w-3.5 h-3.5" />
+                                </button>
                                 <button 
                                     onClick={() => onRun && onRun(cmd.id)}
                                     className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
@@ -1418,6 +1454,91 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                                 </optgroup>
                                             )}
                                         </select>
+                                    </div>
+
+                                    <div className="border-t border-purple-100 pt-4 space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <label className="text-xs font-bold text-gray-500 uppercase">Fields</label>
+                                            <button onClick={() => addViewField(cmd.id, cmd.config.viewFields || [])} className="text-xs text-blue-600 hover:underline flex items-center font-medium"><Plus className="w-3 h-3 mr-1" /> Add Field</button>
+                                        </div>
+                                        {(cmd.config.viewFields || []).map((vf: any, i: number, list: any[]) => {
+                                            const selectedFields = list.map(s => s.field).filter(Boolean);
+                                            return (
+                                            <div key={`${vf.field}-${i}`} className="grid grid-cols-12 gap-2 items-center">
+                                                <div className="col-span-1 flex flex-col items-center space-y-1 -ml-1">
+                                                    <button onClick={() => moveViewField(cmd.id, cmd.config.viewFields || [], i, 'up')} className="text-gray-400 hover:text-gray-600" title="Move Up">
+                                                        <ChevronUp className="w-4 h-4" />
+                                                    </button>
+                                                    <button onClick={() => moveViewField(cmd.id, cmd.config.viewFields || [], i, 'down')} className="text-gray-400 hover:text-gray-600" title="Move Down">
+                                                        <ChevronDown className="w-4 h-4" />
+                                                    </button>
+                                                </div>
+                                                <div className="col-span-5">
+                                                <select className={baseInputStyles} value={vf.field || ''} onChange={(e) => updateViewField(cmd.id, cmd.config.viewFields || [], i, 'field', e.target.value)}>
+                                                    <option value="">Select Field...</option>
+                                                    {fieldNames.map(f => {
+                                                        const disabled = selectedFields.includes(f) && f !== vf.field;
+                                                        return <option key={f} value={f} disabled={disabled}>{f}</option>;
+                                                    })}
+                                                </select>
+                                                </div>
+                                                <div className="col-span-3 flex items-center">
+                                                <label className="flex items-center text-xs text-gray-600 space-x-1">
+                                                    <input type="checkbox" checked={!!vf.distinct} onChange={(e) => updateViewField(cmd.id, cmd.config.viewFields || [], i, 'distinct', e.target.checked)} />
+                                                    <span>Distinct</span>
+                                                </label>
+                                                </div>
+                                                <div className="col-span-3 flex items-center justify-end space-x-1">
+                                                    <button onClick={() => removeViewField(cmd.id, cmd.config.viewFields || [], i)} className="text-red-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
+                                                </div>
+                                            </div>
+                                        )})}
+                                        <div className="text-[11px] text-gray-500">If any field is marked distinct, only those fields are returned.</div>
+                                    </div>
+
+                                    <div className="border-t border-purple-100 pt-4 space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <label className="text-xs font-bold text-gray-500 uppercase">Sort By</label>
+                                            <button onClick={() => addViewSort(cmd.id, cmd.config.viewSorts || (cmd.config.viewSortField ? [{ field: cmd.config.viewSortField, ascending: cmd.config.viewSortAscending !== false }] : []))} className="text-xs text-blue-600 hover:underline flex items-center font-medium"><Plus className="w-3 h-3 mr-1" /> Add Sort</button>
+                                        </div>
+                                        {(cmd.config.viewSorts || (cmd.config.viewSortField ? [{ field: cmd.config.viewSortField, ascending: cmd.config.viewSortAscending !== false }] : [])).map((vs: any, i: number, list: any[]) => {
+                                            const selectedFields = list.map(s => s.field).filter(Boolean);
+                                            const currentList = (cmd.config.viewSorts || (cmd.config.viewSortField ? [{ field: cmd.config.viewSortField, ascending: cmd.config.viewSortAscending !== false }] : []));
+                                            return (
+                                            <div key={`${vs.field}-${i}`} className="grid grid-cols-12 gap-2 items-center">
+                                                <div className="col-span-1 flex flex-col items-center space-y-1 -ml-1">
+                                                    <button onClick={() => moveViewSort(cmd.id, currentList, i, 'up')} className="text-gray-400 hover:text-gray-600" title="Move Up">
+                                                        <ChevronUp className="w-4 h-4" />
+                                                    </button>
+                                                    <button onClick={() => moveViewSort(cmd.id, currentList, i, 'down')} className="text-gray-400 hover:text-gray-600" title="Move Down">
+                                                        <ChevronDown className="w-4 h-4" />
+                                                    </button>
+                                                </div>
+                                                <div className="col-span-6">
+                                                    <select className={baseInputStyles} value={vs.field || ''} onChange={(e) => updateViewSort(cmd.id, currentList, i, 'field', e.target.value)}>
+                                                        <option value="">-- Field --</option>
+                                                        {fieldNames.map(f => {
+                                                            const disabled = selectedFields.includes(f) && f !== vs.field;
+                                                            return <option key={f} value={f} disabled={disabled}>{f}</option>;
+                                                        })}
+                                                    </select>
+                                                </div>
+                                                <div className="col-span-3">
+                                                    <select className={baseInputStyles} value={vs.ascending === false ? 'desc' : 'asc'} onChange={(e) => updateViewSort(cmd.id, currentList, i, 'ascending', e.target.value !== 'desc')}>
+                                                        <option value="asc">ASC</option>
+                                                        <option value="desc">DESC</option>
+                                                    </select>
+                                                </div>
+                                                <div className="col-span-2 flex justify-end">
+                                                    <button onClick={() => removeViewSort(cmd.id, currentList, i)} className="text-red-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
+                                                </div>
+                                            </div>
+                                        )})}
+                                    </div>
+
+                                    <div className="border-t border-purple-100 pt-4">
+                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Limit</label>
+                                        <input className={baseInputStyles} type="number" min={1} value={cmd.config.viewLimit || ''} onChange={(e) => updateCommand(cmd.id, 'config.viewLimit', e.target.value ? Number(e.target.value) : undefined)} placeholder="e.g. 100" />
                                     </div>
                                 </div>
                             )}

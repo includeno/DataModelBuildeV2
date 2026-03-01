@@ -58,45 +58,91 @@ class ExecutionEngine:
         
         df = None
         variables: Dict[str, Any] = {}
-        
-        ctes = []
-        step_counter = 0
-        current_sql_input = "initial_source"
-        found_target = False
-        
-        for node in path:
-            if not node.enabled: continue
-            
-            for cmd in node.commands:
-                # Execute command to update variables/state (needed for variable resolution in SQL)
-                # We pass [cmd] to reuse the existing logic which handles single command execution
-                df = self._apply_node_commands(df, [cmd], session_id, variables, tree)
-                
-                # Generate SQL for this command
-                cmd_sql = generate_sql_for_command(cmd, variables, current_sql_input)
-                
-                # If SQL is valid (not a comment), add to CTE chain
-                if not cmd_sql.strip().startswith("--"):
-                    step_name = f"step_{step_counter}"
-                    ctes.append(f"{step_name} AS ({cmd_sql})")
-                    current_sql_input = step_name
-                    step_counter += 1
-                
-                if node.id == target_node_id and cmd.id == target_command_id:
-                    found_target = True
-                    break
-            
-            if found_target:
-                break
-                
-        if not found_target:
-            raise ValueError("Target command not found")
 
-        if not ctes:
-            return "-- No SQL generated (or all commands were unsupported)"
-            
-        cte_string = ",\n".join(ctes)
-        return f"WITH {cte_string}\nSELECT * FROM {current_sql_input}"
+        allowed_tables, source_map, table_to_ids = self._collect_setup_sources(tree)
+        if not allowed_tables:
+            raise ValueError("No tables defined in Data Setup")
+
+        current_sql: Optional[str] = None
+        current_base_table: Optional[str] = None
+
+        for node in path:
+            if not node.enabled: 
+                continue
+
+            for cmd in sorted(node.commands, key=lambda x: x.order):
+                # Execute command to update variables/state (needed for variable resolution in SQL)
+                df = self._apply_node_commands(df, [cmd], session_id, variables, tree)
+
+                # Handle explicit data source override
+                data_source = cmd.config.dataSource
+                if data_source and data_source != 'stream':
+                    resolved = self._resolve_setup_table(data_source, allowed_tables, source_map)
+                    if current_sql is None or current_base_table != resolved:
+                        current_sql = f"SELECT * FROM {resolved}"
+                        current_base_table = resolved
+
+                cmd_sql = ""
+                if cmd.type == 'define_variable':
+                    cmd_sql = "-- SQL generation not supported for define_variable"
+                    if node.id == target_node_id and cmd.id == target_command_id:
+                        return cmd_sql
+                    continue
+
+                if cmd.type == 'source':
+                    resolved = self._resolve_setup_table(cmd.config.mainTable, allowed_tables, source_map)
+                    current_sql = f"SELECT * FROM {resolved}"
+                    current_base_table = resolved
+                    cmd_sql = current_sql
+                else:
+                    if current_sql is None:
+                        raise ValueError("No source table available for SQL generation")
+
+                    if cmd.type == 'join' and cmd.config.joinTargetType != 'node':
+                        join_ref = cmd.config.joinTable
+                        resolved_join = self._resolve_setup_table(join_ref, allowed_tables, source_map)
+                        on_clause = cmd.config.on or "1=1"
+                        on_clause = self._rewrite_join_on(on_clause, current_base_table, resolved_join, table_to_ids)
+                        cmd_for_sql = self._copy_command_with_overrides(cmd, joinTable=resolved_join, on=on_clause)
+                        input_table = f"({current_sql})"
+                        cmd_sql = generate_sql_for_command(cmd_for_sql, variables, input_table)
+                    elif cmd.type == 'view':
+                        base_table, existing_where = self._extract_simple_select(current_sql)
+                        if base_table and current_base_table and base_table == current_base_table:
+                            cmd_sql = self._build_view_sql(cmd, base_table, existing_where)
+                        else:
+                            input_table = self._select_input_table(current_sql, current_base_table)
+                            cmd_sql = generate_sql_for_command(cmd, variables, input_table)
+                    elif cmd.type == 'filter':
+                        base_table, existing_where = self._extract_simple_select(current_sql)
+                        if base_table and current_base_table and base_table == current_base_table:
+                            filter_sql = generate_sql_for_command(cmd, variables, base_table)
+                            new_where = self._extract_where_clause(filter_sql)
+                            if new_where:
+                                if existing_where:
+                                    cmd_sql = f"SELECT * FROM {base_table} WHERE ({existing_where}) AND ({new_where})"
+                                else:
+                                    cmd_sql = f"SELECT * FROM {base_table} WHERE {new_where}"
+                            else:
+                                cmd_sql = filter_sql
+                        else:
+                            input_table = self._select_input_table(current_sql, current_base_table)
+                            cmd_sql = generate_sql_for_command(cmd, variables, input_table)
+                    else:
+                        input_table = self._select_input_table(current_sql, current_base_table)
+                        cmd_sql = generate_sql_for_command(cmd, variables, input_table)
+
+                if node.id == target_node_id and cmd.id == target_command_id:
+                    if cmd_sql.strip().startswith("--"):
+                        return cmd_sql
+                    if cmd_sql.strip():
+                        return cmd_sql
+                    return "-- No SQL generated (or all commands were unsupported)"
+
+                if cmd_sql and not cmd_sql.strip().startswith("--"):
+                    current_sql = cmd_sql
+
+        raise ValueError("Target command not found")
 
     def _execute_multi_table_sub(self, session_id: str, path: List[OperationNode], multi_cmd: Command, view_id: str) -> pd.DataFrame:
         # 1. Execute everything UP TO the multi_table command to get the "Main" context
@@ -224,6 +270,157 @@ class ExecutionEngine:
                     return res
         return None
 
+    def _collect_setup_sources(self, tree: OperationNode):
+        allowed_tables: Set[str] = set()
+        source_map: Dict[str, str] = {}
+        table_to_ids: Dict[str, Set[str]] = {}
+
+        def add_mapping(table: str, identifier: Optional[str]):
+            if not identifier:
+                return
+            source_map[identifier] = table
+            table_to_ids.setdefault(table, set()).add(identifier)
+
+        def visit(node: OperationNode):
+            if node.operationType == 'setup':
+                for cmd in node.commands:
+                    if cmd.type == 'source' and cmd.config.mainTable:
+                        table = cmd.config.mainTable
+                        allowed_tables.add(table)
+                        add_mapping(table, table)
+                        add_mapping(table, cmd.id)
+                        add_mapping(table, cmd.config.linkId)
+                        add_mapping(table, cmd.config.alias)
+            if node.children:
+                for child in node.children:
+                    visit(child)
+
+        visit(tree)
+        return allowed_tables, source_map, table_to_ids
+
+    def _resolve_setup_table(self, ref: Optional[str], allowed_tables: Set[str], source_map: Dict[str, str]) -> Optional[str]:
+        if not ref:
+            return None
+        resolved = source_map.get(ref, ref)
+        if resolved not in allowed_tables:
+            raise ValueError(f"Table '{ref}' is not defined in Data Setup")
+        return resolved
+
+    def _rewrite_join_on(self, on_clause: str, input_table: Optional[str], join_table: Optional[str], table_to_ids: Dict[str, Set[str]]) -> str:
+        if not on_clause:
+            return on_clause
+        rewritten = on_clause
+        if input_table:
+            for ident in sorted(table_to_ids.get(input_table, set()), key=len, reverse=True):
+                rewritten = re.sub(rf"\b{re.escape(ident)}\.", "t1.", rewritten)
+        if join_table:
+            for ident in sorted(table_to_ids.get(join_table, set()), key=len, reverse=True):
+                rewritten = re.sub(rf"\b{re.escape(ident)}\.", "t2.", rewritten)
+        return rewritten
+
+    def _extract_simple_select(self, sql: str) -> tuple[Optional[str], Optional[str]]:
+        if not sql:
+            return None, None
+        m = re.match(r"^\s*SELECT\s+\*\s+FROM\s+([A-Za-z0-9_]+)\s*$", sql, re.IGNORECASE)
+        if m:
+            return m.group(1), None
+        m = re.match(r"^\s*SELECT\s+\*\s+FROM\s+([A-Za-z0-9_]+)\s+WHERE\s+(.+)\s*$", sql, re.IGNORECASE)
+        if m:
+            return m.group(1), m.group(2)
+        return None, None
+
+    def _extract_where_clause(self, sql: str) -> Optional[str]:
+        if not sql:
+            return None
+        m = re.match(r"^\s*SELECT\s+\*\s+FROM\s+.+?\s+WHERE\s+(.+)\s*$", sql, re.IGNORECASE)
+        if not m:
+            return None
+        return m.group(1)
+
+    def _select_input_table(self, current_sql: str, current_base_table: Optional[str]) -> str:
+        base_table, existing_where = self._extract_simple_select(current_sql)
+        if base_table and current_base_table and base_table == current_base_table:
+            if existing_where:
+                return f"(SELECT * FROM {base_table} WHERE {existing_where})"
+            return base_table
+        return f"({current_sql}) AS input_subq"
+
+    def _build_view_sql(self, cmd: Command, base_table: str, existing_where: Optional[str]) -> str:
+        c = cmd.config
+        view_fields = c.viewFields or []
+        fields = [vf.field for vf in view_fields if getattr(vf, 'field', None)]
+        distinct_fields = [vf.field for vf in view_fields if getattr(vf, 'field', None) and getattr(vf, 'distinct', False)]
+
+        if fields:
+            seen = set()
+            deduped = []
+            for f in fields:
+                if f in seen:
+                    continue
+                seen.add(f)
+                deduped.append(f)
+            fields = deduped
+
+        if distinct_fields:
+            seen = set()
+            deduped = []
+            for f in distinct_fields:
+                if f in seen:
+                    continue
+                seen.add(f)
+                deduped.append(f)
+            distinct_fields = deduped
+
+        if distinct_fields:
+            select_fields = distinct_fields
+            distinct = "DISTINCT "
+        else:
+            select_fields = fields
+            distinct = ""
+
+        if not select_fields:
+            select_fields = ["*"]
+
+        sql = f"SELECT {distinct}{', '.join(select_fields)} FROM {base_table}"
+        if existing_where:
+            sql = f"{sql} WHERE {existing_where}"
+
+        sort_parts = []
+        if c.viewSorts:
+            seen = set()
+            for s in c.viewSorts:
+                if not getattr(s, 'field', None):
+                    continue
+                if s.field in seen:
+                    continue
+                seen.add(s.field)
+                sort_dir = "ASC" if getattr(s, 'ascending', True) is not False else "DESC"
+                if select_fields == ["*"] or s.field in select_fields:
+                    sort_parts.append(f"{s.field} {sort_dir}")
+        elif c.viewSortField:
+            sort_dir = "ASC" if c.viewSortAscending is not False else "DESC"
+            if select_fields == ["*"] or c.viewSortField in select_fields:
+                sort_parts.append(f"{c.viewSortField} {sort_dir}")
+
+        if sort_parts:
+            sql = f"{sql} ORDER BY {', '.join(sort_parts)}"
+
+        limit = c.viewLimit
+        if isinstance(limit, int) and limit > 0:
+            sql = f"{sql} LIMIT {limit}"
+
+        return sql
+
+    def _copy_command_with_overrides(self, cmd: Command, **config_updates) -> Command:
+        if hasattr(cmd, "model_dump"):
+            data = cmd.model_dump()
+        else:
+            data = cmd.dict()
+        config = data.get("config", {})
+        config.update(config_updates)
+        data["config"] = config
+        return Command(**data)
+
     def _apply_node_commands(self, df: Optional[pd.DataFrame], commands: List[Command], session_id: str, variables: Dict[str, Any], tree: OperationNode, limit_command_id: str = None) -> Optional[pd.DataFrame]:
         sorted_cmds = sorted(commands, key=lambda x: x.order)
         
@@ -259,7 +456,64 @@ class ExecutionEngine:
                 if cmd.type == 'view':
                     # View command explicitly sets the dataframe to the dataSource, done above by generic handler.
                     # If dataSource was 'stream' (default), it's a pass-through.
-                    pass 
+                    if df is not None:
+                        view_fields = cmd.config.viewFields or []
+                        fields = [vf.field for vf in view_fields if getattr(vf, 'field', None)]
+                        distinct_fields = [vf.field for vf in view_fields if getattr(vf, 'field', None) and getattr(vf, 'distinct', False)]
+
+                        if fields:
+                            seen = set()
+                            deduped = []
+                            for f in fields:
+                                if f in seen:
+                                    continue
+                                seen.add(f)
+                                deduped.append(f)
+                            fields = deduped
+
+                        if distinct_fields:
+                            seen = set()
+                            deduped = []
+                            for f in distinct_fields:
+                                if f in seen:
+                                    continue
+                                seen.add(f)
+                                deduped.append(f)
+                            distinct_fields = deduped
+
+                        # If any distinct is set, only keep those fields for deterministic output
+                        selected_fields = distinct_fields if distinct_fields else fields
+                        if selected_fields:
+                            valid = [f for f in selected_fields if f in df.columns]
+                            if valid:
+                                df = df[valid]
+
+                        if distinct_fields:
+                            valid_distinct = [f for f in distinct_fields if f in df.columns]
+                            if valid_distinct:
+                                df = df.drop_duplicates(subset=valid_distinct)
+
+                        sort_fields = []
+                        sort_dirs = []
+                        if cmd.config.viewSorts:
+                            seen = set()
+                            for s in cmd.config.viewSorts:
+                                if s.field and s.field in df.columns:
+                                    if s.field in seen:
+                                        continue
+                                    seen.add(s.field)
+                                    sort_fields.append(s.field)
+                                    sort_dirs.append(s.ascending is not False)
+                        elif cmd.config.viewSortField and cmd.config.viewSortField in df.columns:
+                            sort_fields.append(cmd.config.viewSortField)
+                            sort_dirs.append(cmd.config.viewSortAscending is not False)
+
+                        if sort_fields:
+                            df = df.sort_values(by=sort_fields, ascending=sort_dirs)
+
+                        limit = cmd.config.viewLimit
+                        if isinstance(limit, int) and limit > 0:
+                            df = df.head(limit)
 
                 # 3. Variable Logic
                 if cmd.type == 'save' and df is not None:
