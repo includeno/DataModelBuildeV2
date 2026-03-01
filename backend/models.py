@@ -7,7 +7,8 @@ class FieldInfo(BaseModel):
     format: Optional[str] = None
 
 class MappingRule(BaseModel):
-    id: str
+    # id is optional for backward compatibility with older payloads/tests
+    id: Optional[str] = None
     expression: str
     outputField: str
     mode: Optional[str] = None
@@ -78,7 +79,8 @@ class Command(BaseModel):
     id: str
     type: str
     config: CommandConfig
-    order: int
+    # default to 0 so missing order doesn't break validation or sorting
+    order: int = 0
 
 class OperationNode(BaseModel):
     id: str

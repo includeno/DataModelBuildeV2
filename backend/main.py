@@ -174,6 +174,9 @@ async def generate_sql(req: ExecuteRequest):
         
         sql = engine.generate_sql(req.session_id, req.tree, req.targetNodeId, req.targetCommandId)
         return {"sql": sql}
+    except HTTPException as e:
+        # Preserve explicit HTTP errors (e.g., missing targetCommandId)
+        raise e
     except Exception as e:
         print(f"SQL Generation Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
