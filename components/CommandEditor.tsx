@@ -3,7 +3,7 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { Command, CommandType, Dataset, OperationType, AggregationConfig, OperationNode, DataType, HavingCondition, MappingRule, FilterGroup, FilterCondition, SubTableConfig, FieldInfo } from '../types';
 import { Button } from './Button';
-import { Trash2, Plus, GripVertical, Type, Database, Play, Layers, Braces, ArrowRight, Filter as FilterIcon, Table, Calculator, List, Check, Info, ChevronDown, Split, LayoutDashboard, AlertTriangle, Settings2, Eye, Variable, Route } from 'lucide-react';
+import { Trash2, Plus, GripVertical, Type, Database, Play, Layers, Braces, ArrowRight, Filter as FilterIcon, Table, Calculator, List, Check, Info, ChevronDown, Split, LayoutDashboard, AlertTriangle, Settings2, Eye, Variable, Route, Code, Loader2, Copy, X } from 'lucide-react';
 import { Reorder, useDragControls, DragControls } from 'framer-motion';
 
 interface CommandEditorProps {
@@ -18,8 +18,51 @@ interface CommandEditorProps {
   onUpdateType: (operationId: string, type: OperationType) => void;
   onViewPath: (commandId?: string) => void;
   onRun?: (commandId?: string) => void;
+  onGenerateSql?: (commandId: string) => Promise<string>;
   tree?: OperationNode; 
 }
+
+const SqlPreviewModal: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
+    sql: string;
+    loading: boolean;
+}> = ({ isOpen, onClose, sql, loading }) => {
+    if (!isOpen) return null;
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[80vh] animate-in fade-in zoom-in duration-200">
+                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gray-50 rounded-t-xl">
+                    <div className="flex items-center space-x-2">
+                        <div className="p-2 bg-blue-100 rounded-lg">
+                            <Database className="w-5 h-5 text-blue-600" />
+                        </div>
+                        <h3 className="text-lg font-bold text-gray-900">Generated SQL</h3>
+                    </div>
+                    <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-2 rounded-full hover:bg-gray-200 transition-all">
+                        <X className="w-5 h-5" />
+                    </button>
+                </div>
+                <div className="p-6 overflow-y-auto bg-[#1e1e1e] min-h-[200px]">
+                    {loading ? (
+                        <div className="flex flex-col items-center justify-center h-full text-gray-400 py-8">
+                            <Loader2 className="w-8 h-8 animate-spin mb-3" />
+                            <span className="text-sm">Generating SQL from logic...</span>
+                        </div>
+                    ) : (
+                        <pre className="text-sm font-mono text-blue-300 whitespace-pre-wrap leading-relaxed">
+                            {sql || "-- No SQL generated"}
+                        </pre>
+                    )}
+                </div>
+                <div className="p-4 bg-gray-50 border-t border-gray-200 flex justify-end space-x-3 rounded-b-xl">
+                    <Button variant="secondary" onClick={onClose}>Close</Button>
+                    <Button variant="primary" onClick={() => navigator.clipboard.writeText(sql)} icon={<Copy className="w-4 h-4" />}>Copy SQL</Button>
+                </div>
+            </div>
+        </div>
+    );
+};
 
 const PYTHON_TEMPLATE = `def transform(row):
     # Available: np, pd, math, datetime, re
@@ -566,9 +609,29 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
   // onUpdateType, // Unused
   onViewPath,
   onRun,
+  onGenerateSql,
   tree
 }) => {
   
+  const [sqlModalOpen, setSqlModalOpen] = useState(false);
+  const [sqlContent, setSqlContent] = useState('');
+  const [sqlLoading, setSqlLoading] = useState(false);
+
+  const handleGenerateSql = async (cmdId: string) => {
+      if (!onGenerateSql) return;
+      setSqlModalOpen(true);
+      setSqlLoading(true);
+      setSqlContent('');
+      try {
+          const sql = await onGenerateSql(cmdId);
+          setSqlContent(sql);
+      } catch (e) {
+          setSqlContent(`-- Error generating SQL: ${e}`);
+      } finally {
+          setSqlLoading(false);
+      }
+  };
+
   const ancestorVariables = useMemo(() => {
      if (!tree) return [];
      return findAncestorVariables(tree, operationId);
@@ -1240,6 +1303,30 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                 >
                                     <Route className="w-3.5 h-3.5" />
                                 </button>
+                                {cmd.type !== 'view' && (
+                                    <button 
+                                        onClick={() => handleGenerateSql(cmd.id)}
+                                        disabled={
+                                            (cmd.type === 'transform' && cmd.config.mappings?.some(m => m.mode === 'python')) ||
+                                            (cmd.type === 'join' && cmd.config.joinTargetType === 'node')
+                                        }
+                                        className={`p-1 rounded transition-colors ${
+                                            (cmd.type === 'transform' && cmd.config.mappings?.some(m => m.mode === 'python')) ||
+                                            (cmd.type === 'join' && cmd.config.joinTargetType === 'node')
+                                            ? 'text-gray-300 cursor-not-allowed'
+                                            : 'text-gray-400 hover:text-blue-600 hover:bg-blue-50'
+                                        }`}
+                                        title={
+                                            (cmd.type === 'transform' && cmd.config.mappings?.some(m => m.mode === 'python'))
+                                            ? "SQL generation not supported for Python transformations"
+                                            : (cmd.type === 'join' && cmd.config.joinTargetType === 'node')
+                                            ? "SQL generation not supported for dynamic Node joins"
+                                            : "Generate SQL"
+                                        }
+                                    >
+                                        <Code className="w-3.5 h-3.5" />
+                                    </button>
+                                )}
                                 <button 
                                     onClick={() => onRun && onRun(cmd.id)}
                                     className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
@@ -1564,6 +1651,12 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
           </>
         )}
       </div>
+      <SqlPreviewModal 
+          isOpen={sqlModalOpen} 
+          onClose={() => setSqlModalOpen(false)} 
+          sql={sqlContent} 
+          loading={sqlLoading} 
+      />
     </div>
   );
 };

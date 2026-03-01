@@ -136,6 +136,21 @@ export const Workspace: React.FC<WorkspaceProps> = ({
 
   const mainSourceName = findMainSourceName(selectedNode, tree);
 
+  const handleGenerateSql = async (commandId: string): Promise<string> => {
+      if (!selectedNode || !tree) return "-- No context";
+      try {
+          const res = await api.post(apiConfig, '/generate_sql', {
+              sessionId,
+              tree,
+              targetNodeId: selectedNode.id,
+              targetCommandId: commandId
+          });
+          return res.sql;
+      } catch (e: any) {
+          return `-- Error: ${e.message || e}`;
+      }
+  };
+
   const mainContent = (
       <div className="flex-1 flex flex-col bg-gray-50/50 min-w-0 w-full h-full overflow-hidden">
         {selectedNode && selectedNode.id !== 'root' ? (
@@ -151,6 +166,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                 onUpdateType={onUpdateType}
                 onViewPath={onViewPath}
                 onRun={(cmdId) => onRefreshPreview(1, cmdId)}
+                onGenerateSql={handleGenerateSql}
                 tree={tree} 
             />
         ) : (

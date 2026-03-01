@@ -166,6 +166,18 @@ async def export_data(req: ExecuteRequest):
         print(f"Export Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/generate_sql")
+async def generate_sql(req: ExecuteRequest):
+    try:
+        if not req.targetCommandId:
+            raise HTTPException(status_code=400, detail="targetCommandId is required")
+        
+        sql = engine.generate_sql(req.session_id, req.tree, req.targetNodeId, req.targetCommandId)
+        return {"sql": sql}
+    except Exception as e:
+        print(f"SQL Generation Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/analyze")
 async def analyze_overlap(req: AnalyzeRequest):
     try:

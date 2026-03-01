@@ -50,6 +50,58 @@ class ExecutionEngine:
 
         return df
 
+    def generate_sql(self, session_id: str, tree: OperationNode, target_node_id: str, target_command_id: str) -> str:
+        from sql_generator import generate_sql_for_command
+        
+        path = self._find_path_to_node(tree, target_node_id)
+        if not path: raise ValueError("Target node not found")
+        
+        df = None
+        variables: Dict[str, Any] = {}
+        target_node = path[-1]
+        
+        input_table_name = "previous_result"
+        
+        for node in path:
+            if not node.enabled: continue
+            
+            cmds = node.commands
+            if node.id == target_node_id:
+                cmds_before = []
+                target_cmd = None
+                for cmd in cmds:
+                    if cmd.id == target_command_id:
+                        target_cmd = cmd
+                        break
+                    cmds_before.append(cmd)
+                
+                if not target_cmd:
+                    raise ValueError("Target command not found")
+                    
+                # Execute previous commands to update variables
+                df = self._apply_node_commands(df, cmds_before, session_id, variables, tree)
+                
+                # Try to guess input table name from last command
+                if cmds_before:
+                    last_cmd = cmds_before[-1]
+                    if last_cmd.type == 'source':
+                        input_table_name = last_cmd.config.mainTable or "source_table"
+                    elif last_cmd.type == 'group' and last_cmd.config.outputTableName:
+                        input_table_name = last_cmd.config.outputTableName
+                elif len(path) > 1:
+                     # Check previous node's last command
+                     prev_node = path[-2]
+                     if prev_node.commands:
+                         last = prev_node.commands[-1]
+                         if last.type == 'group' and last.config.outputTableName:
+                             input_table_name = last.config.outputTableName
+                
+                return generate_sql_for_command(target_cmd, variables, input_table_name)
+            else:
+                df = self._apply_node_commands(df, cmds, session_id, variables, tree)
+                
+        return "-- Command not reached"
+
     def _execute_multi_table_sub(self, session_id: str, path: List[OperationNode], multi_cmd: Command, view_id: str) -> pd.DataFrame:
         # 1. Execute everything UP TO the multi_table command to get the "Main" context
         df = None
