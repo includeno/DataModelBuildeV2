@@ -23,7 +23,6 @@
       "targets": "all",
       "identifier": "com.dataflow.engine",
       "icon": [
-        "icons/icon.icns",
         "icons/icon.ico"
       ],
       "dmg": {
