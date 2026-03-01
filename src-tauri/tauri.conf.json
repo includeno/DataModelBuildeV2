@@ -29,7 +29,14 @@
         "icons/icon.png",
         "icons/icon.icns",
         "icons/icon.ico"
-      ]
+      ],
+      "dmg": {
+        "background": null,
+        "windowSize": {
+          "width": 600,
+          "height": 400
+        }
+      }
     },
     "security": {
       "csp": null
