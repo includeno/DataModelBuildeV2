@@ -37,7 +37,7 @@ export interface FilterCondition {
   type: 'condition';
   field: string;
   operator: string;
-  value: string | number | string[];
+  value: string | number | string[] | null;
   valueType?: 'raw' | 'variable';
   dataType?: DataType;
 }
@@ -65,7 +65,7 @@ export interface CommandConfig {
   // Legacy/Single-field support
   field?: string;
   operator?: string;
-  value?: string | number | string[];
+  value?: string | number | string[] | null;
   
   distinct?: boolean; 
   mainTable?: string;
