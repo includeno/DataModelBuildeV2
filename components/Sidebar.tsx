@@ -66,6 +66,43 @@ export const Sidebar: React.FC<SidebarProps> = ({
       setLastGlobalAction('collapse');
   };
 
+  const isCollapsedMode = currentView === 'workflow' 
+      ? (!isOpsExpanded && !isDataExpanded)
+      : (!isDataExpanded);
+
+  if (isCollapsedMode) {
+      return (
+        <aside 
+            className="bg-white border-r border-gray-200 flex flex-col z-10 shrink-0 h-full max-h-full overflow-hidden transition-all duration-300"
+            style={{ width: 48 }}
+        >
+            <div className="flex flex-col items-center py-4 space-y-6 h-full bg-gray-50/50">
+                {currentView === 'workflow' && (
+                    <button 
+                        className="flex flex-col items-center justify-center space-y-1 p-2 hover:bg-white hover:shadow-sm rounded-md transition-all group w-10"
+                        onClick={() => setIsOpsExpanded(true)}
+                        title="Expand Operations"
+                    >
+                        <span className="text-[9px] font-bold text-gray-400 group-hover:text-blue-600 uppercase tracking-widest" style={{ writingMode: 'vertical-rl', textOrientation: 'mixed', transform: 'rotate(180deg)' }}>OPS</span>
+                        <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-blue-600" />
+                    </button>
+                )}
+                
+                <div className="flex-1" />
+
+                <button 
+                    className="flex flex-col items-center justify-center space-y-1 p-2 hover:bg-white hover:shadow-sm rounded-md transition-all group w-10"
+                    onClick={() => setIsDataExpanded(true)}
+                    title="Expand Datasets"
+                >
+                    <span className="text-[9px] font-bold text-gray-400 group-hover:text-blue-600 uppercase tracking-widest" style={{ writingMode: 'vertical-rl', textOrientation: 'mixed', transform: 'rotate(180deg)' }}>DATA</span>
+                    <Database className="w-4 h-4 text-gray-400 group-hover:text-blue-600" />
+                </button>
+            </div>
+        </aside>
+      );
+  }
+
   return (
     <aside 
         className="bg-white border-r border-gray-200 flex flex-col z-10 shrink-0 h-full max-h-full overflow-hidden"

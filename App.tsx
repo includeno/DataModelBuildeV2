@@ -476,7 +476,7 @@ function App() {
          {/* Mobile Sidebar Overlay */}
          {isMobileSidebarOpen && (
              <div className="absolute inset-0 z-40 bg-black/50 md:hidden" onClick={() => setIsMobileSidebarOpen(false)}>
-                 <div className="h-full w-64 bg-white shadow-xl" onClick={e => e.stopPropagation()}>
+                 <div className="h-full w-fit bg-white shadow-xl" onClick={e => e.stopPropagation()}>
                     <Sidebar 
                         width={260}
                         currentView={currentView}

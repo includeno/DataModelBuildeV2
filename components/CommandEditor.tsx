@@ -4,6 +4,7 @@ import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { Command, CommandType, Dataset, OperationType, AggregationConfig, OperationNode, DataType, HavingCondition, MappingRule, FilterGroup, FilterCondition, SubTableConfig, FieldInfo } from '../types';
 import { Button } from './Button';
 import { Trash2, Plus, GripVertical, Type, Database, Play, Layers, Braces, ArrowRight, Filter as FilterIcon, Table, Calculator, List, Check, Info, ChevronDown, Split, LayoutDashboard, AlertTriangle, Settings2, Eye, Variable, Route } from 'lucide-react';
+import { Reorder, useDragControls, DragControls } from 'framer-motion';
 
 interface CommandEditorProps {
   operationId: string;
@@ -85,6 +86,21 @@ OPERATORS['timestamp'] = OPERATORS['date'];
 const baseInputStyles = "w-full text-sm border border-gray-200 rounded-md focus:ring-2 focus:ring-blue-100 focus:border-blue-500 bg-white text-gray-900 shadow-sm transition-all hover:border-gray-300 py-1.5";
 const errorInputStyles = "w-full text-sm border border-red-300 rounded-md focus:ring-2 focus:ring-red-100 focus:border-red-500 bg-red-50 text-red-900 shadow-sm transition-all py-1.5";
 const codeAreaStyles = "w-full text-[11px] border border-gray-700 rounded-md focus:ring-2 focus:ring-blue-900 focus:border-blue-700 bg-[#1e1e1e] text-[#d4d4d4] font-mono shadow-sm transition-all py-2 px-3 leading-relaxed resize-y selection:bg-[#264f78]";
+
+const DraggableItem = ({ cmd, children }: { cmd: Command, children: (dragControls: DragControls) => React.ReactNode }) => {
+  const dragControls = useDragControls();
+  return (
+    <Reorder.Item
+      value={cmd}
+      dragListener={false}
+      dragControls={dragControls}
+      as="div"
+      className="relative"
+    >
+      {children(dragControls)}
+    </Reorder.Item>
+  );
+};
 
 const flattenNodes = (root: OperationNode): OperationNode[] => {
     let result = [root];
@@ -1130,6 +1146,10 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
           </div>
         ) : (
           <>
+            <Reorder.Group axis="y" values={commands} onReorder={(newCommands) => {
+                const updated = newCommands.map((c, i) => ({ ...c, order: i + 1 }));
+                onUpdateCommands(operationId, updated);
+            }}>
             {commands.map((cmd, index) => {
                 let activeSchema: Record<string, DataType> = {};
                 
@@ -1183,13 +1203,21 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                 const isSourceRequired = index === 0 && (!ancestors || ancestors.length === 0);
                 const isMissingSource = isSourceRequired && !cmd.config.dataSource;
 
+                const isDraggable = cmd.type !== 'source';
                 return (
-                <React.Fragment key={cmd.id}>
-                    <InsertDivider index={index} onInsert={insertCommand} />
-                    <div className="relative group bg-white border border-gray-200 rounded-lg shadow-sm hover:shadow-md transition-all duration-200">
-                        <div className="flex items-center justify-between p-3 border-b border-gray-100 bg-white rounded-t-lg">
-                            <div className="flex items-center space-x-3 overflow-hidden">
-                                <div className="cursor-move text-gray-300 hover:text-gray-500"><GripVertical className="w-4 h-4" /></div>
+                <DraggableItem key={cmd.id} cmd={cmd}>
+                    {(dragControls) => (
+                    <React.Fragment>
+                        <InsertDivider index={index} onInsert={insertCommand} />
+                        <div className="relative group bg-white border border-gray-200 rounded-lg shadow-sm hover:shadow-md transition-all duration-200">
+                            <div className="flex items-center justify-between p-3 border-b border-gray-100 bg-white rounded-t-lg">
+                                <div className="flex items-center space-x-3 overflow-hidden">
+                                    <div 
+                                        className={`cursor-move text-gray-300 hover:text-gray-500 ${!isDraggable ? 'cursor-not-allowed opacity-50' : ''}`}
+                                        onPointerDown={(e) => isDraggable && dragControls.start(e)}
+                                    >
+                                        <GripVertical className="w-4 h-4" />
+                                    </div>
                                 <div className="flex items-center">
                                     <select value={cmd.type} onChange={(e) => updateCommand(cmd.id, 'type', e.target.value)} className="text-sm font-bold text-gray-800 bg-transparent border-none focus:ring-0 cursor-pointer hover:text-blue-600 pl-0 pr-6 py-0">
                                         <option value="filter">Filter</option>
@@ -1517,8 +1545,11 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                         </div>
                     </div>
                 </React.Fragment>
+                    )}
+                </DraggableItem>
                 );
             })}
+            </Reorder.Group>
             
             {hasComplexView ? (
                 <div className="flex justify-center pt-4 text-xs text-orange-500 font-medium bg-orange-50 p-2 rounded border border-orange-100 mx-4">
