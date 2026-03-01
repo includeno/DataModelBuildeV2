@@ -58,49 +58,45 @@ class ExecutionEngine:
         
         df = None
         variables: Dict[str, Any] = {}
-        target_node = path[-1]
         
-        input_table_name = "previous_result"
+        ctes = []
+        step_counter = 0
+        current_sql_input = "initial_source"
+        found_target = False
         
         for node in path:
             if not node.enabled: continue
             
-            cmds = node.commands
-            if node.id == target_node_id:
-                cmds_before = []
-                target_cmd = None
-                for cmd in cmds:
-                    if cmd.id == target_command_id:
-                        target_cmd = cmd
-                        break
-                    cmds_before.append(cmd)
+            for cmd in node.commands:
+                # Execute command to update variables/state (needed for variable resolution in SQL)
+                # We pass [cmd] to reuse the existing logic which handles single command execution
+                df = self._apply_node_commands(df, [cmd], session_id, variables, tree)
                 
-                if not target_cmd:
-                    raise ValueError("Target command not found")
-                    
-                # Execute previous commands to update variables
-                df = self._apply_node_commands(df, cmds_before, session_id, variables, tree)
+                # Generate SQL for this command
+                cmd_sql = generate_sql_for_command(cmd, variables, current_sql_input)
                 
-                # Try to guess input table name from last command
-                if cmds_before:
-                    last_cmd = cmds_before[-1]
-                    if last_cmd.type == 'source':
-                        input_table_name = last_cmd.config.mainTable or "source_table"
-                    elif last_cmd.type == 'group' and last_cmd.config.outputTableName:
-                        input_table_name = last_cmd.config.outputTableName
-                elif len(path) > 1:
-                     # Check previous node's last command
-                     prev_node = path[-2]
-                     if prev_node.commands:
-                         last = prev_node.commands[-1]
-                         if last.type == 'group' and last.config.outputTableName:
-                             input_table_name = last.config.outputTableName
+                # If SQL is valid (not a comment), add to CTE chain
+                if not cmd_sql.strip().startswith("--"):
+                    step_name = f"step_{step_counter}"
+                    ctes.append(f"{step_name} AS ({cmd_sql})")
+                    current_sql_input = step_name
+                    step_counter += 1
                 
-                return generate_sql_for_command(target_cmd, variables, input_table_name)
-            else:
-                df = self._apply_node_commands(df, cmds, session_id, variables, tree)
+                if node.id == target_node_id and cmd.id == target_command_id:
+                    found_target = True
+                    break
+            
+            if found_target:
+                break
                 
-        return "-- Command not reached"
+        if not found_target:
+            raise ValueError("Target command not found")
+
+        if not ctes:
+            return "-- No SQL generated (or all commands were unsupported)"
+            
+        cte_string = ",\n".join(ctes)
+        return f"WITH {cte_string}\nSELECT * FROM {current_sql_input}"
 
     def _execute_multi_table_sub(self, session_id: str, path: List[OperationNode], multi_cmd: Command, view_id: str) -> pd.DataFrame:
         # 1. Execute everything UP TO the multi_table command to get the "Main" context

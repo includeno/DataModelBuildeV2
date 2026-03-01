@@ -35,7 +35,7 @@ def generate_sql_for_command(cmd: Command, variables: Dict[str, Any], input_tabl
         
         return f"SELECT t1.*, t2.* FROM {input_table} t1 {join_type} JOIN {target} t2 ON {on}"
         
-    elif cmd.type == 'group':
+    elif cmd.type == 'group' or cmd.type == 'aggregate':
         dims = c.groupByFields or (c.groupBy if c.groupBy else [])
         aggs = c.aggregations or []
         
