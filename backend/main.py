@@ -64,6 +64,18 @@ async def delete_session(session_id: str):
 async def list_datasets(session_id: str):
     return storage.list_datasets(session_id)
 
+@app.post("/sessions/{session_id}/datasets/update")
+async def update_dataset_schema(session_id: str, payload: dict = Body(...)):
+    dataset_id = payload.get("datasetId")
+    field_types = payload.get("fieldTypes")
+    if not dataset_id:
+        raise HTTPException(status_code=400, detail="datasetId is required")
+    if field_types is None:
+        raise HTTPException(status_code=400, detail="fieldTypes is required")
+
+    storage.save_dataset_field_types(session_id, dataset_id, field_types)
+    return {"status": "ok"}
+
 @app.get("/sessions/{session_id}/state")
 async def get_session_state(session_id: str):
     state = storage.get_session_state(session_id)

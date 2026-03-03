@@ -91,7 +91,11 @@ class ExecutionEngine:
 
                 if cmd.type == 'source':
                     resolved = self._resolve_setup_table(cmd.config.mainTable, allowed_tables, source_map)
-                    current_sql = f"SELECT * FROM {resolved}"
+                    source_alias = (cmd.config.alias or "").strip() if cmd.config.alias else ""
+                    if source_alias:
+                        current_sql = f"SELECT * FROM {resolved} AS {source_alias}"
+                    else:
+                        current_sql = f"SELECT * FROM {resolved}"
                     current_base_table = resolved
                     cmd_sql = current_sql
                 else:

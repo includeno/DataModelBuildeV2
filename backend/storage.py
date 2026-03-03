@@ -36,6 +36,28 @@ class SessionStorage:
     def _get_db_path(self, session_id: str) -> str:
         return os.path.join(self._get_session_path(session_id), "database.db")
 
+    def _get_schema_overrides_path(self, session_id: str) -> str:
+        return os.path.join(self._get_session_path(session_id), "schema_overrides.json")
+
+    def _load_schema_overrides(self, session_id: str) -> Dict[str, Dict]:
+        path = self._get_schema_overrides_path(session_id)
+        if os.path.exists(path):
+            try:
+                with open(path, "r") as f:
+                    data = json.load(f)
+                    if isinstance(data, dict):
+                        return data
+            except Exception:
+                pass
+        return {}
+
+    def save_dataset_field_types(self, session_id: str, dataset_id: str, field_types: Dict):
+        self.create_session(session_id)
+        overrides = self._load_schema_overrides(session_id)
+        overrides[dataset_id] = field_types or {}
+        with open(self._get_schema_overrides_path(session_id), "w") as f:
+            json.dump(overrides, f, indent=2)
+
     def create_session(self, session_id: str):
         path = self._get_session_path(session_id)
         if not os.path.exists(path):
@@ -127,6 +149,8 @@ class SessionStorage:
             # Get table info
             tables = con.execute("SHOW TABLES").fetchall()
             result = []
+            schema_overrides = self._load_schema_overrides(session_id)
+
             for t in tables:
                 t_name = t[0]
                 count = con.execute(f"SELECT count(*) FROM {t_name}").fetchone()[0]
@@ -139,6 +163,7 @@ class SessionStorage:
                     "name": t_name,
                     "rows": [], # Don't return rows in list to save bandwidth
                     "fields": fields,
+                    "fieldTypes": schema_overrides.get(t_name),
                     "totalCount": count
                 })
             return result
