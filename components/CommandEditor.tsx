@@ -650,12 +650,9 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
       
       setupNodes.forEach(node => {
           const sourceCmds = node.commands.filter(c => c.type === 'source');
-          sourceCmds.forEach((cmd, idx) => {
-              // Determine display alias: Explicit Alias -> Node Name (if first command) -> Empty
-              let effectiveAlias = cmd.config.alias;
-              if (!effectiveAlias && idx === 0) {
-                  effectiveAlias = node.name;
-              }
+          sourceCmds.forEach((cmd) => {
+              // Prefer explicit alias; fallback to source table for backward compatibility.
+              const effectiveAlias = cmd.config.alias || cmd.config.mainTable;
               
               // Ensure we have a link ID. Fallback to cmd.id if linkId wasn't saved in older versions.
               const linkId = cmd.config.linkId || cmd.id;
@@ -1253,15 +1250,22 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
             }}>
             {commands.map((cmd, index) => {
                 let activeSchema: Record<string, DataType> = {};
+                const normalizedDataSource = cmd.config.dataSource
+                    ? (availableSourceAliases.find(sa =>
+                        sa.linkId === cmd.config.dataSource ||
+                        sa.alias === cmd.config.dataSource ||
+                        sa.sourceTable === cmd.config.dataSource
+                    )?.linkId || cmd.config.dataSource)
+                    : '';
                 
-                if (cmd.config.dataSource) {
-                    const sourceAlias = availableSourceAliases.find(sa => sa.linkId === cmd.config.dataSource);
+                if (normalizedDataSource) {
+                    const sourceAlias = availableSourceAliases.find(sa => sa.linkId === normalizedDataSource);
                     let targetDatasetName = "";
                     if (sourceAlias) {
                         targetDatasetName = sourceAlias.sourceTable || "";
                     } else {
                         // Assume it's a direct table name (generated or otherwise)
-                        targetDatasetName = cmd.config.dataSource;
+                        targetDatasetName = normalizedDataSource;
                     }
 
                     if (targetDatasetName) {
@@ -1380,7 +1384,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                 <Database className={`w-3 h-3 ${isMissingSource ? 'text-red-400' : 'text-gray-400'}`} />
                                 <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Select Dataset:</span>
                                 <select
-                                        value={cmd.config.dataSource || ''}
+                                        value={normalizedDataSource}
                                         onChange={(e) => updateCommand(cmd.id, 'config.dataSource', e.target.value)}
                                         className={`bg-transparent text-xs font-medium focus:outline-none cursor-pointer border-none p-0 pr-4 hover:underline ${isMissingSource ? 'text-red-600' : 'text-blue-700'}`}
                                     >
@@ -1435,7 +1439,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                         <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Table to View</label>
                                         <select 
                                             className={`${baseInputStyles} py-2`}
-                                            value={cmd.config.dataSource || ''} 
+                                            value={normalizedDataSource} 
                                             onChange={(e) => updateCommand(cmd.id, 'config.dataSource', e.target.value)}
                                         >
                                             <option value="">-- Select Table --</option>
@@ -1667,7 +1671,17 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                                 {availableNodes.map(n => <option key={n.id} value={n.id}>{n.name}</option>)}
                                             </select>
                                         ) : (
-                                            <select className={baseInputStyles} value={cmd.config.joinTable || ''} onChange={(e) => updateCommand(cmd.id, 'config.joinTable', e.target.value)}>
+                                            <select
+                                                className={baseInputStyles}
+                                                value={cmd.config.joinTable
+                                                    ? (availableSourceAliases.find(sa =>
+                                                        sa.linkId === cmd.config.joinTable ||
+                                                        sa.alias === cmd.config.joinTable ||
+                                                        sa.sourceTable === cmd.config.joinTable
+                                                    )?.linkId || cmd.config.joinTable)
+                                                    : ''}
+                                                onChange={(e) => updateCommand(cmd.id, 'config.joinTable', e.target.value)}
+                                            >
                                                 <option value="">-- Select Source --</option>
                                                 {availableSourceAliases.length > 0 && (
                                                     <optgroup label="Data Sources">

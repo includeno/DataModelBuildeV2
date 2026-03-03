@@ -45,6 +45,10 @@ def test_source_with_variable_in_name_not_supported_by_generator_logic_but_good_
     cmd = create_cmd("source", {"mainTable": "users_{table_suffix}"})
     assert gen(cmd, variables) == "SELECT * FROM users_{table_suffix}"
 
+def test_source_with_alias(variables):
+    cmd = create_cmd("source", {"mainTable": "users", "alias": "u"})
+    assert gen(cmd, variables) == "SELECT * FROM users AS u"
+
 # --- 2. Filter Command - Operators (40 cases) ---
 
 @pytest.mark.parametrize("op, val, expected_snippet", [

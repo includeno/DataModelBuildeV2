@@ -86,7 +86,11 @@ def generate_sql_for_command(cmd: Command, variables: Dict[str, Any], input_tabl
         return f"SELECT {distinct}{field} FROM {input_table}"
 
     elif cmd.type == 'source':
-        return f"SELECT * FROM {c.mainTable}"
+        table = c.mainTable or input_table
+        alias = (c.alias or "").strip() if hasattr(c, 'alias') else ""
+        if alias:
+            return f"SELECT * FROM {table} AS {alias}"
+        return f"SELECT * FROM {table}"
 
     elif cmd.type == 'view':
         view_fields = c.viewFields or []

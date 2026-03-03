@@ -119,6 +119,36 @@ def test_upload_mock_retail_dataset_and_query():
     east = next(r for r in rows if r["region"] == "East")
     assert east["cnt"] == 4
 
+
+def test_update_dataset_schema_field_types():
+    session_id = client.post("/sessions").json()["sessionId"]
+
+    csv_content = "id,created_at\n1,2024-01-01\n2,2024-01-02"
+    upload_res = client.post(
+        "/upload",
+        files={"file": ("events.csv", csv_content, "text/csv")},
+        data={"sessionId": session_id, "name": "events"},
+    )
+    assert upload_res.status_code == 200
+
+    update_res = client.post(
+        f"/sessions/{session_id}/datasets/update",
+        json={
+            "datasetId": "events",
+            "fieldTypes": {
+                "id": {"type": "number"},
+                "created_at": {"type": "date", "format": "YYYY-MM-DD"},
+            },
+        },
+    )
+    assert update_res.status_code == 200
+
+    datasets_res = client.get(f"/sessions/{session_id}/datasets")
+    assert datasets_res.status_code == 200
+    events = next(d for d in datasets_res.json() if d["name"] == "events")
+    assert events["fieldTypes"]["created_at"]["type"] == "date"
+    assert events["fieldTypes"]["created_at"]["format"] == "YYYY-MM-DD"
+
 # --- Engine Execution Tests ---
 
 def test_execution_flow_with_variables():
