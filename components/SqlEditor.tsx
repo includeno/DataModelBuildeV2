@@ -1,16 +1,19 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Play, Plus, X, Clock, CheckCircle, XCircle, Table as TableIcon, History, Terminal, Copy } from 'lucide-react';
 import { Button } from './Button';
-import { ExecutionResult, ApiConfig, SqlHistoryItem } from '../types';
+import { ExecutionResult, ApiConfig, SqlHistoryItem, Dataset } from '../types';
 import { api } from '../utils/api';
 import { DataPreview } from './DataPreview';
 
 interface SqlEditorProps {
   sessionId: string;
   apiConfig: ApiConfig;
+  datasets: Dataset[];
   targetTable?: string | null;
   onClearTarget?: () => void;
+  runRequestId?: number;
+  onRunStateChange?: (state: { canRun: boolean; running: boolean }) => void;
   history?: SqlHistoryItem[];
   onUpdateHistory?: (history: SqlHistoryItem[]) => void;
 }
@@ -29,8 +32,11 @@ interface SqlTab {
 export const SqlEditor: React.FC<SqlEditorProps> = ({ 
     sessionId, 
     apiConfig, 
+    datasets,
     targetTable, 
     onClearTarget,
+    runRequestId,
+    onRunStateChange,
     history = [],
     onUpdateHistory
 }) => {
@@ -40,6 +46,11 @@ export const SqlEditor: React.FC<SqlEditorProps> = ({
   ]);
   const [activeTabId, setActiveTabId] = useState<string>('1');
   const [showHistory, setShowHistory] = useState(false);
+  const lastRunRequestId = useRef<number | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
+  const [showSuggestions, setShowSuggestions] = useState(false);
 
   // Derived state
   const activeTab = tabs.find(t => t.id === activeTabId) || tabs[0];
@@ -53,6 +64,24 @@ export const SqlEditor: React.FC<SqlEditorProps> = ({
           onClearTarget();
       }
   }, [targetTable, onClearTarget]);
+
+  useEffect(() => {
+      if (runRequestId === undefined) return;
+      if (lastRunRequestId.current === runRequestId) return;
+      lastRunRequestId.current = runRequestId;
+      if (!activeTab.query.trim() || activeTab.loading) return;
+      executeQuery(1);
+  }, [runRequestId, activeTab.query, activeTab.loading]);
+
+  useEffect(() => {
+      if (!onRunStateChange) return;
+      const canRun = !!activeTab.query.trim();
+      onRunStateChange({ canRun, running: activeTab.loading });
+  }, [activeTab.query, activeTab.loading, onRunStateChange]);
+
+  useEffect(() => {
+      setSelectedSuggestionIndex(0);
+  }, [activeTabId]);
 
   const handleOpenTable = (tableName: string) => {
       const newQuery = `SELECT * FROM ${tableName}`; // Removed LIMIT to rely on pagination
@@ -72,6 +101,74 @@ export const SqlEditor: React.FC<SqlEditorProps> = ({
           }
           return t;
       }));
+  };
+
+  const SQL_KEYWORDS = [
+      'SELECT', 'FROM', 'WHERE', 'JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN', 'FULL JOIN',
+      'ON', 'GROUP BY', 'ORDER BY', 'LIMIT', 'OFFSET', 'AND', 'OR', 'AS', 'DISTINCT',
+      'COUNT', 'SUM', 'AVG', 'MIN', 'MAX'
+  ];
+
+  const datasetNames = datasets.map(d => d.name);
+  const datasetFieldMap: Record<string, string[]> = datasets.reduce((acc, d) => {
+      acc[d.name] = d.fieldTypes ? Object.keys(d.fieldTypes) : (d.fields || []);
+      return acc;
+  }, {} as Record<string, string[]>);
+
+  const getTokenAtCursor = (text: string, cursor: number) => {
+      let start = cursor - 1;
+      while (start >= 0 && /[A-Za-z0-9_.]/.test(text[start])) start -= 1;
+      start += 1;
+      const token = text.slice(start, cursor);
+      return { token, start };
+  };
+
+  const computeSuggestions = (text: string, cursor: number): string[] => {
+      const { token } = getTokenAtCursor(text, cursor);
+      const trimmed = token.trim();
+      if (!trimmed) return [];
+
+      const lower = trimmed.toLowerCase();
+      if (trimmed.includes('.')) {
+          const [tablePart, fieldPart = ''] = trimmed.split('.');
+          const tableMatch = datasetNames.find(t => t.toLowerCase() === tablePart.toLowerCase());
+          if (!tableMatch) return [];
+          const fields = datasetFieldMap[tableMatch] || [];
+          return fields
+              .filter(f => f.toLowerCase().startsWith(fieldPart.toLowerCase()))
+              .slice(0, 12)
+              .map(f => `${tableMatch}.${f}`);
+      }
+
+      const keywordMatches = SQL_KEYWORDS.filter(k => k.toLowerCase().startsWith(lower));
+      const tableMatches = datasetNames.filter(t => t.toLowerCase().startsWith(lower));
+      const fieldMatches = Object.values(datasetFieldMap)
+          .flat()
+          .filter((f, i, arr) => arr.indexOf(f) === i)
+          .filter(f => f.toLowerCase().startsWith(lower))
+          .slice(0, 10);
+
+      return [...keywordMatches, ...tableMatches, ...fieldMatches].slice(0, 12);
+  };
+
+  const applySuggestion = (suggestion: string) => {
+      const el = textareaRef.current;
+      if (!el) return;
+      const cursor = el.selectionStart || 0;
+      const { token, start } = getTokenAtCursor(activeTab.query, cursor);
+      const before = activeTab.query.slice(0, start);
+      const after = activeTab.query.slice(start + token.length);
+      const trailingSpace = suggestion.endsWith(' ') ? '' : ' ';
+      const next = `${before}${suggestion}${trailingSpace}${after}`;
+      updateActiveTab({ query: next });
+      const nextCursor = before.length + suggestion.length + 1;
+      requestAnimationFrame(() => {
+          if (textareaRef.current) {
+              textareaRef.current.selectionStart = nextCursor;
+              textareaRef.current.selectionEnd = nextCursor;
+          }
+      });
+      setShowSuggestions(false);
   };
 
   // --- ACTIONS ---
@@ -202,6 +299,8 @@ export const SqlEditor: React.FC<SqlEditorProps> = ({
                             <button 
                                 onClick={(e) => handleCloseTab(e, tab.id)}
                                 className="opacity-0 group-hover:opacity-100 p-0.5 rounded-full hover:bg-gray-300 text-gray-500"
+                                aria-label={`Close ${tab.title}`}
+                                title="Close Tab"
                             >
                                 <X className="w-3 h-3" />
                             </button>
@@ -265,9 +364,63 @@ export const SqlEditor: React.FC<SqlEditorProps> = ({
                         className="flex-1 w-full h-full p-4 font-mono text-sm resize-none focus:outline-none bg-[#1e1e1e] text-[#d4d4d4] leading-relaxed selection:bg-[#264f78]"
                         placeholder="-- Enter your SQL query here&#10;SELECT * FROM table_name;"
                         value={activeTab.query}
-                        onChange={(e) => updateActiveTab({ query: e.target.value })}
+                        ref={textareaRef}
+                        onChange={(e) => {
+                            const next = e.target.value;
+                            updateActiveTab({ query: next });
+                            const cursor = e.target.selectionStart || 0;
+                            const nextSuggestions = computeSuggestions(next, cursor);
+                            setSuggestions(nextSuggestions);
+                            setShowSuggestions(nextSuggestions.length > 0);
+                        }}
+                        onKeyDown={(e) => {
+                            if (!showSuggestions || suggestions.length === 0) return;
+                            if (e.key === 'ArrowDown') {
+                                e.preventDefault();
+                                setSelectedSuggestionIndex((i) => Math.min(i + 1, suggestions.length - 1));
+                            } else if (e.key === 'ArrowUp') {
+                                e.preventDefault();
+                                setSelectedSuggestionIndex((i) => Math.max(i - 1, 0));
+                            } else if (e.key === 'Tab' || e.key === 'Enter') {
+                                e.preventDefault();
+                                applySuggestion(suggestions[selectedSuggestionIndex]);
+                            } else if (e.key === 'Escape') {
+                                setShowSuggestions(false);
+                            }
+                        }}
+                        onKeyUp={(e) => {
+                            if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'Enter' || e.key === 'Tab') return;
+                            const el = textareaRef.current;
+                            if (!el) return;
+                            const cursor = el.selectionStart || 0;
+                            const nextSuggestions = computeSuggestions(el.value, cursor);
+                            setSuggestions(nextSuggestions);
+                            setShowSuggestions(nextSuggestions.length > 0);
+                        }}
+                        onBlur={() => setShowSuggestions(false)}
                         spellCheck={false}
                     />
+                    {showSuggestions && suggestions.length > 0 && (
+                        <div className="absolute left-4 bottom-4 bg-[#1f2937] border border-[#374151] rounded-md shadow-lg w-80 max-h-56 overflow-y-auto z-20">
+                            {suggestions.map((s, i) => (
+                                <button
+                                    key={`${s}-${i}`}
+                                    className={`w-full text-left px-3 py-1.5 text-xs font-mono ${
+                                        i === selectedSuggestionIndex ? 'bg-[#2563eb] text-white' : 'text-[#d1d5db] hover:bg-[#374151]'
+                                    }`}
+                                    onMouseDown={(e) => {
+                                        e.preventDefault();
+                                        applySuggestion(s);
+                                    }}
+                                >
+                                    {s}
+                                </button>
+                            ))}
+                            <div className="px-3 py-1 text-[10px] text-gray-400 border-t border-[#374151]">
+                                Tab/Enter to accept, Esc to close
+                            </div>
+                        </div>
+                    )}
                     {/* Error Banner Overlay */}
                     {activeTab.error && (
                         <div className="absolute bottom-0 left-0 right-0 bg-red-900/90 text-red-100 text-xs p-2 backdrop-blur-sm border-t border-red-700 flex justify-between items-center">

@@ -14,6 +14,8 @@ interface WorkspaceProps {
   apiConfig: ApiConfig;
   targetSqlTable: string | null;
   onClearTargetSqlTable: () => void;
+  sqlRunRequestId?: number;
+  onSqlRunStateChange?: (state: { canRun: boolean; running: boolean }) => void;
   selectedNode: OperationNode | null;
   datasets: Dataset[];
   inputFields: string[]; // Deprecated, kept for compat if needed but unused in new logic
@@ -30,6 +32,7 @@ interface WorkspaceProps {
   onClearPreview?: () => void;
   loading: boolean;
   onRefreshPreview: (page?: number, commandId?: string) => void;
+  canRunOperation?: boolean;
   onUpdatePageSize: (size: number) => void;
   onExportFull: () => void;
   isMobile: boolean;
@@ -37,6 +40,7 @@ interface WorkspaceProps {
   panelPosition?: 'right' | 'left' | 'top' | 'bottom';
   sqlHistory?: SqlHistoryItem[];
   onUpdateSqlHistory?: (history: SqlHistoryItem[]) => void;
+  datasets?: Dataset[];
 }
 
 export const Workspace: React.FC<WorkspaceProps> = ({
@@ -45,6 +49,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   apiConfig,
   targetSqlTable,
   onClearTargetSqlTable,
+  sqlRunRequestId,
+  onSqlRunStateChange,
   selectedNode,
   datasets,
   // inputFields,
@@ -61,13 +67,15 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   onClearPreview,
   loading,
   onRefreshPreview,
+  canRunOperation = true,
   onUpdatePageSize,
   onExportFull,
   isMobile,
   tree,
   panelPosition = 'right',
   sqlHistory,
-  onUpdateSqlHistory
+  onUpdateSqlHistory,
+  datasets: sqlDatasets = []
 }) => {
   const [activeTab, setActiveTab] = useState<string>('');
 
@@ -166,6 +174,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                 onUpdateType={onUpdateType}
                 onViewPath={onViewPath}
                 onRun={(cmdId) => onRefreshPreview(1, cmdId)}
+                canRun={canRunOperation}
                 onGenerateSql={handleGenerateSql}
                 tree={tree} 
             />
@@ -293,8 +302,11 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                 <SqlEditor 
                     sessionId={sessionId} 
                     apiConfig={apiConfig} 
+                    datasets={sqlDatasets}
                     targetTable={targetSqlTable}
                     onClearTarget={onClearTargetSqlTable}
+                    runRequestId={sqlRunRequestId}
+                    onRunStateChange={onSqlRunStateChange}
                     history={sqlHistory}
                     onUpdateHistory={onUpdateSqlHistory}
                 />

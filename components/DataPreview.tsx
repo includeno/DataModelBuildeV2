@@ -126,6 +126,12 @@ export const DataPreview: React.FC<DataPreviewProps> = ({
   const page = data.page || 1;
   const currentPageSize = pageSize || data.pageSize || 50;
   const totalPages = Math.ceil(data.totalCount / currentPageSize);
+  const formatCellValue = (value: unknown) => {
+      if (value === null || value === undefined) return '';
+      if (typeof value === 'boolean') return value ? 'true' : 'false';
+      if (typeof value === 'object') return JSON.stringify(value);
+      return value as string | number;
+  };
 
   return (
     <div className="flex flex-col h-full bg-white relative">
@@ -263,7 +269,7 @@ export const DataPreview: React.FC<DataPreviewProps> = ({
                 </td>
                 {columns.filter(col => activeCols.includes(col)).map((col) => (
                   <td key={`${idx}-${col}`} className="px-6 py-2.5 text-sm text-gray-700 whitespace-nowrap font-medium">
-                    {typeof row[col] === 'object' ? JSON.stringify(row[col]) : row[col]}
+                    {formatCellValue(row[col])}
                   </td>
                 ))}
               </tr>

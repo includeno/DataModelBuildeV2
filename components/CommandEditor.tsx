@@ -20,6 +20,7 @@ interface CommandEditorProps {
   onRun?: (commandId?: string) => void;
   onGenerateSql?: (commandId: string) => Promise<string>;
   tree?: OperationNode; 
+  canRun?: boolean;
 }
 
 const SqlPreviewModal: React.FC<{
@@ -69,6 +70,17 @@ const PYTHON_TEMPLATE = `def transform(row):
     # Name must be 'transform', return the calculated value
     val = row.get('id', 0)
     return val * 1.1`;
+
+const COMMAND_LABELS: Record<string, string> = {
+    filter: 'Filter',
+    join: 'Join',
+    sort: 'Sort',
+    transform: 'Mapping',
+    group: 'Group',
+    save: 'Save Var',
+    view: 'View',
+    multi_table: 'Complex View'
+};
 
 // const DATA_TYPE_ICONS: Record<string, any> = {
 //     string: Type,
@@ -260,6 +272,12 @@ const CustomSelect: React.FC<{
                         options.map((opt) => (
                             <div
                                 key={opt.value}
+                                role="option"
+                                aria-disabled={opt.disabled}
+                                title={opt.disabled ? 'Already selected in another source' : opt.label}
+                                onMouseDown={(e) => {
+                                    if (opt.disabled) e.preventDefault();
+                                }}
                                 onClick={() => {
                                     if (!opt.disabled) {
                                         onChange(opt.value);
@@ -610,12 +628,54 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
   onViewPath,
   onRun,
   onGenerateSql,
-  tree
+  tree,
+  canRun = true
 }) => {
   
   const [sqlModalOpen, setSqlModalOpen] = useState(false);
   const [sqlContent, setSqlContent] = useState('');
   const [sqlLoading, setSqlLoading] = useState(false);
+  const [collapsedSteps, setCollapsedSteps] = useState<Record<string, boolean>>({});
+  const stepRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  const getDatasetFieldNames = (datasetName: string | undefined): string[] => {
+      if (!datasetName) return [];
+      const ds = datasets.find(d => d.name === datasetName);
+      if (!ds) return [];
+      if (ds.fieldTypes) return Object.keys(ds.fieldTypes);
+      return ds.fields || [];
+  };
+
+  const getSourceLabel = (sourceId?: string): string => {
+      if (!sourceId) return '';
+      const sa = availableSourceAliases.find(s =>
+          s.linkId === sourceId || s.alias === sourceId || s.sourceTable === sourceId
+      );
+      if (sa?.alias) return sa.alias;
+      if (sa?.sourceTable) return sa.sourceTable;
+      return sourceId;
+  };
+
+  const toggleStepCollapsed = (id: string) => {
+      setCollapsedSteps(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const collapseAllSteps = () => {
+      const next: Record<string, boolean> = {};
+      commands.forEach(c => { next[c.id] = true; });
+      setCollapsedSteps(next);
+  };
+
+  const expandAllSteps = () => {
+      const next: Record<string, boolean> = {};
+      commands.forEach(c => { next[c.id] = false; });
+      setCollapsedSteps(next);
+  };
+
+  const scrollToStep = (id: string) => {
+      const el = stepRefs.current[id];
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   const handleGenerateSql = async (cmdId: string) => {
       if (!onGenerateSql) return;
@@ -676,6 +736,8 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
       return getAncestors(tree, operationId) || [];
   }, [tree, operationId]);
 
+  const showStepOutline = commands.length >= 4;
+
   // Collect outputs from Ancestor nodes (Parent -> Parent -> Root)
   const ancestorOutputs = useMemo(() => {
       const outputs = new Set<string>();
@@ -711,6 +773,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
   // -- Setup Mode Handler --
   if (operationType === 'setup') {
       const sourceCommands = commands.filter(c => c.type === 'source');
+      const configuredSourceCount = sourceCommands.filter(c => c.config.mainTable && String(c.config.mainTable).trim().length > 0).length;
       const variableCommands = commands.filter(c => c.type === 'define_variable');
       
       const handleAddSource = () => {
@@ -771,27 +834,34 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
               const currentTable = cmd.config.mainTable;
               const currentAlias = cmd.config.alias;
 
-              // 1. Duplicate Data Source Check
-              if (currentTable) {
-                  const isDuplicateTable = sourceCommands.some((c, idx) => 
-                      idx !== index && c.config.mainTable === currentTable
-                  );
-                  if (isDuplicateTable) errors.push("This table is already selected.");
+              if (!currentTable || String(currentTable).trim().length === 0) {
+                  errors.push("Dataset is required.");
+                  return errors;
               }
 
-              // 2. Duplicate Alias Check
+              // 1. Duplicate Data Source Check
+              const isDuplicateTable = sourceCommands.some((c, idx) => 
+                  idx !== index && c.config.mainTable === currentTable
+              );
+              if (isDuplicateTable) errors.push("This table is already selected.");
+
+              // 2. Dataset not found in current list
+              const isMissingDataset = !datasets.some(d => d.name === currentTable);
+              if (isMissingDataset) errors.push("Selected dataset is unavailable.");
+
+              // 3. Duplicate Alias Check
               if (currentAlias) {
                   const isDuplicateAlias = sourceCommands.some((c, idx) => 
                       idx !== index && c.config.alias === currentAlias
                   );
                   if (isDuplicateAlias) errors.push("Alias name must be unique.");
 
-                  // 3. Alias vs Variable Name Check (New Requirement)
+                  // 4. Alias vs Variable Name Check (New Requirement)
                   const isConflictWithVariable = variableCommands.some(c => c.config.variableName === currentAlias);
                   if (isConflictWithVariable) errors.push("Alias conflicts with a variable name.");
               }
 
-              // 4. Alias vs Table Name Check
+              // 5. Alias vs Table Name Check
               if (currentAlias) {
                   const isConflictWithDataset = datasets.some(d => d.name === currentAlias);
                   if (isConflictWithDataset && currentAlias !== currentTable) {
@@ -856,7 +926,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
             <div className="p-8 max-w-4xl mx-auto w-full h-full overflow-y-auto custom-scrollbar">
                 <div className="flex flex-col space-y-4 pb-20">
                     {/* Source Configuration */}
-                    <CollapsibleSection title="Configured Sources" icon={Database} count={sourceCommands.length}>
+                    <CollapsibleSection title="Configured Sources" icon={Database} count={configuredSourceCount}>
                         {sourceCommands.map((cmd, idx) => {
                             const errors = getValidationErrors(cmd, idx);
                             const hasError = errors.length > 0;
@@ -896,7 +966,10 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                                 options={options}
                                                 placeholder="-- Select Dataset --"
                                                 icon={Database}
-                                                hasError={hasError && errors[0].includes('table')}
+                                                hasError={hasError && errors.some(e => {
+                                                    const msg = e.toLowerCase();
+                                                    return msg.includes('dataset') || msg.includes('table');
+                                                })}
                                             />
                                         </div>
                                         <div>
@@ -1222,8 +1295,11 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                <div className="relative group shrink-0">
                     <button 
                         onClick={() => onRun && onRun()}
-                        className="flex items-center justify-center w-8 h-8 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm active:scale-95"
-                        title="Run this operation"
+                        disabled={!canRun}
+                        className={`flex items-center justify-center w-8 h-8 rounded-lg transition-colors shadow-sm active:scale-95 ${
+                            canRun ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-300 text-white cursor-not-allowed'
+                        }`}
+                        title={canRun ? "Run this operation" : "Configure data sources before running"}
                     >
                         <Play className="w-4 h-4 ml-0.5" />
                     </button>
@@ -1244,6 +1320,37 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
           </div>
         ) : (
           <>
+            {showStepOutline && (
+                <div className="mb-4 p-3 bg-white border border-gray-200 rounded-lg shadow-sm flex items-center justify-between">
+                    <div className="flex items-center space-x-2 overflow-x-auto no-scrollbar">
+                        {commands.map((c, idx) => (
+                            <button
+                                key={c.id}
+                                onClick={() => scrollToStep(c.id)}
+                                className="px-2.5 py-1 rounded-md text-xs font-medium border border-gray-200 bg-gray-50 hover:bg-blue-50 hover:border-blue-300 text-gray-700 shrink-0"
+                                title={`Jump to step #${idx + 1}`}
+                            >
+                                <span className="font-mono text-[10px] text-gray-500 mr-1">#{idx + 1}</span>
+                                {COMMAND_LABELS[c.type] || c.type}
+                            </button>
+                        ))}
+                    </div>
+                    <div className="flex items-center space-x-2 shrink-0 ml-3">
+                        <button
+                            onClick={collapseAllSteps}
+                            className="text-xs font-medium text-gray-600 hover:text-gray-900 px-2 py-1 rounded-md hover:bg-gray-100 border border-gray-200"
+                        >
+                            Collapse All
+                        </button>
+                        <button
+                            onClick={expandAllSteps}
+                            className="text-xs font-medium text-gray-600 hover:text-gray-900 px-2 py-1 rounded-md hover:bg-gray-100 border border-gray-200"
+                        >
+                            Expand All
+                        </button>
+                    </div>
+                </div>
+            )}
             <Reorder.Group axis="y" values={commands} onReorder={(newCommands) => {
                 const updated = newCommands.map((c, i) => ({ ...c, order: i + 1 }));
                 onUpdateCommands(operationId, updated);
@@ -1286,6 +1393,63 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                 }
                 const activeSchemaRef = activeSchema;
                 const fieldNames = Object.keys(activeSchema);
+                const isCollapsed = !!collapsedSteps[cmd.id];
+
+                const sourceLabel = getSourceLabel(normalizedDataSource);
+                const joinTargetType = cmd.config.joinTargetType || 'table';
+                const joinTargetKey = joinTargetType === 'node' ? cmd.config.joinTargetNodeId : cmd.config.joinTable;
+                const joinTargetNode = joinTargetType === 'node'
+                    ? availableNodes.find(n => n.id === cmd.config.joinTargetNodeId)
+                    : null;
+                const joinTargetSource = joinTargetType === 'table'
+                    ? availableSourceAliases.find(sa =>
+                        sa.linkId === joinTargetKey ||
+                        sa.alias === joinTargetKey ||
+                        sa.sourceTable === joinTargetKey
+                    )
+                    : null;
+                const joinTargetLabel = joinTargetType === 'node'
+                    ? (joinTargetNode?.name || '')
+                    : (joinTargetSource?.alias || joinTargetSource?.sourceTable || (joinTargetKey || ''));
+                const joinTargetDatasetName = joinTargetType === 'table'
+                    ? (joinTargetSource?.sourceTable || (joinTargetKey || ''))
+                    : '';
+                const joinTargetFields = getDatasetFieldNames(joinTargetDatasetName);
+                const canUseJoinBuilder = joinTargetType === 'table' && fieldNames.length > 0 && joinTargetFields.length > 0;
+
+                const joinLeftField = cmd.config.joinLeftField || '';
+                const joinRightField = cmd.config.joinRightField || '';
+                const joinOperator = cmd.config.joinOperator || '=';
+                const leftExpr = joinLeftField ? (sourceLabel ? `${sourceLabel}.${joinLeftField}` : joinLeftField) : '';
+                const rightExpr = joinRightField ? (joinTargetLabel ? `${joinTargetLabel}.${joinRightField}` : joinRightField) : '';
+                const canApplyJoinBuilder = !!leftExpr && !!rightExpr;
+                const joinSuggestionId = `join-suggest-${cmd.id}`;
+                const joinSuggestions = (() => {
+                    const leftAlias = sourceLabel || 'left';
+                    const rightAlias = joinTargetLabel || 'right';
+                    const suggestions: string[] = [];
+                    const leftFields = fieldNames.slice(0, 8);
+                    const rightFields = joinTargetFields.slice(0, 8);
+                    leftFields.forEach(lf => {
+                        if (rightFields.includes(lf)) {
+                            suggestions.push(`${leftAlias}.${lf} = ${rightAlias}.${lf}`);
+                        }
+                    });
+                    if (leftFields[0] && rightFields[0]) {
+                        suggestions.push(`${leftAlias}.${leftFields[0]} = ${rightAlias}.${rightFields[0]}`);
+                    }
+                    leftFields.forEach(lf => suggestions.push(`${leftAlias}.${lf}`));
+                    rightFields.forEach(rf => suggestions.push(`${rightAlias}.${rf}`));
+                    return Array.from(new Set(suggestions)).slice(0, 12);
+                })();
+
+                const summaryParts: string[] = [];
+                if (sourceLabel) summaryParts.push(`Source: ${sourceLabel}`);
+                if (cmd.type === 'join' && joinTargetLabel) summaryParts.push(`Join: ${joinTargetLabel}`);
+                if (cmd.type === 'join' && cmd.config.on) summaryParts.push(`ON: ${cmd.config.on}`);
+                if (cmd.type === 'group' && cmd.config.outputTableName) summaryParts.push(`Output: ${cmd.config.outputTableName}`);
+                if (cmd.type === 'view' && sourceLabel) summaryParts.push(`View: ${sourceLabel}`);
+                const stepSummary = summaryParts.length > 0 ? summaryParts.join(' • ') : 'No details';
 
                 // Calculate available tables for this specific command index
                 const localPrecedingOutputs = commands
@@ -1314,7 +1478,10 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                     {(dragControls) => (
                     <React.Fragment>
                         <InsertDivider index={index} onInsert={insertCommand} />
-                        <div className="relative group bg-white border border-gray-200 rounded-lg shadow-sm hover:shadow-md transition-all duration-200">
+                        <div
+                            ref={(el) => { stepRefs.current[cmd.id] = el; }}
+                            className="relative group bg-white border border-gray-200 rounded-lg shadow-sm hover:shadow-md transition-all duration-200"
+                        >
                             <div className="flex items-center justify-between p-3 border-b border-gray-100 bg-white rounded-t-lg">
                                 <div className="flex items-center space-x-3 overflow-hidden">
                                     <div 
@@ -1369,16 +1536,28 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                 </button>
                                 <button 
                                     onClick={() => onRun && onRun(cmd.id)}
-                                    className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                                    title="Run logic up to this step"
+                                    disabled={!canRun}
+                                    className={`p-1 rounded transition-colors ${
+                                        canRun ? 'text-gray-400 hover:text-blue-600 hover:bg-blue-50' : 'text-gray-300 cursor-not-allowed'
+                                    }`}
+                                    title={canRun ? "Run logic up to this step" : "Configure data sources before running"}
                                 >
                                     <Play className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                    onClick={() => toggleStepCollapsed(cmd.id)}
+                                    className="p-1 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors"
+                                    title={isCollapsed ? "Expand step" : "Collapse step"}
+                                >
+                                    {isCollapsed ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
                                 </button>
                                 <span className="text-[10px] font-mono text-gray-300">#{index + 1}</span>
                                 <button onClick={() => removeCommand(cmd.id)} className="p-1 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
                             </div>
                         </div>
 
+                        {!isCollapsed && (
+                        <>
                         {cmd.type !== 'view' && (
                             <div className={`px-3 py-1.5 border-b border-gray-100 flex items-center space-x-2 ${isMissingSource ? 'bg-red-50/50' : 'bg-gray-50'}`}>
                                 <Database className={`w-3 h-3 ${isMissingSource ? 'text-red-400' : 'text-gray-400'}`} />
@@ -1700,7 +1879,90 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                             </select>
                                         )}
                                     </div>
-                                    <div className="col-span-12"><input className={baseInputStyles} value={cmd.config.on || ''} onChange={(e) => updateCommand(cmd.id, 'config.on', e.target.value)} placeholder="ON Condition (e.g. id = user_id)" /></div>
+                                    <div className="col-span-12">
+                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">ON Condition</label>
+                                        <input
+                                            className={baseInputStyles}
+                                            value={cmd.config.on || ''}
+                                            onChange={(e) => updateCommand(cmd.id, 'config.on', e.target.value)}
+                                            placeholder="ON Condition (e.g. id = user_id)"
+                                            list={joinSuggestionId}
+                                        />
+                                        <datalist id={joinSuggestionId}>
+                                            {joinSuggestions.map((s) => (
+                                                <option key={s} value={s} />
+                                            ))}
+                                        </datalist>
+                                        <div className="mt-1 text-[11px] text-gray-500">
+                                            {sourceLabel ? `Left alias: ${sourceLabel}` : 'Left alias: Select source'}
+                                            {joinTargetLabel ? ` • Right alias: ${joinTargetLabel}` : ' • Right alias: Select join target'}
+                                        </div>
+                                    </div>
+                                    <div className="col-span-12">
+                                        <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                                            <div className="text-[10px] font-bold text-gray-500 uppercase mb-2">Condition Builder</div>
+                                            {cmd.config.joinTargetType === 'node' && (
+                                                <div className="text-xs text-gray-500">
+                                                    Select a table join target to use the builder.
+                                                </div>
+                                            )}
+                                            {cmd.config.joinTargetType !== 'node' && !canUseJoinBuilder && (
+                                                <div className="text-xs text-gray-500">
+                                                    Select source datasets to enable field pickers.
+                                                </div>
+                                            )}
+                                            {cmd.config.joinTargetType !== 'node' && canUseJoinBuilder && (
+                                                <>
+                                                <div className="grid grid-cols-12 gap-2 items-center">
+                                                    <div className="col-span-5">
+                                                        <select
+                                                            className={getFieldStyle(joinLeftField, fieldNames)}
+                                                            value={joinLeftField}
+                                                            onChange={(e) => updateCommand(cmd.id, 'config.joinLeftField', e.target.value)}
+                                                        >
+                                                            <option value="">Left Field...</option>
+                                                            {fieldNames.map(f => <option key={f} value={f}>{f}</option>)}
+                                                        </select>
+                                                    </div>
+                                                    <div className="col-span-2">
+                                                        <select
+                                                            className={baseInputStyles}
+                                                            value={joinOperator}
+                                                            onChange={(e) => updateCommand(cmd.id, 'config.joinOperator', e.target.value)}
+                                                        >
+                                                            <option value="=">=</option>
+                                                            <option value="!=">!=</option>
+                                                            <option value=">">&gt;</option>
+                                                            <option value="<">&lt;</option>
+                                                            <option value=">=">&gt;=</option>
+                                                            <option value="<=">&lt;=</option>
+                                                        </select>
+                                                    </div>
+                                                    <div className="col-span-5">
+                                                        <select
+                                                            className={getFieldStyle(joinRightField, joinTargetFields)}
+                                                            value={joinRightField}
+                                                            onChange={(e) => updateCommand(cmd.id, 'config.joinRightField', e.target.value)}
+                                                        >
+                                                            <option value="">Right Field...</option>
+                                                            {joinTargetFields.map(f => <option key={f} value={f}>{f}</option>)}
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                                <div className="mt-2 flex justify-end">
+                                                    <Button
+                                                        variant="secondary"
+                                                        size="sm"
+                                                        onClick={() => updateCommand(cmd.id, 'config.on', `${leftExpr} ${joinOperator} ${rightExpr}`)}
+                                                        disabled={!canApplyJoinBuilder}
+                                                    >
+                                                        Apply to ON
+                                                    </Button>
+                                                </div>
+                                                </>
+                                            )}
+                                        </div>
+                                    </div>
                                 </div>
                             )}
 
@@ -1765,6 +2027,15 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                     </div>
                             )}
                         </div>
+                        </>
+                        )}
+
+                        {isCollapsed && (
+                            <div className="px-3 py-2 text-xs text-gray-500 bg-gray-50 border-t border-gray-100">
+                                <span className="font-semibold text-gray-700 mr-2">{COMMAND_LABELS[cmd.type] || cmd.type}</span>
+                                <span className="text-gray-600">{stepSummary}</span>
+                            </div>
+                        )}
                     </div>
                 </React.Fragment>
                     )}

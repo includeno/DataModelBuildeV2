@@ -48,6 +48,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [collapseAllCounter, setCollapseAllCounter] = useState(0);
   const [lastGlobalAction, setLastGlobalAction] = useState<'expand' | 'collapse' | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const canImportDataset = Boolean(sessionId);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       if (e.target.files && e.target.files[0] && onImportOperations) {
@@ -178,7 +179,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
                  {isDataExpanded ? <ChevronDown className="w-4 h-4 text-gray-500"/> : <ChevronRight className="w-4 h-4 text-gray-500"/>}
                  <span className="text-xs font-bold text-gray-600 uppercase tracking-wider">Datasets</span>
              </div>
-             <button onClick={(e) => { e.stopPropagation(); onImportClick(); }} className="p-1 hover:bg-blue-100 rounded text-blue-600 transition-colors" title="Import Dataset"><Plus className="w-4 h-4" /></button>
+             <button
+                 onClick={(e) => {
+                     e.stopPropagation();
+                     if (!canImportDataset) return;
+                     onImportClick();
+                 }}
+                 className={`p-1 rounded transition-colors ${canImportDataset ? 'hover:bg-blue-100 text-blue-600' : 'text-gray-300 cursor-not-allowed'}`}
+                 title={canImportDataset ? "Import Dataset" : "Create a session to import datasets"}
+                 disabled={!canImportDataset}
+             >
+                 <Plus className="w-4 h-4" />
+             </button>
          </div>
          
          {isDataExpanded && (

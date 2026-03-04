@@ -57,6 +57,15 @@ export const DatasetSchemaModal: React.FC<DatasetSchemaModalProps> = ({ isOpen, 
     }
   }, [dataset, isOpen]);
 
+  useEffect(() => {
+      if (!isOpen) return;
+      const handleKeyDown = (e: KeyboardEvent) => {
+          if (e.key === 'Escape') onClose();
+      };
+      document.addEventListener('keydown', handleKeyDown);
+      return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen || !dataset) return null;
 
   const handleSave = async () => {
@@ -122,7 +131,12 @@ export const DatasetSchemaModal: React.FC<DatasetSchemaModalProps> = ({ isOpen, 
                 </p>
             </div>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-2 rounded-full hover:bg-gray-200 transition-all">
+          <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-gray-600 p-2 rounded-full hover:bg-gray-200 transition-all"
+              aria-label="Close Dataset Schema"
+              title="Close"
+          >
             <X className="w-5 h-5" />
           </button>
         </div>

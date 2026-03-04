@@ -504,6 +504,19 @@ const applyMockCommand = (data: any[], cmd: Command, variables: Record<string, a
 // --- API EXPORT ---
 
 export const api = {
+    async ping(config: ApiConfig, timeoutMs = 2000) {
+        if (config.isMock) return true;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+            const res = await fetch(`${config.baseUrl}/sessions`, { signal: controller.signal });
+            return res.ok;
+        } catch {
+            return false;
+        } finally {
+            clearTimeout(timeoutId);
+        }
+    },
     async get(config: ApiConfig, endpoint: string) {
         if (config.isMock) {
             await new Promise(r => setTimeout(r, 400));

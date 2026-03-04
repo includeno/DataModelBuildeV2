@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Upload, CheckCircle, X, AlertTriangle, FileSpreadsheet } from 'lucide-react';
 import { ApiConfig, Dataset } from '../types';
 import { api } from '../utils/api';
@@ -21,8 +21,6 @@ export const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClos
   
   const inputRef = useRef<HTMLInputElement>(null);
 
-  if (!isOpen) return null;
-
   const resetState = () => {
     setSelectedFile(null);
     setCustomName('');
@@ -34,6 +32,17 @@ export const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClos
       resetState();
       onClose();
   };
+
+  useEffect(() => {
+      if (!isOpen) return;
+      const handleKeyDown = (e: KeyboardEvent) => {
+          if (e.key === 'Escape') handleClose();
+      };
+      document.addEventListener('keydown', handleKeyDown);
+      return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen]);
+
+  if (!isOpen) return null;
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
@@ -112,7 +121,12 @@ export const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClos
             <h3 className="text-lg font-semibold text-gray-900 flex items-center">
                 <Upload className="w-5 h-5 mr-2 text-blue-600" /> Import Data Source
             </h3>
-            <button onClick={handleClose} className="text-gray-400 hover:text-gray-600 transition-colors">
+            <button
+                onClick={handleClose}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+                aria-label="Close Import Data Source"
+                title="Close"
+            >
                 <X className="w-5 h-5" />
             </button>
         </div>
