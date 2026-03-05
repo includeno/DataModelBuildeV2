@@ -181,6 +181,17 @@ export interface SessionMetadataDetail {
     settings: SessionConfig;
 }
 
+export interface SessionDiagnosticsReport {
+  sessionId: string;
+  generatedAt: string;
+  sources: Array<{ id: string; mainTable?: string; alias?: string; linkId?: string }>;
+  sourceMap: Array<{ identifier: string; table: string }>;
+  datasets: Array<{ id?: string; name?: string; totalCount?: number; fieldCount?: number }>;
+  operations: Array<{ id: string; name?: string; operationType?: string; commands: Array<{ id: string; type: string; order: number; dataSource?: string | null }> }>;
+  dataSourceResolution: Array<{ commandId: string; dataSource: string; resolved: string; status: 'ok' | 'missing' }>;
+  warnings: string[];
+}
+
 export interface ExecutionResult {
   rows: any[];
   totalCount: number;

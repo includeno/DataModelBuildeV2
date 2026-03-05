@@ -1,0 +1,31 @@
+[
+  {
+    "id": "customers",
+    "name": "customers",
+    "file": "datasets/ds_d83f13f3c300.parquet",
+    "fields": [
+      "customer_id",
+      "name",
+      "email",
+      "signup_date",
+      "segment",
+      "is_active"
+    ],
+    "totalCount": 5,
+    "createdAt": 1772735570305
+  },
+  {
+    "id": "orders",
+    "name": "orders",
+    "file": "datasets/ds_9086691d03ac.parquet",
+    "fields": [
+      "order_id",
+      "customer_id",
+      "order_date",
+      "status",
+      "amount"
+    ],
+    "totalCount": 6,
+    "createdAt": 1772735603775
+  }
+]

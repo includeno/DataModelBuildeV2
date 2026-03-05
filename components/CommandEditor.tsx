@@ -731,6 +731,11 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
       return aliases;
   }, [tree]);
 
+  const formatSourceOptionLabel = (alias: string, table: string | undefined, linkId: string) => {
+      const base = `${alias} to ${table || '?'}`;
+      return `${base} · ${linkId}`;
+  };
+
   const ancestors = useMemo(() => {
       if (!tree) return [];
       return getAncestors(tree, operationId) || [];
@@ -1501,6 +1506,9 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                         <option value="view">View / Select Table</option>
                                         <option value="multi_table">Complex View (Final Step)</option>
                                     </select>
+                                    <span className="ml-2 text-[10px] font-mono text-gray-400 bg-gray-50 border border-gray-200 rounded px-1.5 py-0.5">
+                                        {cmd.id}
+                                    </span>
                                 </div>
                             </div>
                             <div className="flex items-center space-x-2">
@@ -1571,7 +1579,9 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                         {availableSourceAliases.length > 0 && (
                                             <optgroup label="Data Sources">
                                                 {availableSourceAliases.map(sa => (
-                                                    <option key={sa.linkId} value={sa.linkId}>{sa.alias} to {sa.sourceTable}</option>
+                                                    <option key={sa.linkId} value={sa.linkId}>
+                                                        {formatSourceOptionLabel(sa.alias, sa.sourceTable, sa.linkId)}
+                                                    </option>
                                                 ))}
                                             </optgroup>
                                         )}
@@ -1625,7 +1635,9 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                             {availableSourceAliases.length > 0 && (
                                                 <optgroup label="Data Sources">
                                                     {availableSourceAliases.map(sa => (
-                                                        <option key={sa.linkId} value={sa.linkId}>{sa.alias} to {sa.sourceTable}</option>
+                                                        <option key={sa.linkId} value={sa.linkId}>
+                                                            {formatSourceOptionLabel(sa.alias, sa.sourceTable, sa.linkId)}
+                                                        </option>
                                                     ))}
                                                 </optgroup>
                                             )}
@@ -1745,7 +1757,9 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                                         <select className={baseInputStyles} value={sub.table} onChange={(e) => updateSubTable(cmd.id, cmd.config.subTables || [], i, 'table', e.target.value)}>
                                                             <option value="">Select Source...</option>
                                                             {availableSourceAliases.map(sa => (
-                                                                <option key={sa.linkId} value={sa.linkId}>{sa.alias} to {sa.sourceTable}</option>
+                                                                <option key={sa.linkId} value={sa.linkId}>
+                                                                    {formatSourceOptionLabel(sa.alias, sa.sourceTable, sa.linkId)}
+                                                                </option>
                                                             ))}
                                                             {availableGeneratedTablesForCmd.map(name => (
                                                                 <option key={name} value={name}>{name}</option>
@@ -1865,7 +1879,9 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                                 {availableSourceAliases.length > 0 && (
                                                     <optgroup label="Data Sources">
                                                         {availableSourceAliases.map(sa => (
-                                                            <option key={sa.linkId} value={sa.linkId}>{sa.alias} to {sa.sourceTable}</option>
+                                                            <option key={sa.linkId} value={sa.linkId}>
+                                                                {formatSourceOptionLabel(sa.alias, sa.sourceTable, sa.linkId)}
+                                                            </option>
                                                         ))}
                                                     </optgroup>
                                                 )}

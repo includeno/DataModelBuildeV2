@@ -8,12 +8,31 @@ import io
 import uuid
 import os
 import json
+import tempfile
+import duckdb
+import time
+import logging
+from pathlib import Path
 from typing import List, Optional, Dict
 
 from models import ExecuteRequest, ExecuteSqlRequest, AnalyzeRequest
+from models import OperationNode
 import storage as storage_module
 from storage import storage, resolve_data_subdir, to_data_relative, save_sessions_dir
 from engine import ExecutionEngine
+
+LOG_PATH = os.environ.get(
+    "BACKEND_LOG_PATH",
+    os.path.join(os.path.dirname(__file__), "..", "logs", "backend.log")
+)
+Path(os.path.dirname(LOG_PATH)).mkdir(parents=True, exist_ok=True)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s",
+    handlers=[logging.FileHandler(LOG_PATH), logging.StreamHandler()]
+)
+logger = logging.getLogger("backend")
 
 app = FastAPI()
 
@@ -62,6 +81,35 @@ def clean_df_for_json(df: pd.DataFrame) -> List[dict]:
     
     # Final cleanup and serialization
     return df.replace({np.nan: None}).to_dict(orient='records')
+
+
+def _walk_sources(node: Dict, sources: List[Dict]) -> None:
+    for cmd in node.get("commands") or []:
+        if cmd.get("type") == "source":
+            sources.append(cmd)
+    for child in node.get("children") or []:
+        _walk_sources(child, sources)
+
+
+def _walk_operations(node: Dict, operations: List[Dict]) -> None:
+    if node.get("type") == "operation":
+        commands = []
+        for cmd in node.get("commands") or []:
+            cfg = cmd.get("config") or {}
+            commands.append({
+                "id": cmd.get("id"),
+                "type": cmd.get("type"),
+                "order": cmd.get("order", 0),
+                "dataSource": cfg.get("dataSource")
+            })
+        operations.append({
+            "id": node.get("id"),
+            "name": node.get("name"),
+            "operationType": node.get("operationType"),
+            "commands": commands
+        })
+    for child in node.get("children") or []:
+        _walk_operations(child, operations)
 
 def paginate_df(df: pd.DataFrame, page: int, page_size: int) -> pd.DataFrame:
     start = (page - 1) * page_size
@@ -146,6 +194,10 @@ async def delete_session(session_id: str):
 async def list_datasets(session_id: str):
     return storage.list_datasets(session_id)
 
+@app.get("/sessions/{session_id}/imports")
+async def list_imports(session_id: str):
+    return storage.get_import_history(session_id)
+
 @app.get("/sessions/{session_id}/datasets/{dataset_id}/preview")
 async def get_dataset_preview(session_id: str, dataset_id: str, limit: int = 50):
     df = storage.get_dataset_preview(session_id, dataset_id, limit=limit)
@@ -194,6 +246,100 @@ async def update_session_metadata(session_id: str, metadata: dict = Body(...)):
     storage.save_session_metadata(session_id, metadata)
     return {"status": "ok"}
 
+@app.get("/sessions/{session_id}/diagnostics")
+async def get_session_diagnostics(session_id: str):
+    state = storage.get_session_state(session_id) or {}
+    tree = state.get("tree")
+    datasets = storage.list_datasets(session_id)
+
+    report = {
+        "sessionId": session_id,
+        "generatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "sources": [],
+        "sourceMap": [],
+        "datasets": [],
+        "operations": [],
+        "dataSourceResolution": [],
+        "warnings": []
+    }
+
+    report["datasets"] = [
+        {
+            "id": d.get("id"),
+            "name": d.get("name"),
+            "totalCount": d.get("totalCount"),
+            "fieldCount": len(d.get("fields") or [])
+        }
+        for d in datasets
+    ]
+
+    if not tree:
+        report["warnings"].append("No tree found in session state.")
+        return report
+
+    sources: List[Dict] = []
+    _walk_sources(tree, sources)
+    report["sources"] = [
+        {
+            "id": s.get("id"),
+            "mainTable": (s.get("config") or {}).get("mainTable"),
+            "alias": (s.get("config") or {}).get("alias"),
+            "linkId": (s.get("config") or {}).get("linkId")
+        }
+        for s in sources
+    ]
+
+    operations: List[Dict] = []
+    _walk_operations(tree, operations)
+    report["operations"] = operations
+
+    try:
+        node = OperationNode(**tree)
+        _, source_map, _ = engine._collect_setup_sources(node)
+    except Exception as e:
+        report["warnings"].append(f"Failed to parse tree: {e}")
+        source_map = {}
+        node = None
+
+    report["sourceMap"] = [
+        {"identifier": k, "table": v}
+        for k, v in sorted(source_map.items(), key=lambda item: item[0])
+    ]
+
+    dataset_names = set()
+    for ds in datasets:
+        if ds.get("name"):
+            dataset_names.add(ds.get("name"))
+        if ds.get("id"):
+            dataset_names.add(ds.get("id"))
+
+    for op in operations:
+        for cmd in op.get("commands") or []:
+            data_source = cmd.get("dataSource")
+            if data_source is None or data_source == "stream":
+                continue
+            resolved = None
+            if node is not None:
+                resolved = engine._resolve_table_from_link_id(node, data_source)
+            if not resolved:
+                resolved = source_map.get(data_source, data_source)
+            status = "ok" if resolved in dataset_names else "missing"
+            report["dataSourceResolution"].append({
+                "commandId": cmd.get("id"),
+                "dataSource": data_source,
+                "resolved": resolved,
+                "status": status
+            })
+            if status == "missing":
+                report["warnings"].append(f"DataSource '{data_source}' resolved to '{resolved}' but dataset not found.")
+
+    if not report["sources"]:
+        report["warnings"].append("No source commands found.")
+    if not report["datasets"]:
+        report["warnings"].append("No datasets found in storage.")
+
+    return report
+
 @app.post("/upload")
 async def upload_file(
     file: UploadFile = File(...), 
@@ -214,8 +360,26 @@ async def upload_file(
                 df = pd.read_excel(io.BytesIO(content))
             except:
                 return {"error": "Could not parse Excel file"}
+        elif filename.endswith('.parquet') or filename.endswith('.pq'):
+            tmp_path = None
+            try:
+                # Use DuckDB to read parquet without extra deps
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".parquet") as tmp:
+                    tmp.write(content)
+                    tmp_path = tmp.name
+                con = duckdb.connect(":memory:")
+                try:
+                    escaped = tmp_path.replace("'", "''")
+                    df = con.execute(f"SELECT * FROM read_parquet('{escaped}')").df()
+                finally:
+                    con.close()
+            except Exception as e:
+                return {"error": f"Could not parse Parquet file: {e}"}
+            finally:
+                if tmp_path and os.path.exists(tmp_path):
+                    os.remove(tmp_path)
         else:
-             return {"error": "Unsupported file format. Please upload CSV or Excel."}
+             return {"error": "Unsupported file format. Please upload CSV, Excel, or Parquet."}
             
         # Clean col names
         df.columns = [str(c).strip().replace(" ", "_") for c in df.columns]
@@ -224,6 +388,14 @@ async def upload_file(
         dataset_name = name if name and name.strip() else (file.filename or "uploaded_file")
         
         table_name = storage.add_dataset(sessionId, dataset_name, df)
+
+        storage.append_import_history(sessionId, {
+            "timestamp": int(time.time() * 1000),
+            "originalFileName": file.filename or "",
+            "datasetName": dataset_name,
+            "tableName": table_name,
+            "rows": len(df)
+        })
         
         # Get preview
         preview_rows = clean_df_for_json(df.head(50))
@@ -236,12 +408,21 @@ async def upload_file(
             "totalCount": len(df)
         }
     except Exception as e:
-        print(f"Upload error: {e}")
+        logger.exception("Upload error")
         return {"error": str(e)}
 
 @app.post("/execute")
 async def execute(req: ExecuteRequest):
     try:
+        logger.info(
+            "execute session=%s node=%s view=%s cmd=%s page=%s pageSize=%s",
+            req.session_id,
+            req.targetNodeId,
+            req.viewId,
+            req.targetCommandId,
+            req.page,
+            req.pageSize,
+        )
         # Pass viewId and targetCommandId to engine
         df = engine.execute(req.session_id, req.tree, req.targetNodeId, req.viewId, req.targetCommandId)
         
@@ -258,7 +439,7 @@ async def execute(req: ExecuteRequest):
             "activeViewId": req.viewId
         }
     except Exception as e:
-        print(f"Execution Error: {e}")
+        logger.exception("Execution Error")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/export")
@@ -274,7 +455,7 @@ async def export_data(req: ExecuteRequest):
         response.headers["Content-Disposition"] = "attachment; filename=export_full.csv"
         return response
     except Exception as e:
-        print(f"Export Error: {e}")
+        logger.exception("Export Error")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/generate_sql")
@@ -289,7 +470,7 @@ async def generate_sql(req: ExecuteRequest):
         # Preserve explicit HTTP errors (e.g., missing targetCommandId)
         raise e
     except Exception as e:
-        print(f"SQL Generation Error: {e}")
+        logger.exception("SQL Generation Error")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/analyze")
@@ -298,12 +479,19 @@ async def analyze_overlap(req: AnalyzeRequest):
         report = engine.calculate_overlap(req.session_id, req.tree, req.parentNodeId)
         return {"report": report}
     except Exception as e:
-        print(f"Analysis Error: {e}")
+        logger.exception("Analysis Error")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/query")
 async def execute_sql(req: ExecuteSqlRequest):
     try:
+        logger.info(
+            "query session=%s page=%s pageSize=%s query=%s",
+            req.session_id,
+            req.page,
+            req.pageSize,
+            (req.query or "")[:500],
+        )
         df = storage.execute_sql(req.session_id, req.query)
         
         total_count = len(df)
@@ -318,6 +506,7 @@ async def execute_sql(req: ExecuteSqlRequest):
             "pageSize": req.pageSize
         }
     except Exception as e:
+        logger.exception("SQL Query Error")
         raise HTTPException(status_code=400, detail=str(e))
 
 if __name__ == "__main__":

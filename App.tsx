@@ -5,12 +5,13 @@ import { TopBar } from './components/TopBar';
 import { DataImportModal } from './components/DataImport';
 import { SettingsModal } from './components/SettingsModal';
 import { SessionSettingsModal } from './components/SessionSettingsModal';
+import { SessionDiagnosticsModal } from './components/SessionDiagnosticsModal';
 import { PathConditionsModal } from './components/PathConditionsModal';
 import { DatasetSchemaModal } from './components/DatasetSchemaModal';
 import { 
   OperationNode, Dataset, Command, ExecutionResult, ApiConfig, 
   SessionMetadata, AppearanceConfig, SessionConfig, DataType, FieldInfo, OperationType,
-  SqlHistoryItem, SessionState
+  SqlHistoryItem, SessionState, SessionDiagnosticsReport
 } from './types';
 import { api } from './utils/api';
 
@@ -58,10 +59,14 @@ function App() {
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSessionSettingsOpen, setIsSessionSettingsOpen] = useState(false);
+  const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false);
   const [isPathModalOpen, setIsPathModalOpen] = useState(false);
   const [targetCommandId, setTargetCommandId] = useState<string | undefined>(undefined);
   const [isSchemaModalOpen, setIsSchemaModalOpen] = useState(false);
   const [selectedDatasetForSchema, setSelectedDatasetForSchema] = useState<Dataset | null>(null);
+  const [diagnosticsReport, setDiagnosticsReport] = useState<SessionDiagnosticsReport | null>(null);
+  const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
+  const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
 
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
   const [rightPanelWidth, setRightPanelWidth] = useState(400); // Or Height if vertical
@@ -538,6 +543,34 @@ function App() {
       setSelectedNodeId(newNode.id);
   };
 
+  const handleMoveNode = (id: string, direction: 'up' | 'down') => {
+      const moveInTree = (node: OperationNode): { node: OperationNode; moved: boolean } => {
+          if (!node.children || node.children.length === 0) return { node, moved: false };
+
+          const idx = node.children.findIndex(c => c.id === id);
+          if (idx !== -1) {
+              const newIndex = direction === 'up' ? idx - 1 : idx + 1;
+              if (newIndex < 0 || newIndex >= node.children.length) return { node, moved: false };
+              const newChildren = [...node.children];
+              [newChildren[idx], newChildren[newIndex]] = [newChildren[newIndex], newChildren[idx]];
+              return { node: { ...node, children: newChildren }, moved: true };
+          }
+
+          let moved = false;
+          const newChildren = node.children.map(child => {
+              if (moved) return child;
+              const result = moveInTree(child);
+              if (result.moved) moved = true;
+              return result.node;
+          });
+
+          if (moved) return { node: { ...node, children: newChildren }, moved: true };
+          return { node, moved: false };
+      };
+
+      setTree(prev => moveInTree(prev).node);
+  };
+
   const handleDeleteNode = (id: string) => {
       if (id === 'root') return;
       const deleteNode = (node: OperationNode): OperationNode => {
@@ -608,6 +641,7 @@ function App() {
               sessionId,
               tree,
               targetNodeId: selectedNodeId,
+              targetCommandId: _commandId,
               page,
               pageSize: selectedNode.pageSize || 50,
               viewId
@@ -682,6 +716,22 @@ function App() {
       await api.post(apiConfig, `/sessions/${sessionId}/datasets/update`, { datasetId, fieldTypes });
   };
 
+  const handleOpenDiagnostics = async () => {
+      if (!sessionId) return;
+      setIsDiagnosticsOpen(true);
+      setDiagnosticsLoading(true);
+      setDiagnosticsError(null);
+      setDiagnosticsReport(null);
+      try {
+          const report = await api.get(apiConfig, `/sessions/${sessionId}/diagnostics`) as SessionDiagnosticsReport;
+          setDiagnosticsReport(report);
+      } catch (e: any) {
+          setDiagnosticsError(e.message || "Failed to load diagnostics");
+      } finally {
+          setDiagnosticsLoading(false);
+      }
+  };
+
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-white text-slate-900">
       <TopBar 
@@ -698,6 +748,7 @@ function App() {
         onViewChange={setCurrentView}
         onSettingsOpen={handleOpenSettings}
         onSessionSettingsOpen={() => setIsSessionSettingsOpen(true)}
+        onSessionDiagnostics={handleOpenDiagnostics}
         onRunSql={() => setSqlRunRequestId(v => v + 1)}
         onToggleRightPanel={() => setIsRightPanelOpen(!isRightPanelOpen)}
         onToggleMobileSidebar={() => setIsMobileSidebarOpen(!isMobileSidebarOpen)}
@@ -729,6 +780,7 @@ function App() {
                                 onToggleEnabled={handleToggleEnabled}
                                 onAddChild={handleAddChild}
                                 onDeleteNode={handleDeleteNode}
+                                onMoveNode={handleMoveNode}
                                 onImportClick={() => { if (sessionId) setIsImportOpen(true); }}
                                 onOpenTableInSql={(t) => { setTargetSqlTable(t); setCurrentView('sql'); setIsMobileSidebarOpen(false); }}
                                 onOpenSchema={(name) => { handleOpenSchema(name, true); }}
@@ -752,6 +804,7 @@ function App() {
                         onToggleEnabled={handleToggleEnabled}
                         onAddChild={handleAddChild}
                         onDeleteNode={handleDeleteNode}
+                        onMoveNode={handleMoveNode}
                         onImportClick={() => { if (sessionId) setIsImportOpen(true); }}
                         onOpenTableInSql={(t) => { setTargetSqlTable(t); setCurrentView('sql'); }}
                         onOpenSchema={(name) => { handleOpenSchema(name, false); }}
@@ -849,6 +902,14 @@ function App() {
           initialDisplayName={sessionName}
           initialSettings={sessionSettings}
           onSave={handleSaveSessionSettings}
+      />
+
+      <SessionDiagnosticsModal
+          isOpen={isDiagnosticsOpen}
+          onClose={() => setIsDiagnosticsOpen(false)}
+          report={diagnosticsReport}
+          loading={diagnosticsLoading}
+          error={diagnosticsError}
       />
 
       <PathConditionsModal

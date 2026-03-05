@@ -18,6 +18,7 @@ IS_TEST_ENV = bool(os.environ.get("PYTEST_CURRENT_TEST"))
 DATASETS_DIRNAME = "datasets"
 DATASETS_INDEX = "datasets.json"
 SQL_HISTORY_FILE = "sql_history.json"
+IMPORT_HISTORY_FILE = "import_history.json"
 
 
 def _ensure_data_root():
@@ -139,6 +140,9 @@ class SessionStorage:
     def _get_sql_history_path(self, session_id: str) -> str:
         return os.path.join(self._get_session_path(session_id), SQL_HISTORY_FILE)
 
+    def _get_import_history_path(self, session_id: str) -> str:
+        return os.path.join(self._get_session_path(session_id), IMPORT_HISTORY_FILE)
+
     def _get_schema_overrides_path(self, session_id: str) -> str:
         return os.path.join(self._get_session_path(session_id), "schema_overrides.json")
 
@@ -181,6 +185,10 @@ class SessionStorage:
         if not os.path.exists(sql_history):
             with open(sql_history, "w") as f:
                 json.dump([], f, indent=2)
+        import_history = self._get_import_history_path(session_id)
+        if not os.path.exists(import_history):
+            with open(import_history, "w") as f:
+                json.dump([], f, indent=2)
 
     def _escape_sql_literal(self, value: str) -> str:
         return value.replace("'", "''")
@@ -196,6 +204,28 @@ class SessionStorage:
             except Exception:
                 pass
         return []
+
+    def _load_import_history(self, session_id: str) -> List[Dict[str, Any]]:
+        path = self._get_import_history_path(session_id)
+        if os.path.exists(path):
+            try:
+                with open(path, "r") as f:
+                    data = json.load(f)
+                    if isinstance(data, list):
+                        return data
+            except Exception:
+                pass
+        return []
+
+    def append_import_history(self, session_id: str, record: Dict[str, Any]):
+        self.create_session(session_id)
+        history = self._load_import_history(session_id)
+        history.append(record)
+        with open(self._get_import_history_path(session_id), "w") as f:
+            json.dump(history, f, indent=2)
+
+    def get_import_history(self, session_id: str) -> List[Dict[str, Any]]:
+        return self._load_import_history(session_id)
 
     def _save_datasets_index(self, session_id: str, datasets: List[Dict[str, Any]]):
         self.create_session(session_id)

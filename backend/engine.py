@@ -180,13 +180,20 @@ class ExecutionEngine:
         if not sub_config:
             raise ValueError(f"Sub-table view '{view_id}' not found")
 
+        # Resolve sub-table reference (supports linkId / alias / table name)
+        root = path[0] if path else None
+        allowed_tables, source_map, table_to_ids = self._collect_setup_sources(root) if root else (set(), {}, {})
+        resolved_sub_table = sub_config.table
+        if root and resolved_sub_table:
+            resolved_sub_table = self._resolve_table_from_link_id(root, resolved_sub_table) or source_map.get(resolved_sub_table, resolved_sub_table)
+
         # 3. Perform the filter join using DuckDB
         con = duckdb.connect(":memory:")
         try:
             con.register('main_table', df)
             
             # Get the sub table
-            sub_df = storage.get_full_dataset(session_id, sub_config.table)
+            sub_df = storage.get_full_dataset(session_id, resolved_sub_table)
             if sub_df is None:
                 raise ValueError(f"Dataset {sub_config.table} not found")
             
@@ -194,6 +201,8 @@ class ExecutionEngine:
             
             # Construct Query: SELECT * FROM sub_table sub WHERE EXISTS (SELECT 1 FROM main_table main WHERE condition)
             condition = sub_config.on
+            if condition:
+                condition = self._rewrite_sub_table_on(condition, resolved_sub_table, table_to_ids)
             
             query = f"""
                 SELECT sub.* 
@@ -210,6 +219,22 @@ class ExecutionEngine:
             raise ValueError(f"Failed to execute sub-table query: {str(e)}")
         finally:
             con.close()
+
+    def _rewrite_sub_table_on(self, on_clause: str, sub_table: Optional[str], table_to_ids: Dict[str, Set[str]]) -> str:
+        if not on_clause:
+            return on_clause
+        rewritten = on_clause
+        # Map identifiers for the sub table to "sub."
+        if sub_table and sub_table in table_to_ids:
+            for ident in sorted(table_to_ids.get(sub_table, set()), key=len, reverse=True):
+                rewritten = re.sub(rf"\b{re.escape(ident)}\.", "sub.", rewritten)
+        # Map any other known identifiers to "main."
+        for table, idents in table_to_ids.items():
+            if table == sub_table:
+                continue
+            for ident in sorted(idents, key=len, reverse=True):
+                rewritten = re.sub(rf"\b{re.escape(ident)}\.", "main.", rewritten)
+        return rewritten
 
     def calculate_overlap(self, session_id: str, tree: OperationNode, parent_node_id: str) -> List[str]:
         parent_node = self._find_node_recursive(tree, parent_node_id)
@@ -286,15 +311,15 @@ class ExecutionEngine:
             table_to_ids.setdefault(table, set()).add(identifier)
 
         def visit(node: OperationNode):
-            if node.operationType == 'setup':
-                for cmd in node.commands:
-                    if cmd.type == 'source' and cmd.config.mainTable:
-                        table = cmd.config.mainTable
-                        allowed_tables.add(table)
-                        add_mapping(table, table)
-                        add_mapping(table, cmd.id)
-                        add_mapping(table, cmd.config.linkId)
-                        add_mapping(table, cmd.config.alias)
+            # Collect all source commands. Some older session payloads may omit operationType='setup'.
+            for cmd in node.commands:
+                if cmd.type == 'source' and cmd.config.mainTable:
+                    table = cmd.config.mainTable
+                    allowed_tables.add(table)
+                    add_mapping(table, table)
+                    add_mapping(table, cmd.id)
+                    add_mapping(table, cmd.config.linkId)
+                    add_mapping(table, cmd.config.alias)
             if node.children:
                 for child in node.children:
                     visit(child)
@@ -434,7 +459,7 @@ class ExecutionEngine:
                 source = cmd.config.dataSource
                 # Only load source if we are at the start of the stream (df is None)
                 # OR if it is a View command explicitly asking to view a table
-                if source and source != 'stream' and (df is None or cmd.type == 'view'):
+                if source and source != 'stream':
                      # Try to resolve source as a linkId first
                      resolved_table = self._resolve_table_from_link_id(tree, source)
                      if resolved_table:

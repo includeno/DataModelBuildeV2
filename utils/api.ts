@@ -84,6 +84,68 @@ const MOCK_SESSIONS: SessionMetadata[] = [
 const MOCK_SESSION_STATES: Record<string, any> = {};
 const MOCK_SESSION_METADATA: Record<string, any> = {};
 
+const buildMockDiagnostics = (sessionId: string) => {
+    const state = MOCK_SESSION_STATES[sessionId] || {};
+    const tree = state.tree;
+    const sources: any[] = [];
+    const operations: any[] = [];
+    const warnings: string[] = [];
+
+    const walkSources = (node: any) => {
+        if (!node) return;
+        (node.commands || []).forEach((cmd: any) => {
+            if (cmd.type === 'source') sources.push(cmd);
+        });
+        (node.children || []).forEach(walkSources);
+    };
+
+    const walkOperations = (node: any) => {
+        if (!node) return;
+        if (node.type === 'operation') {
+            operations.push({
+                id: node.id,
+                name: node.name,
+                operationType: node.operationType,
+                commands: (node.commands || []).map((cmd: any) => ({
+                    id: cmd.id,
+                    type: cmd.type,
+                    order: cmd.order ?? 0,
+                    dataSource: cmd.config?.dataSource
+                }))
+            });
+        }
+        (node.children || []).forEach(walkOperations);
+    };
+
+    if (tree) {
+        walkSources(tree);
+        walkOperations(tree);
+    } else {
+        warnings.push("No tree found in mock session state.");
+    }
+
+    return {
+        sessionId,
+        generatedAt: new Date().toISOString(),
+        sources: sources.map(s => ({
+            id: s.id,
+            mainTable: s.config?.mainTable,
+            alias: s.config?.alias,
+            linkId: s.config?.linkId
+        })),
+        sourceMap: [],
+        datasets: MOCK_DATASETS.map(d => ({
+            id: d.id,
+            name: d.name,
+            totalCount: d.totalCount,
+            fieldCount: d.fields?.length || 0
+        })),
+        operations,
+        dataSourceResolution: [],
+        warnings
+    };
+};
+
 // --- MOCK ENGINE LOGIC ---
 
 const findPathToNode = (root: OperationNode, targetId: string): OperationNode[] | null => {
@@ -530,6 +592,10 @@ export const api = {
             if (endpoint.match(/\/sessions\/.*\/datasets$/)) return [...MOCK_DATASETS];
             if (endpoint.match(/\/sessions\/.*\/state/)) return MOCK_SESSION_STATES[endpoint.split('/')[2]] || {};
             if (endpoint.match(/\/sessions\/.*\/metadata/)) return MOCK_SESSION_METADATA[endpoint.split('/')[2]] || { displayName: "", settings: { cascadeDisable: false, panelPosition: 'right' }};
+            if (endpoint.match(/\/sessions\/.*\/diagnostics/)) {
+                const sessionId = endpoint.split('/')[2];
+                return buildMockDiagnostics(sessionId);
+            }
             return {};
         }
         const res = await fetch(`${config.baseUrl}${endpoint}`);

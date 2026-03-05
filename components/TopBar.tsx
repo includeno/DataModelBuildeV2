@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { GitBranch, ChevronDown, Clock, Check, Trash2, Plus, Layers, Terminal, Server, Play, PanelRight, Settings, Menu, SlidersHorizontal } from 'lucide-react';
+import { GitBranch, ChevronDown, Clock, Check, Trash2, Plus, Layers, Terminal, Server, Play, PanelRight, Settings, Menu, SlidersHorizontal, Activity } from 'lucide-react';
 import { SessionMetadata, ApiConfig } from '../types';
 import { Button } from './Button';
 
@@ -18,6 +18,7 @@ interface TopBarProps {
   onViewChange: (view: 'workflow' | 'sql') => void;
   onSettingsOpen: () => void;
   onSessionSettingsOpen: () => void;
+  onSessionDiagnostics: () => void;
   onRunSql: () => void;
   onToggleRightPanel: () => void;
   onToggleMobileSidebar: () => void;
@@ -38,6 +39,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   onViewChange,
   onSettingsOpen,
   onSessionSettingsOpen,
+  onSessionDiagnostics,
   onRunSql,
   onToggleRightPanel,
   onToggleMobileSidebar,
@@ -137,6 +139,20 @@ export const TopBar: React.FC<TopBarProps> = ({
                                               title="Session Settings"
                                           >
                                               <SlidersHorizontal className="w-4 h-4" />
+                                          </button>
+                                      )}
+
+                                      {s.sessionId === sessionId && (
+                                          <button
+                                              onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  onSessionDiagnostics();
+                                                  setIsSessionMenuOpen(false);
+                                              }}
+                                              className="p-1.5 rounded-md text-gray-400 hover:text-emerald-600 hover:bg-emerald-100 transition-all mr-1"
+                                              title="Session Diagnostics"
+                                          >
+                                              <Activity className="w-4 h-4" />
                                           </button>
                                       )}
 

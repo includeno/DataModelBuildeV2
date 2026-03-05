@@ -14,6 +14,7 @@ interface SidebarProps {
   onToggleEnabled: (id: string) => void;
   onAddChild: (parentId: string) => void;
   onDeleteNode: (id: string) => void;
+  onMoveNode?: (id: string, direction: 'up' | 'down') => void;
   onImportClick: () => void;
   onOpenTableInSql: (tableName: string) => void;
   onExportOperations?: () => void;
@@ -35,6 +36,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onToggleEnabled,
   onAddChild,
   onDeleteNode,
+  onMoveNode,
   onImportClick,
   onOpenTableInSql,
   onExportOperations,
@@ -141,7 +143,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
              {isOpsExpanded && (
                 <div className="flex-1 overflow-y-auto overflow-x-hidden py-2 pr-1 custom-scrollbar">
                     {/* Render children of the root (Setup Nodes) as top-level items */}
-                    {tree.children?.map(child => (
+                    {tree.children?.map((child, childIndex) => (
                         <OperationTree 
                             key={child.id}
                             node={child} 
@@ -150,12 +152,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             onToggleEnabled={onToggleEnabled}
                             onAddChild={onAddChild}
                             onDelete={onDeleteNode}
+                            onMoveNode={onMoveNode}
                             onAnalyzeOverlap={onAnalyzeOverlap}
                             expandTrigger={expandAllCounter}
                             collapseTrigger={collapseAllCounter}
                             globalAction={lastGlobalAction}
                             appearance={appearance}
                             level={0}
+                            parentId="root"
+                            index={childIndex}
+                            siblingCount={tree.children?.length ?? 0}
                         />
                     ))}
                     {(!tree.children || tree.children.length === 0) && (

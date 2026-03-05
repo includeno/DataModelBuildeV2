@@ -1,0 +1,4 @@
+interface:
+  display_name: "Sync Test Sessions"
+  short_description: "Export/import test_sessions snapshots"
+  default_prompt: "Sync data/test_sessions and test_data/test_sessions using the project script and the requested direction."

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronRight, ChevronDown, FileText, Database, Split, Power, Plus, Trash2, Layers } from 'lucide-react';
+import { ChevronRight, ChevronDown, ChevronUp, FileText, Database, Split, Power, Plus, Trash2, Layers } from 'lucide-react';
 import { OperationNode, AppearanceConfig } from '../types';
 
 interface OperationTreeProps {
@@ -9,12 +9,16 @@ interface OperationTreeProps {
   onToggleEnabled: (id: string) => void;
   onAddChild: (parentId: string) => void;
   onDelete: (id: string) => void;
+  onMoveNode?: (id: string, direction: 'up' | 'down') => void;
   onAnalyzeOverlap?: (id: string) => void;
   expandTrigger?: number;
   collapseTrigger?: number;
   globalAction?: 'expand' | 'collapse' | null;
   appearance: AppearanceConfig;
   level?: number;
+  parentId?: string | null;
+  index?: number;
+  siblingCount?: number;
 }
 
 export const OperationTree: React.FC<OperationTreeProps> = ({
@@ -24,12 +28,16 @@ export const OperationTree: React.FC<OperationTreeProps> = ({
   onToggleEnabled,
   onAddChild,
   onDelete,
+  onMoveNode,
   onAnalyzeOverlap,
   expandTrigger,
   collapseTrigger,
   globalAction,
   appearance,
-  level = 0
+  level = 0,
+  parentId = null,
+  index = 0,
+  siblingCount = 0
 }) => {
   const [expanded, setExpanded] = useState(true);
   
@@ -40,6 +48,8 @@ export const OperationTree: React.FC<OperationTreeProps> = ({
 
   const hasChildren = node.children && node.children.length > 0;
   const isSelected = node.id === selectedId;
+  const canMoveUp = Boolean(parentId) && index > 0;
+  const canMoveDown = Boolean(parentId) && index < siblingCount - 1;
 
   // Determine Icon based on type
   const getIcon = () => {
@@ -120,6 +130,32 @@ export const OperationTree: React.FC<OperationTreeProps> = ({
                   }} className="p-1 rounded hover:bg-gray-200 text-green-600" title="Disable"><Power className="w-3 h-3" /></button>
               )}
               <button onClick={(e) => { e.stopPropagation(); onAddChild(node.id); setExpanded(true); }} className="p-1 rounded hover:bg-gray-200 text-gray-500" title="Add Child"><Plus className="w-3 h-3" /></button>
+              {onMoveNode && (
+                  <>
+                      <button
+                          onClick={(e) => {
+                              e.stopPropagation();
+                              if (canMoveUp) onMoveNode(node.id, 'up');
+                          }}
+                          className={`p-1 rounded ${canMoveUp ? 'hover:bg-gray-200 text-gray-400 hover:text-gray-600' : 'text-gray-200 cursor-not-allowed'}`}
+                          title="Move Up"
+                          disabled={!canMoveUp}
+                      >
+                          <ChevronUp className="w-3 h-3" />
+                      </button>
+                      <button
+                          onClick={(e) => {
+                              e.stopPropagation();
+                              if (canMoveDown) onMoveNode(node.id, 'down');
+                          }}
+                          className={`p-1 rounded ${canMoveDown ? 'hover:bg-gray-200 text-gray-400 hover:text-gray-600' : 'text-gray-200 cursor-not-allowed'}`}
+                          title="Move Down"
+                          disabled={!canMoveDown}
+                      >
+                          <ChevronDown className="w-3 h-3" />
+                      </button>
+                  </>
+              )}
               {node.id !== 'root' && <button onClick={(e) => { e.stopPropagation(); onDelete(node.id); }} className="p-1 rounded hover:bg-red-100 text-red-500" title="Delete"><Trash2 className="w-3 h-3" /></button>}
           </div>
         </div>
@@ -127,7 +163,7 @@ export const OperationTree: React.FC<OperationTreeProps> = ({
 
       {hasChildren && expanded && (
           <div className="relative">
-              {node.children?.map(child => (
+              {node.children?.map((child, childIndex) => (
                   <OperationTree 
                     key={child.id} 
                     node={child} 
@@ -136,12 +172,16 @@ export const OperationTree: React.FC<OperationTreeProps> = ({
                     onToggleEnabled={onToggleEnabled}
                     onAddChild={onAddChild}
                     onDelete={onDelete}
+                    onMoveNode={onMoveNode}
                     onAnalyzeOverlap={onAnalyzeOverlap}
                     expandTrigger={expandTrigger}
                     collapseTrigger={collapseTrigger}
                     globalAction={globalAction}
                     appearance={appearance}
                     level={level + 1}
+                    parentId={node.id}
+                    index={childIndex}
+                    siblingCount={node.children?.length ?? 0}
                   />
               ))}
           </div>

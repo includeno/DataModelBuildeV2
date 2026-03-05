@@ -154,7 +154,7 @@ export const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClos
                         type="file" 
                         className="hidden"
                         onChange={handleChange}
-                        accept=".csv,.xlsx,.xls"
+                        accept=".csv,.xlsx,.xls,.parquet,.pq"
                     />
                     
                     <div className="flex flex-col items-center text-gray-500">
@@ -162,7 +162,7 @@ export const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClos
                             <FileSpreadsheet className="w-8 h-8 text-blue-600" />
                         </div>
                         <span className="text-sm font-medium text-gray-900">Click to upload</span>
-                        <span className="text-sm text-gray-500 mt-1">Supports CSV and Excel (.xlsx)</span>
+                        <span className="text-sm text-gray-500 mt-1">Supports CSV, Excel (.xlsx), and Parquet (.parquet)</span>
                     </div>
                 </div>
             ) : (
