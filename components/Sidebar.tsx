@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, Plus, Database, Search, Download, Upload, Settings, FoldVertical, UnfoldVertical } from 'lucide-react';
+import { ChevronDown, ChevronRight, Plus, Database, Search, Download, Upload, Settings, FoldVertical, UnfoldVertical, Trash2 } from 'lucide-react';
 import { OperationTree } from './OperationTree';
 import { OperationNode, Dataset, AppearanceConfig } from '../types';
 
@@ -20,6 +20,7 @@ interface SidebarProps {
   onImportOperations?: (file: File) => void;
   onAnalyzeOverlap?: (nodeId: string) => void;
   onOpenSchema?: (name: string) => void;
+  onDeleteDataset?: (name: string) => void;
   appearance: AppearanceConfig;
 }
 
@@ -40,6 +41,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onImportOperations,
   onAnalyzeOverlap,
   onOpenSchema,
+  onDeleteDataset,
   appearance
 }) => {
   const [isOpsExpanded, setIsOpsExpanded] = useState(true);
@@ -210,6 +212,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                 <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity space-x-1">
                                     <button onClick={(e) => { e.stopPropagation(); onOpenTableInSql(ds.name); }} className="p-1 text-gray-300 hover:text-blue-600" title="Query"><Search className="w-3 h-3" /></button>
                                     <button onClick={(e) => { e.stopPropagation(); onOpenSchema && onOpenSchema(ds.name); }} className="p-1 text-gray-300 hover:text-gray-600" title="Settings"><Settings className="w-3 h-3" /></button>
+                                    {onDeleteDataset && (
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); onDeleteDataset(ds.name); }}
+                                            className="p-1 text-gray-300 hover:text-red-500"
+                                            title="Delete"
+                                        >
+                                            <Trash2 className="w-3 h-3" />
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                         ))}

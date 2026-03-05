@@ -51,6 +51,8 @@ export const SqlEditor: React.FC<SqlEditorProps> = ({
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const runSeqRef = useRef(0);
+  const lastRunByTabRef = useRef<Record<string, number>>({});
 
   // Derived state
   const activeTab = tabs.find(t => t.id === activeTabId) || tabs[0];
@@ -69,8 +71,9 @@ export const SqlEditor: React.FC<SqlEditorProps> = ({
       if (runRequestId === undefined) return;
       if (lastRunRequestId.current === runRequestId) return;
       lastRunRequestId.current = runRequestId;
-      if (!activeTab.query.trim() || activeTab.loading) return;
-      executeQuery(1);
+      const current = getCurrentQuery();
+      if (!current || activeTab.loading) return;
+      executeQuery(1, current);
   }, [runRequestId, activeTab.query, activeTab.loading]);
 
   useEffect(() => {
@@ -203,22 +206,38 @@ export const SqlEditor: React.FC<SqlEditorProps> = ({
     setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, ...updates } : t));
   };
 
-  const executeQuery = async (page: number = 1) => {
-    if (!activeTab.query.trim()) return;
+  const updateTabById = (tabId: string, updates: Partial<SqlTab>) => {
+    setTabs(prev => prev.map(t => t.id === tabId ? { ...t, ...updates } : t));
+  };
+
+  const getCurrentQuery = () => {
+      const live = textareaRef.current?.value;
+      return (live !== undefined ? live : activeTab.query).trim();
+  };
+
+  const executeQuery = async (page: number = 1, overrideQuery?: string) => {
+    const tabId = activeTabId;
+    const queryText = (overrideQuery ?? getCurrentQuery()).trim();
+    if (!queryText) return;
     
-    updateActiveTab({ loading: true, error: null }); // Keep result if just paging? Maybe clear for clarity.
+    const runId = ++runSeqRef.current;
+    lastRunByTabRef.current[tabId] = runId;
+
+    updateTabById(tabId, { loading: true, error: null, ...(page === 1 ? { result: null } : {}) });
     const startTime = performance.now();
     
     try {
         const data = await api.post(apiConfig, '/query', { 
             sessionId, 
-            query: activeTab.query,
+            query: queryText,
             page: page,
             pageSize: 50
         });
         const duration = Math.round(performance.now() - startTime);
         
-        updateActiveTab({ 
+        if (lastRunByTabRef.current[tabId] !== runId) return;
+
+        updateTabById(tabId, { 
             loading: false, 
             result: data, 
             executionTime: duration 
@@ -226,18 +245,20 @@ export const SqlEditor: React.FC<SqlEditorProps> = ({
 
         // Add to history only on first page execution to avoid clutter
         if (page === 1) {
-            addToHistory(activeTab.query, 'success', duration, data.totalCount);
+            addToHistory(queryText, 'success', duration, data.totalCount);
         }
 
     } catch (err: any) {
         const duration = Math.round(performance.now() - startTime);
-        updateActiveTab({ 
+        if (lastRunByTabRef.current[tabId] !== runId) return;
+
+        updateTabById(tabId, { 
             loading: false, 
             error: err.message 
         });
         
         if (page === 1) {
-            addToHistory(activeTab.query, 'error', duration, undefined, err.message);
+            addToHistory(queryText, 'error', duration, undefined, err.message);
         }
     }
   };

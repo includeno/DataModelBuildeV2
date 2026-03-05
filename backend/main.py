@@ -6,10 +6,13 @@ import pandas as pd
 import numpy as np
 import io
 import uuid
+import os
+import json
 from typing import List, Optional, Dict
 
 from models import ExecuteRequest, ExecuteSqlRequest, AnalyzeRequest
-from storage import storage
+import storage as storage_module
+from storage import storage, resolve_data_subdir, to_data_relative, save_sessions_dir
 from engine import ExecutionEngine
 
 app = FastAPI()
@@ -23,6 +26,26 @@ app.add_middleware(
 )
 
 engine = ExecutionEngine()
+
+DEFAULT_SERVER_FILE = os.path.join(os.path.dirname(__file__), "default_server.json")
+
+def load_default_server() -> str:
+    if not os.path.exists(DEFAULT_SERVER_FILE):
+        return "mockServer"
+    try:
+        with open(DEFAULT_SERVER_FILE, "r") as f:
+            data = json.load(f)
+        if isinstance(data, str):
+            value = data.strip()
+        elif isinstance(data, dict):
+            value = str(data.get("server") or data.get("defaultServer") or data.get("baseUrl") or "").strip()
+        else:
+            value = ""
+        if value.lower() in ("mock", "mockserver"):
+            return "mockServer"
+        return value or "mockServer"
+    except Exception:
+        return "mockServer"
 
 def clean_df_for_json(df: pd.DataFrame) -> List[dict]:
     """
@@ -49,6 +72,65 @@ def paginate_df(df: pd.DataFrame, page: int, page_size: int) -> pd.DataFrame:
 async def list_sessions():
     return storage.list_sessions()
 
+@app.get("/config/default_server")
+async def get_default_server():
+    server = load_default_server()
+    return {"server": server, "isMock": server == "mockServer"}
+
+@app.get("/config/session_storage")
+async def get_session_storage():
+    return {
+        "dataRoot": storage_module.DATA_ROOT,
+        "sessionsDir": storage.sessions_dir,
+        "relative": to_data_relative(storage.sessions_dir)
+    }
+
+@app.get("/config/session_storage/list")
+async def list_session_storage(path: str = ""):
+    try:
+        target = resolve_data_subdir(path)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    folders = []
+    if os.path.exists(target):
+        for name in os.listdir(target):
+            full = os.path.join(target, name)
+            if os.path.isdir(full):
+                rel = to_data_relative(full)
+                folders.append({"name": name, "path": rel})
+    folders.sort(key=lambda x: x["name"].lower())
+    return {"path": to_data_relative(target), "folders": folders}
+
+@app.post("/config/session_storage/create")
+async def create_session_storage(payload: dict = Body(...)):
+    rel_path = payload.get("path") or payload.get("name") or ""
+    try:
+        target = resolve_data_subdir(rel_path)
+        os.makedirs(target, exist_ok=True)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"path": to_data_relative(target)}
+
+@app.post("/config/session_storage/select")
+async def select_session_storage(payload: dict = Body(...)):
+    rel_path = payload.get("path") or ""
+    try:
+        target = resolve_data_subdir(rel_path)
+        if not os.path.exists(target):
+            raise HTTPException(status_code=404, detail="Folder not found")
+        storage.set_sessions_dir(target)
+        save_sessions_dir(target)
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {
+        "dataRoot": storage_module.DATA_ROOT,
+        "sessionsDir": storage.sessions_dir,
+        "relative": to_data_relative(storage.sessions_dir)
+    }
+
 @app.post("/sessions")
 async def create_session():
     new_id = f"sess_{uuid.uuid4().hex[:8]}"
@@ -63,6 +145,23 @@ async def delete_session(session_id: str):
 @app.get("/sessions/{session_id}/datasets")
 async def list_datasets(session_id: str):
     return storage.list_datasets(session_id)
+
+@app.get("/sessions/{session_id}/datasets/{dataset_id}/preview")
+async def get_dataset_preview(session_id: str, dataset_id: str, limit: int = 50):
+    df = storage.get_dataset_preview(session_id, dataset_id, limit=limit)
+    if df is None:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    return {
+        "rows": clean_df_for_json(df),
+        "totalCount": len(df)
+    }
+
+@app.delete("/sessions/{session_id}/datasets/{dataset_id}")
+async def delete_dataset(session_id: str, dataset_id: str):
+    removed = storage.delete_dataset(session_id, dataset_id)
+    if not removed:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    return {"status": "ok"}
 
 @app.post("/sessions/{session_id}/datasets/update")
 async def update_dataset_schema(session_id: str, payload: dict = Body(...)):

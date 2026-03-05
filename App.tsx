@@ -75,10 +75,14 @@ function App() {
   const [sqlRunState, setSqlRunState] = useState({ canRun: false, running: false });
   
   // Configuration State
-  const [apiConfig, setApiConfig] = useState<ApiConfig>({ baseUrl: 'http://localhost:8000', isMock: true });
+  const [apiConfig, setApiConfig] = useState<ApiConfig>({ baseUrl: 'mockServer', isMock: true });
   const [knownServers, setKnownServers] = useState<string[]>(['mockServer', 'http://localhost:8000']);
   const [appearance, setAppearance] = useState<AppearanceConfig>(DEFAULT_APPEARANCE);
   const [sessionSettings, setSessionSettings] = useState<SessionConfig>({ cascadeDisable: false, panelPosition: 'right' });
+  const [configReady, setConfigReady] = useState(false);
+  const [sessionStorageInfo, setSessionStorageInfo] = useState<{ dataRoot: string; sessionsDir: string; relative: string } | null>(null);
+  const [sessionStorageFolders, setSessionStorageFolders] = useState<{ name: string; path: string }[]>([]);
+  const [sessionStorageError, setSessionStorageError] = useState<string | null>(null);
 
   // SQL State
   const [targetSqlTable, setTargetSqlTable] = useState<string | null>(null);
@@ -143,10 +147,113 @@ function App() {
 
   // --- INITIALIZATION ---
   useEffect(() => {
-    fetchSessions();
-  }, [apiConfig]);
+      let cancelled = false;
+      const loadDefaultServer = async () => {
+          try {
+              const res = await fetch('http://localhost:8000/config/default_server');
+              if (!res.ok) throw new Error('Failed to load default server');
+              const data = await res.json();
+              const server = typeof data?.server === 'string' ? data.server : 'mockServer';
+              const isMock = server === 'mockServer';
+              if (!cancelled) {
+                  setApiConfig({ baseUrl: server, isMock });
+                  if (server) {
+                      setKnownServers(prev => prev.includes(server) ? prev : [...prev, server]);
+                  }
+              }
+          } catch (e) {
+              // Default to mock if file missing or backend unreachable
+          } finally {
+              if (!cancelled) setConfigReady(true);
+          }
+      };
+      loadDefaultServer();
+      return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
+    if (!configReady) return;
+    fetchSessions();
+  }, [apiConfig, configReady]);
+
+  useEffect(() => {
+      if (!isSettingsOpen) return;
+      if (apiConfig.isMock) {
+          setSessionStorageError("Switch to a real backend server to manage session storage.");
+          return;
+      }
+      refreshSessionStorage();
+  }, [isSettingsOpen, apiConfig.baseUrl, apiConfig.isMock]);
+
+  const refreshSessionStorage = async () => {
+      if (apiConfig.isMock) {
+          setSessionStorageError("Switch to a real backend server to manage session storage.");
+          return;
+      }
+      const baseUrl = apiConfig.baseUrl;
+      try {
+          const infoRes = await fetch(`${baseUrl}/config/session_storage`);
+          if (!infoRes.ok) throw new Error("Failed to load session storage");
+          const info = await infoRes.json();
+          const listRes = await fetch(`${baseUrl}/config/session_storage/list?path=`);
+          if (!listRes.ok) throw new Error("Failed to list session storage");
+          const list = await listRes.json();
+          setSessionStorageInfo(info);
+          setSessionStorageFolders(list.folders || []);
+          setSessionStorageError(null);
+      } catch (e: any) {
+          setSessionStorageError(e.message || "Failed to load session storage");
+      }
+  };
+
+  const createSessionStorageFolder = async (path: string) => {
+      if (apiConfig.isMock) return;
+      const baseUrl = apiConfig.baseUrl;
+      try {
+          const res = await fetch(`${baseUrl}/config/session_storage/create`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ path })
+          });
+          if (!res.ok) throw new Error("Failed to create folder");
+          await refreshSessionStorage();
+      } catch (e: any) {
+          setSessionStorageError(e.message || "Failed to create folder");
+      }
+  };
+
+  const selectSessionStorageFolder = async (path: string) => {
+      if (apiConfig.isMock) return;
+      const baseUrl = apiConfig.baseUrl;
+      try {
+          const res = await fetch(`${baseUrl}/config/session_storage/select`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ path })
+          });
+          if (!res.ok) throw new Error("Failed to select folder");
+          const info = await res.json();
+          setSessionStorageInfo(info);
+          setSessionStorageError(null);
+          setSessionId('');
+          setSessionName('');
+          setTree(INITIAL_TREE);
+          setSqlHistory([]);
+          setPreviewData(null);
+          setDatasets([]);
+          await fetchSessions();
+      } catch (e: any) {
+          setSessionStorageError(e.message || "Failed to select folder");
+      }
+  };
+
+  const handleOpenSettings = () => {
+      setIsSettingsOpen(true);
+      refreshSessionStorage();
+  };
+
+  useEffect(() => {
+    if (!configReady) return;
     let cancelled = false;
 
     const checkBackend = async () => {
@@ -165,7 +272,7 @@ function App() {
         cancelled = true;
         clearInterval(intervalId);
     };
-  }, [apiConfig.baseUrl, apiConfig.isMock]);
+  }, [apiConfig.baseUrl, apiConfig.isMock, configReady]);
 
   const fetchSessions = async () => {
       try {
@@ -312,6 +419,47 @@ function App() {
           setPreviewData(null); // Clear previous results
       }
       fetchSessions();
+  };
+
+  const handleDeleteDataset = async (name: string) => {
+      if (!sessionId) return;
+      const confirmMsg = `Delete dataset "${name}"? This will not update existing operations that reference it.`;
+      if (!confirm(confirmMsg)) return;
+      try {
+          await api.delete(apiConfig, `/sessions/${sessionId}/datasets/${encodeURIComponent(name)}`);
+          setDatasets(prev => prev.filter(d => d.name !== name));
+          if (selectedDatasetForSchema?.name === name) {
+              setIsSchemaModalOpen(false);
+              setSelectedDatasetForSchema(null);
+          }
+      } catch (e: any) {
+          alert(e.message || "Failed to delete dataset");
+      }
+  };
+
+  const fetchDatasetPreview = async (dataset: Dataset) => {
+      if (!sessionId) return dataset;
+      try {
+          const res = await api.get(apiConfig, `/sessions/${sessionId}/datasets/${encodeURIComponent(dataset.name)}/preview?limit=50`);
+          const updated = { ...dataset, rows: res.rows || [] };
+          setDatasets(prev => prev.map(d => d.name === dataset.name ? updated : d));
+          return updated;
+      } catch (e) {
+          console.error("Failed to load dataset preview", e);
+          return dataset;
+      }
+  };
+
+  const handleOpenSchema = async (name: string, closeMobile: boolean) => {
+      const ds = datasets.find(d => d.name === name);
+      if (!ds) return;
+      let target = ds;
+      if (!ds.rows || ds.rows.length === 0) {
+          target = await fetchDatasetPreview(ds);
+      }
+      setSelectedDatasetForSchema(target);
+      setIsSchemaModalOpen(true);
+      if (closeMobile) setIsMobileSidebarOpen(false);
   };
 
   const handleUpdateSqlHistory = (newHistory: SqlHistoryItem[]) => {
@@ -548,7 +696,7 @@ function App() {
         onSessionCreate={handleCreateSession}
         onSessionDelete={handleDeleteSession}
         onViewChange={setCurrentView}
-        onSettingsOpen={() => setIsSettingsOpen(true)}
+        onSettingsOpen={handleOpenSettings}
         onSessionSettingsOpen={() => setIsSessionSettingsOpen(true)}
         onRunSql={() => setSqlRunRequestId(v => v + 1)}
         onToggleRightPanel={() => setIsRightPanelOpen(!isRightPanelOpen)}
@@ -583,10 +731,8 @@ function App() {
                                 onDeleteNode={handleDeleteNode}
                                 onImportClick={() => { if (sessionId) setIsImportOpen(true); }}
                                 onOpenTableInSql={(t) => { setTargetSqlTable(t); setCurrentView('sql'); setIsMobileSidebarOpen(false); }}
-                                onOpenSchema={(name) => { 
-                                    const ds = datasets.find(d => d.name === name); 
-                                    if(ds) { setSelectedDatasetForSchema(ds); setIsSchemaModalOpen(true); setIsMobileSidebarOpen(false); }
-                                }}
+                                onOpenSchema={(name) => { handleOpenSchema(name, true); }}
+                                onDeleteDataset={handleDeleteDataset}
                                 appearance={appearance}
                             />
                          </div>
@@ -608,10 +754,8 @@ function App() {
                         onDeleteNode={handleDeleteNode}
                         onImportClick={() => { if (sessionId) setIsImportOpen(true); }}
                         onOpenTableInSql={(t) => { setTargetSqlTable(t); setCurrentView('sql'); }}
-                        onOpenSchema={(name) => { 
-                            const ds = datasets.find(d => d.name === name); 
-                            if(ds) { setSelectedDatasetForSchema(ds); setIsSchemaModalOpen(true); }
-                        }}
+                        onOpenSchema={(name) => { handleOpenSchema(name, false); }}
+                        onDeleteDataset={handleDeleteDataset}
                         appearance={appearance}
                      />
                  </div>
@@ -680,14 +824,22 @@ function App() {
           isOpen={isSettingsOpen}
           onClose={() => setIsSettingsOpen(false)}
           servers={knownServers}
-          currentServer={apiConfig.baseUrl}
+          currentServer={apiConfig.isMock ? 'mockServer' : apiConfig.baseUrl}
           onSelectServer={(url) => { 
               setApiConfig({ baseUrl: url, isMock: url === 'mockServer' });
+              if (!knownServers.includes(url)) setKnownServers([...knownServers, url]);
           }}
           onAddServer={(url) => setKnownServers([...knownServers, url])}
           onRemoveServer={(url) => setKnownServers(knownServers.filter(s => s !== url))}
           appearance={appearance}
           onUpdateAppearance={setAppearance}
+          sessionStorageInfo={sessionStorageInfo}
+          sessionStorageFolders={sessionStorageFolders}
+          sessionStorageDisabled={apiConfig.isMock}
+          sessionStorageError={sessionStorageError}
+          onRefreshSessionStorage={refreshSessionStorage}
+          onSelectSessionStorage={selectSessionStorageFolder}
+          onCreateSessionStorage={createSessionStorageFolder}
       />
 
       <SessionSettingsModal

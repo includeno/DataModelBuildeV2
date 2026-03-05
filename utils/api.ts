@@ -521,7 +521,13 @@ export const api = {
         if (config.isMock) {
             await new Promise(r => setTimeout(r, 400));
             if (endpoint === '/sessions') return MOCK_SESSIONS;
-            if (endpoint.includes('/datasets')) return [...MOCK_DATASETS];
+            if (endpoint.match(/\/sessions\/.*\/datasets\/.*\/preview/)) {
+                const parts = endpoint.split('/');
+                const datasetName = decodeURIComponent((parts[4] || '').split('?')[0]);
+                const ds = MOCK_DATASETS.find(d => d.name === datasetName || d.id === datasetName);
+                return { rows: ds?.rows || [], totalCount: ds?.totalCount || 0 };
+            }
+            if (endpoint.match(/\/sessions\/.*\/datasets$/)) return [...MOCK_DATASETS];
             if (endpoint.match(/\/sessions\/.*\/state/)) return MOCK_SESSION_STATES[endpoint.split('/')[2]] || {};
             if (endpoint.match(/\/sessions\/.*\/metadata/)) return MOCK_SESSION_METADATA[endpoint.split('/')[2]] || { displayName: "", settings: { cascadeDisable: false, panelPosition: 'right' }};
             return {};
@@ -667,7 +673,16 @@ export const api = {
     },
 
     async delete(config: ApiConfig, endpoint: string) {
-        if (config.isMock) return { status: "ok" };
+        if (config.isMock) {
+            const match = endpoint.match(/\/sessions\/.*\/datasets\/(.*)/);
+            if (match) {
+                const datasetName = decodeURIComponent(match[1]);
+                const idx = MOCK_DATASETS.findIndex(d => d.name === datasetName || d.id === datasetName);
+                if (idx >= 0) MOCK_DATASETS.splice(idx, 1);
+                return { status: "ok" };
+            }
+            return { status: "ok" };
+        }
         const res = await fetch(`${config.baseUrl}${endpoint}`, { method: 'DELETE' });
         if (!res.ok) throw new Error(`API Error: ${res.statusText}`);
         return res.json();

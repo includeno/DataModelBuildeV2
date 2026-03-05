@@ -40,7 +40,6 @@ interface WorkspaceProps {
   panelPosition?: 'right' | 'left' | 'top' | 'bottom';
   sqlHistory?: SqlHistoryItem[];
   onUpdateSqlHistory?: (history: SqlHistoryItem[]) => void;
-  datasets?: Dataset[];
 }
 
 export const Workspace: React.FC<WorkspaceProps> = ({
@@ -74,8 +73,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   tree,
   panelPosition = 'right',
   sqlHistory,
-  onUpdateSqlHistory,
-  datasets: sqlDatasets = []
+  onUpdateSqlHistory
 }) => {
   const [activeTab, setActiveTab] = useState<string>('');
 
@@ -302,7 +300,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                 <SqlEditor 
                     sessionId={sessionId} 
                     apiConfig={apiConfig} 
-                    datasets={sqlDatasets}
+                    datasets={datasets}
                     targetTable={targetSqlTable}
                     onClearTarget={onClearTargetSqlTable}
                     runRequestId={sqlRunRequestId}

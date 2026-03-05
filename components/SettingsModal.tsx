@@ -14,6 +14,17 @@ interface SettingsModalProps {
   onRemoveServer: (url: string) => void;
   appearance: AppearanceConfig;
   onUpdateAppearance: (config: AppearanceConfig) => void;
+  sessionStorageInfo?: {
+    dataRoot: string;
+    sessionsDir: string;
+    relative: string;
+  } | null;
+  sessionStorageFolders?: { name: string; path: string }[];
+  sessionStorageDisabled?: boolean;
+  sessionStorageError?: string | null;
+  onRefreshSessionStorage?: () => void;
+  onSelectSessionStorage?: (path: string) => void;
+  onCreateSessionStorage?: (path: string) => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -25,10 +36,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onAddServer,
   onRemoveServer,
   appearance,
-  onUpdateAppearance
+  onUpdateAppearance,
+  sessionStorageInfo,
+  sessionStorageFolders = [],
+  sessionStorageDisabled,
+  sessionStorageError,
+  onRefreshSessionStorage,
+  onSelectSessionStorage,
+  onCreateSessionStorage
 }) => {
   const [activeTab, setActiveTab] = useState<'server' | 'appearance'>('server');
   const [newUrl, setNewUrl] = useState('');
+  const [newFolder, setNewFolder] = useState('');
 
   if (!isOpen) return null;
 
@@ -129,6 +148,85 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         <Button variant="secondary" size="sm" onClick={handleAdd} disabled={!newUrl}>
                             <Plus className="w-4 h-4" />
                         </Button>
+                    </div>
+
+                    <div className="mt-6 pt-4 border-t border-gray-100">
+                        <div className="flex items-center justify-between mb-2">
+                            <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Session Storage</h4>
+                            {onRefreshSessionStorage && (
+                                <button
+                                    className="text-xs text-blue-600 hover:underline"
+                                    onClick={onRefreshSessionStorage}
+                                    disabled={sessionStorageDisabled}
+                                >
+                                    Refresh
+                                </button>
+                            )}
+                        </div>
+                        <p className="text-sm text-gray-600 mb-3">
+                            Choose where session data is stored (under the project data directory).
+                        </p>
+
+                        {sessionStorageDisabled && (
+                            <div className="text-xs text-gray-400 mb-3">
+                                Switch to a real backend server to manage session storage.
+                            </div>
+                        )}
+
+                        {sessionStorageError && (
+                            <div className="text-xs text-red-500 mb-3">
+                                {sessionStorageError}
+                            </div>
+                        )}
+
+                        <div className="text-xs text-gray-500 mb-2">
+                            Current: <span className="font-mono text-gray-700">{sessionStorageInfo?.relative || 'sessions'}</span>
+                        </div>
+
+                        <div className="space-y-2 max-h-40 overflow-y-auto border border-gray-100 rounded-md p-2 bg-gray-50">
+                            {sessionStorageFolders.length === 0 ? (
+                                <div className="text-xs text-gray-400">No folders found.</div>
+                            ) : (
+                                sessionStorageFolders.map(folder => {
+                                    const isSelected = folder.path === (sessionStorageInfo?.relative || 'sessions');
+                                    return (
+                                        <div
+                                            key={folder.path}
+                                            onClick={() => !sessionStorageDisabled && onSelectSessionStorage && onSelectSessionStorage(folder.path)}
+                                            className={`flex items-center justify-between p-2 rounded-md cursor-pointer transition-colors ${
+                                                isSelected ? 'bg-blue-100 border border-blue-300' : 'bg-white border border-gray-100 hover:bg-blue-50'
+                                            }`}
+                                        >
+                                            <span className="text-xs font-mono text-gray-700">{folder.path}</span>
+                                            {isSelected && <span className="text-[10px] text-blue-600 font-semibold">Selected</span>}
+                                        </div>
+                                    );
+                                })
+                            )}
+                        </div>
+
+                        <div className="flex space-x-2 mt-3">
+                            <input
+                                type="text"
+                                value={newFolder}
+                                onChange={(e) => setNewFolder(e.target.value)}
+                                placeholder="sessions_test"
+                                className="flex-1 text-sm border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 bg-white"
+                                disabled={sessionStorageDisabled}
+                            />
+                            <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => {
+                                    if (!newFolder.trim() || !onCreateSessionStorage) return;
+                                    onCreateSessionStorage(newFolder.trim());
+                                    setNewFolder('');
+                                }}
+                                disabled={sessionStorageDisabled || !newFolder.trim()}
+                            >
+                                Create
+                            </Button>
+                        </div>
                     </div>
                 </div>
             )}
