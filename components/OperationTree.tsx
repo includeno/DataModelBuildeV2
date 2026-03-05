@@ -99,6 +99,11 @@ export const OperationTree: React.FC<OperationTreeProps> = ({
         <span className={`truncate font-medium flex-1 ${!node.enabled ? 'line-through text-gray-400' : ''}`}>
             {node.name}
         </span>
+        {appearance.showNodeIds && (
+            <span className="ml-2 text-[9px] font-mono text-gray-400 bg-gray-50 border border-gray-200 rounded px-1.5 py-0.5 shrink-0">
+                {node.id}
+            </span>
+        )}
         
         {/* Actions */}
         <div className={`flex items-center space-x-0.5 ml-auto pl-2 bg-gradient-to-l from-inherit to-transparent`}>

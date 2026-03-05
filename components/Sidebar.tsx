@@ -214,6 +214,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                 <div className="flex items-center min-w-0 cursor-pointer flex-1" onClick={() => onOpenTableInSql(ds.name)}>
                                     <Database className="w-3 h-3 text-gray-400 mr-2 shrink-0 group-hover:text-blue-500" />
                                     <div className="font-medium text-gray-700 truncate group-hover:text-blue-700 text-xs" title={ds.name}>{ds.name}</div>
+                                    {appearance.showDatasetIds && (
+                                        <span className="ml-2 text-[9px] font-mono text-gray-400 bg-gray-50 border border-gray-200 rounded px-1.5 py-0.5 shrink-0">
+                                            {ds.id}
+                                        </span>
+                                    )}
                                 </div>
                                 <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity space-x-1">
                                     <button onClick={(e) => { e.stopPropagation(); onOpenTableInSql(ds.name); }} className="p-1 text-gray-300 hover:text-blue-600" title="Query"><Search className="w-3 h-3" /></button>

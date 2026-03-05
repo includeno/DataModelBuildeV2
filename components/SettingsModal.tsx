@@ -305,6 +305,61 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                 </div>
                             )}
                         </div>
+
+                        {/* ID Display */}
+                        <div className="mb-2 border-t border-gray-100 pt-4">
+                            <label className="block text-sm font-medium text-gray-700 mb-2">ID Display</label>
+                            <div className="space-y-2">
+                                <div className="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
+                                    <span className="text-sm text-gray-600">Show Node IDs (Tree)</span>
+                                    <button
+                                        onClick={() => onUpdateAppearance({ ...appearance, showNodeIds: !appearance.showNodeIds })}
+                                        className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 ${appearance.showNodeIds ? 'bg-blue-600' : 'bg-gray-200'}`}
+                                    >
+                                        <span
+                                            aria-hidden="true"
+                                            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${appearance.showNodeIds ? 'translate-x-4' : 'translate-x-0'}`}
+                                        />
+                                    </button>
+                                </div>
+                                <div className="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
+                                    <span className="text-sm text-gray-600">Show Operation IDs (Editor)</span>
+                                    <button
+                                        onClick={() => onUpdateAppearance({ ...appearance, showOperationIds: !appearance.showOperationIds })}
+                                        className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 ${appearance.showOperationIds ? 'bg-blue-600' : 'bg-gray-200'}`}
+                                    >
+                                        <span
+                                            aria-hidden="true"
+                                            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${appearance.showOperationIds ? 'translate-x-4' : 'translate-x-0'}`}
+                                        />
+                                    </button>
+                                </div>
+                                <div className="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
+                                    <span className="text-sm text-gray-600">Show Command IDs (Steps)</span>
+                                    <button
+                                        onClick={() => onUpdateAppearance({ ...appearance, showCommandIds: !appearance.showCommandIds })}
+                                        className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 ${appearance.showCommandIds ? 'bg-blue-600' : 'bg-gray-200'}`}
+                                    >
+                                        <span
+                                            aria-hidden="true"
+                                            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${appearance.showCommandIds ? 'translate-x-4' : 'translate-x-0'}`}
+                                        />
+                                    </button>
+                                </div>
+                                <div className="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
+                                    <span className="text-sm text-gray-600">Show Dataset IDs (Sidebar)</span>
+                                    <button
+                                        onClick={() => onUpdateAppearance({ ...appearance, showDatasetIds: !appearance.showDatasetIds })}
+                                        className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 ${appearance.showDatasetIds ? 'bg-blue-600' : 'bg-gray-200'}`}
+                                    >
+                                        <span
+                                            aria-hidden="true"
+                                            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${appearance.showDatasetIds ? 'translate-x-4' : 'translate-x-0'}`}
+                                        />
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             )}

@@ -1,7 +1,7 @@
 
 
 import React, { useMemo, useState, useRef, useEffect } from 'react';
-import { Command, CommandType, Dataset, OperationType, AggregationConfig, OperationNode, DataType, HavingCondition, MappingRule, FilterGroup, FilterCondition, SubTableConfig, FieldInfo } from '../types';
+import { Command, CommandType, Dataset, OperationType, AggregationConfig, OperationNode, DataType, HavingCondition, MappingRule, FilterGroup, FilterCondition, SubTableConfig, FieldInfo, AppearanceConfig } from '../types';
 import { Button } from './Button';
 import { Trash2, Plus, GripVertical, Type, Database, Play, Layers, Braces, ArrowRight, Filter as FilterIcon, Table, Calculator, List, Check, Info, ChevronDown, ChevronUp, Split, LayoutDashboard, AlertTriangle, Settings2, Eye, Variable, Route, Code, Loader2, Copy, X } from 'lucide-react';
 import { Reorder, useDragControls, DragControls } from 'framer-motion';
@@ -13,6 +13,7 @@ interface CommandEditorProps {
   commands: Command[];
   datasets: Dataset[];
   inputSchema: Record<string, DataType>; 
+  appearance?: AppearanceConfig;
   onUpdateCommands: (operationId: string, newCommands: Command[]) => void;
   onUpdateName: (name: string) => void;
   onUpdateType: (operationId: string, type: OperationType) => void;
@@ -622,6 +623,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
   commands, 
   datasets,
   // inputSchema, // Unused
+  appearance,
   onUpdateCommands,
   onUpdateName,
   // onUpdateType, // Unused
@@ -908,7 +910,9 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                 <div className="flex-1 min-w-0">
                    <div className="flex items-center space-x-2 mb-1">
                      <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Configuration</span>
-                     <span className="text-[10px] font-mono text-gray-300">#{operationId}</span>
+                     {appearance?.showOperationIds && (
+                         <span className="text-[10px] font-mono text-gray-300">#{operationId}</span>
+                     )}
                    </div>
                    <div className="flex items-center space-x-3">
                        <div className="relative group shrink-0 text-gray-400">
@@ -1294,7 +1298,9 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
         <div className="flex-1 min-w-0">
            <div className="flex items-center space-x-2 mb-1">
              <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Operation</span>
-             <span className="text-[10px] font-mono text-gray-300">#{operationId}</span>
+             {appearance?.showOperationIds && (
+                 <span className="text-[10px] font-mono text-gray-300">#{operationId}</span>
+             )}
            </div>
            <div className="flex items-center space-x-3">
                <div className="relative group shrink-0">
@@ -1506,9 +1512,11 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                         <option value="view">View / Select Table</option>
                                         <option value="multi_table">Complex View (Final Step)</option>
                                     </select>
-                                    <span className="ml-2 text-[10px] font-mono text-gray-400 bg-gray-50 border border-gray-200 rounded px-1.5 py-0.5">
-                                        {cmd.id}
-                                    </span>
+                                    {appearance?.showCommandIds && (
+                                        <span className="ml-2 text-[10px] font-mono text-gray-400 bg-gray-50 border border-gray-200 rounded px-1.5 py-0.5">
+                                            {cmd.id}
+                                        </span>
+                                    )}
                                 </div>
                             </div>
                             <div className="flex items-center space-x-2">

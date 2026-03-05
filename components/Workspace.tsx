@@ -5,7 +5,7 @@ import { CommandEditor } from './CommandEditor';
 import { SqlEditor } from './SqlEditor';
 import { DataPreview } from './DataPreview';
 import { ComplexDataPreview } from './ComplexDataPreview';
-import { OperationNode, Dataset, Command, ExecutionResult, ApiConfig, OperationType, DataType, SqlHistoryItem } from '../types';
+import { OperationNode, Dataset, Command, ExecutionResult, ApiConfig, OperationType, DataType, SqlHistoryItem, AppearanceConfig } from '../types';
 import { api } from '../utils/api';
 
 interface WorkspaceProps {
@@ -18,6 +18,7 @@ interface WorkspaceProps {
   onSqlRunStateChange?: (state: { canRun: boolean; running: boolean }) => void;
   selectedNode: OperationNode | null;
   datasets: Dataset[];
+  appearance?: AppearanceConfig;
   inputFields: string[]; // Deprecated, kept for compat if needed but unused in new logic
   inputSchema: Record<string, DataType>; // New Schema
   onUpdateCommands: (opId: string, newCommands: Command[]) => void;
@@ -52,6 +53,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   onSqlRunStateChange,
   selectedNode,
   datasets,
+  appearance,
   // inputFields,
   inputSchema,
   onUpdateCommands,
@@ -166,6 +168,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                 operationType={selectedNode.operationType}
                 commands={selectedNode.commands} 
                 datasets={datasets}
+                appearance={appearance}
                 inputSchema={inputSchema}
                 onUpdateCommands={onUpdateCommands}
                 onUpdateName={onUpdateName}

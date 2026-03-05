@@ -41,7 +41,11 @@ const DEFAULT_APPEARANCE: AppearanceConfig = {
   textSize: 13,
   textColor: '#374151',
   guideLineColor: '#E5E7EB',
-  showGuideLines: true
+  showGuideLines: true,
+  showNodeIds: false,
+  showOperationIds: false,
+  showCommandIds: false,
+  showDatasetIds: false
 };
 
 function App() {
@@ -823,6 +827,7 @@ function App() {
                     onSqlRunStateChange={setSqlRunState}
                     selectedNode={selectedNode}
                     datasets={datasets}
+                    appearance={appearance}
                     inputFields={[]} 
                     inputSchema={globalInputSchema}
                     onUpdateCommands={handleUpdateCommands}

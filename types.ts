@@ -213,4 +213,8 @@ export interface AppearanceConfig {
   textColor: string;
   guideLineColor: string;
   showGuideLines: boolean;
+  showNodeIds?: boolean;
+  showOperationIds?: boolean;
+  showCommandIds?: boolean;
+  showDatasetIds?: boolean;
 }
