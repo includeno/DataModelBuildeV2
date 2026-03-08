@@ -28,3 +28,6 @@ dist-ssr
 *.sw?
 
 data
+playwright-report
+test-results
+output/playwright

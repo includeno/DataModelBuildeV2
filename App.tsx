@@ -74,7 +74,8 @@ function App() {
 
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
   const [rightPanelWidth, setRightPanelWidth] = useState(400); // Or Height if vertical
-  const [sidebarWidth] = useState(260);
+  const [sidebarWidth, setSidebarWidth] = useState(260);
+  const [isSidebarResizing, setIsSidebarResizing] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [previewData, setPreviewData] = useState<ExecutionResult | null>(null);
@@ -193,6 +194,23 @@ function App() {
       }
       refreshSessionStorage();
   }, [isSettingsOpen, apiConfig.baseUrl, apiConfig.isMock]);
+
+  useEffect(() => {
+      if (!isSidebarResizing) return;
+      const handleMove = (e: MouseEvent) => {
+          const minWidth = 200;
+          const maxWidth = 520;
+          const nextWidth = Math.min(maxWidth, Math.max(minWidth, e.clientX));
+          setSidebarWidth(nextWidth);
+      };
+      const handleUp = () => setIsSidebarResizing(false);
+      window.addEventListener('mousemove', handleMove);
+      window.addEventListener('mouseup', handleUp);
+      return () => {
+          window.removeEventListener('mousemove', handleMove);
+          window.removeEventListener('mouseup', handleUp);
+      };
+  }, [isSidebarResizing]);
 
   const refreshSessionStorage = async () => {
       if (apiConfig.isMock) {
@@ -796,7 +814,7 @@ function App() {
                  )}
 
                  {/* Desktop Sidebar */}
-                 <div className="hidden md:block h-full shrink-0">
+                 <div className="hidden md:block h-full shrink-0" style={{ width: sidebarWidth }}>
                      <Sidebar 
                         width={sidebarWidth}
                         currentView={currentView}
@@ -816,6 +834,11 @@ function App() {
                         appearance={appearance}
                      />
                  </div>
+                 <div
+                     className="hidden md:block w-1.5 cursor-col-resize bg-transparent hover:bg-blue-100 transition-colors"
+                     onMouseDown={() => setIsSidebarResizing(true)}
+                     title="Drag to resize"
+                 />
 
                  <Workspace 
                     currentView={currentView}

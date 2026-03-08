@@ -1,10 +1,22 @@
 
-
 import React, { useMemo, useState, useRef, useEffect } from 'react';
-import { Command, CommandType, Dataset, OperationType, AggregationConfig, OperationNode, DataType, HavingCondition, MappingRule, FilterGroup, FilterCondition, SubTableConfig, FieldInfo, AppearanceConfig } from '../types';
+import { Command, CommandType, Dataset, OperationType, AggregationConfig, OperationNode, DataType, HavingCondition, MappingRule, SubTableConfig, FieldInfo, AppearanceConfig } from '../types';
 import { Button } from './Button';
-import { Trash2, Plus, GripVertical, Type, Database, Play, Layers, Braces, ArrowRight, Filter as FilterIcon, Table, Calculator, List, Check, Info, ChevronDown, ChevronUp, Split, LayoutDashboard, AlertTriangle, Settings2, Eye, Variable, Route, Code, Loader2, Copy, X } from 'lucide-react';
-import { Reorder, useDragControls, DragControls } from 'framer-motion';
+import { Trash2, Plus, GripVertical, Type, Database, Play, Layers, ArrowRight, Filter as FilterIcon, Table, Calculator, List, Check, Info, ChevronDown, ChevronUp, Split, LayoutDashboard, AlertTriangle, Settings2, Eye, Variable, Route, Code, Pin, PinOff } from 'lucide-react';
+import { Reorder } from 'framer-motion';
+import { CustomSelect, SelectOption } from './command-editor/CustomSelect';
+import { CollapsibleSection } from './command-editor/CollapsibleSection';
+import { SqlPreviewModal } from './command-editor/SqlPreviewModal';
+import { SqlBuilderModal } from './command-editor/SqlBuilderModal';
+import { COMMAND_LABELS, OPERATORS, PYTHON_TEMPLATE, baseInputStyles, errorInputStyles, codeAreaStyles } from './command-editor/constants';
+import { DraggableItem } from './command-editor/DraggableItem';
+import { VariableInserter } from './command-editor/VariableInserter';
+import { InsertDivider } from './command-editor/InsertDivider';
+import { FilterGroupEditor } from './command-editor/FilterGroupEditor';
+import { flattenNodes, findAncestorVariables, getAncestors } from './command-editor/treeUtils';
+import { parseSqlToCommands } from './command-editor/sqlParser';
+import { StepOutline } from './command-editor/StepOutline';
+import { getDatasetFieldNames, getSourceLabel, formatSourceOptionLabel, resolveDataSource, renderSqlCommandSummary, SourceAlias } from './command-editor/helpers';
 
 interface CommandEditorProps {
   operationId: string;
@@ -24,597 +36,6 @@ interface CommandEditorProps {
   canRun?: boolean;
 }
 
-const SqlPreviewModal: React.FC<{
-    isOpen: boolean;
-    onClose: () => void;
-    sql: string;
-    loading: boolean;
-}> = ({ isOpen, onClose, sql, loading }) => {
-    if (!isOpen) return null;
-    return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[80vh] animate-in fade-in zoom-in duration-200">
-                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gray-50 rounded-t-xl">
-                    <div className="flex items-center space-x-2">
-                        <div className="p-2 bg-blue-100 rounded-lg">
-                            <Database className="w-5 h-5 text-blue-600" />
-                        </div>
-                        <h3 className="text-lg font-bold text-gray-900">Generated SQL</h3>
-                    </div>
-                    <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-2 rounded-full hover:bg-gray-200 transition-all">
-                        <X className="w-5 h-5" />
-                    </button>
-                </div>
-                <div className="p-6 overflow-y-auto bg-[#1e1e1e] min-h-[200px]">
-                    {loading ? (
-                        <div className="flex flex-col items-center justify-center h-full text-gray-400 py-8">
-                            <Loader2 className="w-8 h-8 animate-spin mb-3" />
-                            <span className="text-sm">Generating SQL from logic...</span>
-                        </div>
-                    ) : (
-                        <pre className="text-sm font-mono text-blue-300 whitespace-pre-wrap leading-relaxed">
-                            {sql || "-- No SQL generated"}
-                        </pre>
-                    )}
-                </div>
-                <div className="p-4 bg-gray-50 border-t border-gray-200 flex justify-end space-x-3 rounded-b-xl">
-                    <Button variant="secondary" onClick={onClose}>Close</Button>
-                    <Button variant="primary" onClick={() => navigator.clipboard.writeText(sql)} icon={<Copy className="w-4 h-4" />}>Copy SQL</Button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-const PYTHON_TEMPLATE = `def transform(row):
-    # Available: np, pd, math, datetime, re
-    # Name must be 'transform', return the calculated value
-    val = row.get('id', 0)
-    return val * 1.1`;
-
-const COMMAND_LABELS: Record<string, string> = {
-    filter: 'Filter',
-    join: 'Join',
-    sort: 'Sort',
-    transform: 'Mapping',
-    group: 'Group',
-    save: 'Save Var',
-    view: 'View',
-    multi_table: 'Complex View'
-};
-
-// const DATA_TYPE_ICONS: Record<string, any> = {
-//     string: Type,
-//     number: Hash,
-//     boolean: CheckCircle,
-//     date: Calendar,
-//     timestamp: Clock,
-//     json: Code,
-// };
-
-// const OPERATION_TYPES: {value: OperationType, label: string, icon: any}[] = [
-//     { value: 'setup', label: 'Setup Source', icon: Settings2 },
-//     { value: 'process', label: 'Process', icon: Play },
-// ];
-
-const OPERATORS: Record<string, { value: string; label: string }[]> = {
-    string: [
-        { value: '=', label: 'Equals' },
-        { value: '!=', label: 'Not Equals' },
-        { value: 'contains', label: 'Contains (Substring)' },
-        { value: 'not_contains', label: 'Does Not Contain (Substring)' },
-        { value: 'starts_with', label: 'Starts With' },
-        { value: 'ends_with', label: 'Ends With' },
-        { value: 'in_list', label: 'In List' },
-        { value: 'not_in_list', label: 'Not In List' },
-        { value: 'is_empty', label: 'Is Empty' },
-        { value: 'is_not_empty', label: 'Is Not Empty' },
-    ],
-    number: [
-        { value: '=', label: 'Equals' },
-        { value: '!=', label: 'Not Equals' },
-        { value: '>', label: 'Greater Than' },
-        { value: '>=', label: 'Greater/Equal' },
-        { value: '<', label: 'Less Than' },
-        { value: '<=', label: 'Less/Equal' },
-        { value: 'in_list', label: 'In List' },
-        { value: 'not_in_list', label: 'Not In List' },
-        { value: 'is_empty', label: 'Is Null' },
-        { value: 'is_not_empty', label: 'Is Not Null' },
-    ],
-    boolean: [
-        { value: 'is_true', label: 'Is True' },
-        { value: 'is_false', label: 'Is False' },
-    ],
-    date: [
-        { value: '=', label: 'Is On' },
-        { value: '!=', label: 'Is Not On' },
-        { value: 'before', label: 'Before' },
-        { value: 'after', label: 'After' },
-    ],
-    json: [
-        { value: 'has_key', label: 'Has Key' },
-        { value: 'contains', label: 'Contains Value' },
-    ]
-};
-OPERATORS['timestamp'] = OPERATORS['date'];
-
-const baseInputStyles = "w-full text-sm border border-gray-200 rounded-md focus:ring-2 focus:ring-blue-100 focus:border-blue-500 bg-white text-gray-900 shadow-sm transition-all hover:border-gray-300 py-1.5";
-const errorInputStyles = "w-full text-sm border border-red-300 rounded-md focus:ring-2 focus:ring-red-100 focus:border-red-500 bg-red-50 text-red-900 shadow-sm transition-all py-1.5";
-const codeAreaStyles = "w-full text-[11px] border border-gray-700 rounded-md focus:ring-2 focus:ring-blue-900 focus:border-blue-700 bg-[#1e1e1e] text-[#d4d4d4] font-mono shadow-sm transition-all py-2 px-3 leading-relaxed resize-y selection:bg-[#264f78]";
-
-const DraggableItem = ({ cmd, children }: { cmd: Command, children: (dragControls: DragControls) => React.ReactNode }) => {
-  const dragControls = useDragControls();
-  return (
-    <Reorder.Item
-      value={cmd}
-      dragListener={false}
-      dragControls={dragControls}
-      as="div"
-      className="relative"
-    >
-      {children(dragControls)}
-    </Reorder.Item>
-  );
-};
-
-const flattenNodes = (root: OperationNode): OperationNode[] => {
-    let result = [root];
-    if (root.children) {
-        root.children.forEach(child => {
-            result = [...result, ...flattenNodes(child)];
-        });
-    }
-    return result;
-};
-
-const findAncestorVariables = (root: OperationNode, currentId: string): string[] => {
-    const vars: string[] = [];
-    const traverse = (node: OperationNode): boolean => {
-        if (node.id === currentId) return true; 
-        let foundInChild = false;
-        if (node.children) {
-            for (const child of node.children) {
-                if (traverse(child)) {
-                    foundInChild = true;
-                    break;
-                }
-            }
-        }
-        if (foundInChild) {
-            node.commands.forEach(cmd => {
-                if (cmd.type === 'save' && cmd.config.value) {
-                    vars.push(String(cmd.config.value));
-                }
-                // Also capture definition variables from setup nodes
-                if (cmd.type === 'define_variable' && cmd.config.variableName) {
-                    vars.push(cmd.config.variableName);
-                }
-            });
-            return true;
-        }
-        return false;
-    };
-    if (root) traverse(root);
-    return vars;
-};
-
-const getAncestors = (node: OperationNode, targetId: string): OperationNode[] | null => {
-    if (node.id === targetId) return [];
-    if (node.children) {
-        for (const child of node.children) {
-            const res = getAncestors(child, targetId);
-            if (res) return [node, ...res];
-        }
-    }
-    return null;
-};
-
-// --- HELPER COMPONENTS ---
-
-interface SelectOption {
-    value: string;
-    label: string;
-    subLabel?: string;
-    disabled?: boolean;
-    icon?: React.ElementType;
-}
-
-const CustomSelect: React.FC<{
-    value: string;
-    onChange: (val: string) => void;
-    options: SelectOption[];
-    placeholder?: string;
-    icon?: React.ElementType;
-    hasError?: boolean;
-    className?: string;
-}> = ({ value, onChange, options, placeholder = "Select...", icon: DefaultIcon, hasError, className = "" }) => {
-    const [isOpen, setIsOpen] = useState(false);
-    const containerRef = useRef<HTMLDivElement>(null);
-
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-                setIsOpen(false);
-            }
-        };
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, []);
-
-    const selectedOption = options.find(o => o.value === value);
-    const isPlaceholder = !value;
-    const IconToUse = selectedOption?.icon || DefaultIcon;
-
-    return (
-        <div className={`relative w-full ${className}`} ref={containerRef}>
-            <div
-                onClick={() => setIsOpen(!isOpen)}
-                className={`
-                    w-full px-3 py-2.5 rounded-lg border flex items-center justify-between cursor-pointer transition-all bg-white
-                    ${hasError ? 'border-red-300 focus:ring-2 focus:ring-red-100' : 'border-gray-200 hover:border-blue-400 focus:ring-2 focus:ring-blue-50'}
-                    ${isOpen ? 'ring-2 ring-blue-100 border-blue-400' : 'shadow-sm'}
-                `}
-            >
-                <div className="flex items-center overflow-hidden">
-                    {IconToUse && <IconToUse className={`w-4 h-4 mr-2.5 shrink-0 ${selectedOption ? 'text-blue-600' : 'text-gray-400'}`} />}
-                    <span className={`text-sm truncate font-medium ${isPlaceholder ? 'text-gray-400 italic' : 'text-gray-900'}`}>
-                        {selectedOption ? selectedOption.label : placeholder}
-                    </span>
-                </div>
-                <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
-            </div>
-
-            {isOpen && (
-                <div className="absolute z-50 left-0 right-0 mt-1.5 bg-white border border-gray-100 rounded-xl shadow-xl max-h-60 overflow-y-auto animate-in fade-in zoom-in-95 duration-100 p-1">
-                    {options.length === 0 ? (
-                        <div className="px-4 py-3 text-xs text-gray-400 text-center italic">No options available</div>
-                    ) : (
-                        options.map((opt) => (
-                            <div
-                                key={opt.value}
-                                role="option"
-                                aria-disabled={opt.disabled}
-                                title={opt.disabled ? 'Already selected in another source' : opt.label}
-                                onMouseDown={(e) => {
-                                    if (opt.disabled) e.preventDefault();
-                                }}
-                                onClick={() => {
-                                    if (!opt.disabled) {
-                                        onChange(opt.value);
-                                        setIsOpen(false);
-                                    }
-                                }}
-                                className={`
-                                    flex items-center justify-between px-3 py-2.5 rounded-lg mb-0.5 transition-colors
-                                    ${opt.disabled 
-                                        ? 'opacity-50 cursor-not-allowed bg-gray-50' 
-                                        : 'cursor-pointer hover:bg-blue-50 group'
-                                    }
-                                    ${opt.value === value ? 'bg-blue-50/80' : ''}
-                                `}
-                            >
-                                <div className="flex flex-col min-w-0">
-                                    <div className="flex items-center">
-                                        {opt.icon && <opt.icon className={`w-3.5 h-3.5 mr-2 ${opt.value === value ? 'text-blue-700' : 'text-gray-400 group-hover:text-blue-600'}`} />}
-                                        <span className={`text-sm font-medium ${opt.value === value ? 'text-blue-700' : 'text-gray-700 group-hover:text-blue-700'}`}>
-                                            {opt.label}
-                                        </span>
-                                    </div>
-                                    {opt.subLabel && (
-                                        <span className="text-[10px] text-gray-400 mt-0.5 ml-5.5">
-                                            {opt.subLabel}
-                                        </span>
-                                    )}
-                                </div>
-                                {opt.value === value && <Check className="w-4 h-4 text-blue-600" />}
-                                {opt.disabled && opt.value !== value && (
-                                    <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded ml-2">Used</span>
-                                )}
-                            </div>
-                        ))
-                    )}
-                </div>
-            )}
-        </div>
-    );
-};
-
-// Collapsible Section Component
-const CollapsibleSection: React.FC<{
-    title: string;
-    icon: any;
-    count: number;
-    children: React.ReactNode;
-    color?: string; // class for text color e.g. text-blue-500
-}> = ({ title, icon: Icon, count, children, color = "text-blue-500" }) => {
-    const [isOpen, setIsOpen] = useState(true);
-
-    return (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col transition-all duration-200 group">
-            <div 
-                className="px-6 py-4 flex justify-between items-center cursor-pointer hover:bg-gray-50 transition-colors select-none"
-                onClick={() => setIsOpen(!isOpen)}
-            >
-                <div className="flex items-center space-x-3">
-                    <div className={`p-1.5 rounded-lg transition-colors ${isOpen ? 'bg-gray-100' : 'bg-transparent'}`}>
-                        <Icon className={`w-4 h-4 ${color}`} />
-                    </div>
-                    <div className="flex items-center space-x-2">
-                        <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wider">{title}</h3>
-                        {count > 0 && (
-                            <span className="text-[10px] font-bold bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full border border-gray-200">
-                                {count}
-                            </span>
-                        )}
-                    </div>
-                </div>
-                <div className={`transform transition-transform duration-200 text-gray-400 group-hover:text-gray-600 ${isOpen ? 'rotate-180' : ''}`}>
-                    <ChevronDown className="w-4 h-4" />
-                </div>
-            </div>
-            <div 
-                className={`transition-all duration-300 ease-in-out overflow-hidden bg-white ${isOpen ? 'max-h-[800px] opacity-100 border-t border-gray-100' : 'max-h-0 opacity-0'}`}
-            >
-                <div className="p-6 overflow-y-auto max-h-[60vh] space-y-4 custom-scrollbar">
-                    {children}
-                </div>
-            </div>
-        </div>
-    );
-};
-
-interface VariableInserterProps {
-    variables: string[];
-    onInsert: (v: string) => void;
-}
-const VariableInserter: React.FC<VariableInserterProps> = ({ variables, onInsert }) => {
-    const [isOpen, setIsOpen] = useState(false);
-    return (
-        <div className="absolute right-1 top-1 z-10">
-            <button 
-                onClick={() => setIsOpen(!isOpen)}
-                className="p-1 text-gray-400 hover:text-blue-600 rounded bg-transparent hover:bg-blue-50 transition-colors"
-                title="Insert Variable"
-            >
-                <Braces className="w-3.5 h-3.5" />
-            </button>
-            {isOpen && (
-                <>
-                    <div className="fixed inset-0 z-20" onClick={() => setIsOpen(false)} />
-                    <div className="absolute right-0 mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-xl z-30 py-1 max-h-48 overflow-y-auto animate-in fade-in zoom-in-95 duration-100">
-                        <div className="px-3 py-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider bg-gray-50 border-b border-gray-100 mb-1">
-                            Available Variables
-                        </div>
-                        {variables.length === 0 ? (
-                            <div className="px-3 py-2 text-xs text-gray-400 italic">No variables found</div>
-                        ) : (
-                            variables.map(v => (
-                                <button
-                                    key={v}
-                                    onClick={() => { onInsert(v); setIsOpen(false); }}
-                                    className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-blue-50 hover:text-blue-700 flex items-center"
-                                >
-                                    <span className="font-mono bg-gray-100 px-1 rounded mr-2 text-[10px] border border-gray-200">{v}</span>
-                                </button>
-                            ))
-                        )}
-                    </div>
-                </>
-            )}
-        </div>
-    );
-};
-const InsertDivider = ({ onInsert, index }: { onInsert: (i: number) => void; index: number }) => {
-    return (
-        <div className="relative h-5 group flex items-center justify-center my-1">
-            <div className="absolute inset-x-8 top-1/2 -translate-y-1/2 h-px bg-blue-200 opacity-0 group-hover:opacity-100 transition-opacity duration-200"></div>
-            <button
-                onClick={() => onInsert(index)}
-                className="relative z-10 bg-white border border-blue-200 text-blue-600 rounded-full p-0.5 shadow-sm opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-blue-50 hover:scale-110"
-                title="Insert Step Here"
-            >
-                <Plus className="w-3.5 h-3.5" />
-            </button>
-        </div>
-    );
-};
-
-const VariableSuggestionInput: React.FC<{ value: string, onChange: (val: string) => void, variables: string[] }> = ({ value, onChange, variables }) => {
-    const [showSuggestions, setShowSuggestions] = useState(false);
-    const containerRef = useRef<HTMLDivElement>(null);
-    const inputRef = useRef<HTMLInputElement>(null);
-
-    // Close on click outside
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-                setShowSuggestions(false);
-            }
-        };
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, []);
-    
-    return (
-        <div className="relative w-full" ref={containerRef}>
-            <input 
-                ref={inputRef}
-                className={`${baseInputStyles} py-1 px-2 pr-6`} 
-                placeholder="Variable Name" 
-                value={value} 
-                onChange={(e) => onChange(e.target.value)}
-                onFocus={() => setShowSuggestions(true)}
-            />
-            <div 
-                className="absolute right-1 top-1/2 -translate-y-1/2 cursor-pointer text-gray-400 hover:text-blue-500 p-1"
-                onClick={() => {
-                    setShowSuggestions(!showSuggestions);
-                    if (!showSuggestions) {
-                        inputRef.current?.focus();
-                    }
-                }}
-            >
-                <ChevronDown className="w-3 h-3" />
-            </div>
-            
-            {showSuggestions && (
-                <div className="absolute left-0 right-0 z-[100] mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-48 overflow-y-auto animate-in fade-in zoom-in-95 duration-100 min-w-[120px]">
-                    <div className="px-2 py-1.5 text-[10px] font-bold text-gray-400 uppercase bg-gray-50 border-b border-gray-100 sticky top-0">Select Variable</div>
-                    {variables.length === 0 ? (
-                        <div className="px-3 py-2 text-xs text-gray-400 italic">No variables available</div>
-                    ) : (
-                        variables.map(v => (
-                            <div 
-                                key={v}
-                                className="px-3 py-2 text-xs text-gray-700 hover:bg-blue-50 hover:text-blue-700 cursor-pointer flex items-center transition-colors"
-                                onClick={() => { onChange(v); setShowSuggestions(false); }}
-                            >
-                                <Braces className="w-3 h-3 mr-2 text-blue-400 shrink-0" />
-                                <span className="truncate font-medium">{v}</span>
-                            </div>
-                        ))
-                    )}
-                </div>
-            )}
-        </div>
-    );
-};
-
-interface FilterGroupEditorProps {
-    group: FilterGroup;
-    activeSchema: Record<string, DataType>;
-    onUpdate: (updated: FilterGroup) => void;
-    onRemove: (id: string) => void;
-    isRoot?: boolean;
-    availableVariables: string[];
-}
-const FilterGroupEditor: React.FC<FilterGroupEditorProps> = ({ group, activeSchema, onUpdate, onRemove, isRoot = false, availableVariables }) => {
-    const fieldNames = Object.keys(activeSchema);
-    const handleUpdateCondition = (id: string, updates: Partial<FilterCondition>) => {
-        const newConditions = group.conditions.map(c => {
-            if (c.id === id && c.type === 'condition') return { ...c, ...updates };
-            return c;
-        });
-        onUpdate({ ...group, conditions: newConditions });
-    };
-    const handleUpdateSubGroup = (id: string, updatedGroup: FilterGroup) => {
-        const newConditions = group.conditions.map(c => c.id === id ? updatedGroup : c);
-        onUpdate({ ...group, conditions: newConditions });
-    };
-    const handleAddCondition = () => {
-        const newCond: FilterCondition = { id: `cond_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`, type: 'condition', field: '', operator: '=', value: '' };
-        onUpdate({ ...group, conditions: [...group.conditions, newCond] });
-    };
-    const handleAddGroup = () => {
-        const newGroup: FilterGroup = { id: `group_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`, type: 'group', logicalOperator: 'AND', conditions: [] };
-        onUpdate({ ...group, conditions: [...group.conditions, newGroup] });
-    };
-    const handleRemoveChild = (id: string) => {
-        onUpdate({ ...group, conditions: group.conditions.filter(c => c.id !== id) });
-    };
-    return (
-        <div className={`space-y-3 ${isRoot ? '' : 'pl-4 border-l-2 border-blue-100 py-1'}`}>
-            <div className="flex items-center space-x-3 mb-2">
-                <div className="flex bg-gray-100 rounded p-0.5">
-                    <button 
-                        onClick={() => onUpdate({ ...group, logicalOperator: 'AND' })}
-                        className={`px-2 py-0.5 text-[10px] font-bold rounded-sm transition-all ${group.logicalOperator === 'AND' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500'}`}
-                    >AND</button>
-                    <button 
-                        onClick={() => onUpdate({ ...group, logicalOperator: 'OR' })}
-                        className={`px-2 py-0.5 text-[10px] font-bold rounded-sm transition-all ${group.logicalOperator === 'OR' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500'}`}
-                    >OR</button>
-                </div>
-                <div className="flex-1 h-px bg-gray-100"></div>
-                {!isRoot && (
-                    <button onClick={() => onRemove(group.id)} className="p-1 text-gray-300 hover:text-red-500 transition-colors shrink-0">
-                        <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                )}
-            </div>
-            <div className="space-y-3">
-                {group.conditions.map(item => (
-                    item.type === 'group' ? (
-                        <FilterGroupEditor 
-                            key={item.id} 
-                            group={item} 
-                            activeSchema={activeSchema} 
-                            onUpdate={(g) => handleUpdateSubGroup(item.id, g)} 
-                            onRemove={handleRemoveChild}
-                            availableVariables={availableVariables}
-                        />
-                    ) : (
-                        <div key={item.id} className="grid grid-cols-12 gap-2 items-center bg-gray-50/50 p-2 rounded-md border border-gray-100 group/cond relative">
-                            <div className="col-span-3 relative">
-                                <select 
-                                    className={`${baseInputStyles} py-1 pl-2 text-xs`} 
-                                    value={item.field} 
-                                    onChange={(e) => handleUpdateCondition(item.id, { field: e.target.value })}
-                                >
-                                    <option value="">Field...</option>
-                                    {fieldNames.map(f => <option key={f} value={f}>{f}</option>)}
-                                </select>
-                            </div>
-                            <div className="col-span-3">
-                                <select 
-                                    className={`${baseInputStyles} py-1 text-xs`} 
-                                    value={item.operator} 
-                                    onChange={(e) => handleUpdateCondition(item.id, { operator: e.target.value })}
-                                >
-                                    {(OPERATORS[activeSchema[item.field] || 'string'] || OPERATORS['string']).map(op => (
-                                        <option key={op.value} value={op.value}>{op.label}</option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div className="col-span-2">
-                                <select
-                                    className={`${baseInputStyles} py-1 text-xs font-mono text-blue-600 bg-blue-50/50 border-blue-100`}
-                                    value={item.valueType || 'raw'}
-                                    onChange={(e) => handleUpdateCondition(item.id, { valueType: e.target.value as 'raw' | 'variable' })}
-                                >
-                                    <option value="raw">Raw</option>
-                                    <option value="variable">Variable</option>
-                                </select>
-                            </div>
-                            <div className="col-span-3 relative">
-                                {(item.valueType === 'variable' || item.operator === 'in_variable' || item.operator === 'not_in_variable') ? (
-                                    <VariableSuggestionInput 
-                                        value={String(item.value)} 
-                                        onChange={(val) => handleUpdateCondition(item.id, { value: val })}
-                                        variables={availableVariables}
-                                    />
-                                ) : (
-                                    <input 
-                                        className={`${baseInputStyles} py-1 px-2`} 
-                                        placeholder="Value" 
-                                        value={String(item.value)} 
-                                        onChange={(e) => handleUpdateCondition(item.id, { value: e.target.value })} 
-                                    />
-                                )}
-                            </div>
-                            <div className="col-span-1 flex justify-end">
-                                <button onClick={() => handleRemoveChild(item.id)} className="p-1 text-gray-300 hover:text-red-500 opacity-0 group-hover/cond:opacity-100 transition-all">
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                            </div>
-                        </div>
-                    )
-                ))}
-            </div>
-            <div className="flex items-center space-x-4 pt-1">
-                <button onClick={handleAddCondition} className="text-[10px] font-bold text-blue-600 hover:underline flex items-center">
-                    <Plus className="w-3 h-3 mr-1" /> Add Rule
-                </button>
-                <button onClick={handleAddGroup} className="text-[10px] font-bold text-gray-500 hover:underline flex items-center">
-                    <Split className="w-3 h-3 mr-1" /> Add Group
-                </button>
-            </div>
-        </div>
-    );
-};
-
-// --- MAIN EDITOR ---
 
 export const CommandEditor: React.FC<CommandEditorProps> = ({ 
   operationId, 
@@ -622,11 +43,9 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
   operationType, 
   commands, 
   datasets,
-  // inputSchema, // Unused
   appearance,
   onUpdateCommands,
   onUpdateName,
-  // onUpdateType, // Unused
   onViewPath,
   onRun,
   onGenerateSql,
@@ -639,24 +58,13 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
   const [sqlLoading, setSqlLoading] = useState(false);
   const [collapsedSteps, setCollapsedSteps] = useState<Record<string, boolean>>({});
   const stepRefs = useRef<Record<string, HTMLDivElement | null>>({});
-
-  const getDatasetFieldNames = (datasetName: string | undefined): string[] => {
-      if (!datasetName) return [];
-      const ds = datasets.find(d => d.name === datasetName);
-      if (!ds) return [];
-      if (ds.fieldTypes) return Object.keys(ds.fieldTypes);
-      return ds.fields || [];
-  };
-
-  const getSourceLabel = (sourceId?: string): string => {
-      if (!sourceId) return '';
-      const sa = availableSourceAliases.find(s =>
-          s.linkId === sourceId || s.alias === sourceId || s.sourceTable === sourceId
-      );
-      if (sa?.alias) return sa.alias;
-      if (sa?.sourceTable) return sa.sourceTable;
-      return sourceId;
-  };
+  const [sqlBuilderOpen, setSqlBuilderOpen] = useState(false);
+  const [sqlBuilderInput, setSqlBuilderInput] = useState('');
+  const [sqlBuilderCommands, setSqlBuilderCommands] = useState<Command[]>([]);
+  const [sqlBuilderWarnings, setSqlBuilderWarnings] = useState<string[]>([]);
+  const [sqlBuilderError, setSqlBuilderError] = useState<string | null>(null);
+  const [sqlInsertIndex, setSqlInsertIndex] = useState<number | null>(null);
+  const [outlinePinned, setOutlinePinned] = useState(false);
 
   const toggleStepCollapsed = (id: string) => {
       setCollapsedSteps(prev => ({ ...prev, [id]: !prev[id] }));
@@ -704,19 +112,16 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
       return flattenNodes(tree).filter(n => n.id !== operationId);
   }, [tree, operationId]);
 
-  // Aggregate all available source aliases from all setup nodes
   const availableSourceAliases = useMemo(() => {
       if (!tree) return [];
       const setupNodes = flattenNodes(tree).filter(n => n.operationType === 'setup');
-      const aliases: { alias: string, nodeName: string, id: string, sourceTable?: string, linkId: string }[] = [];
+      const aliases: SourceAlias[] = [];
       
       setupNodes.forEach(node => {
           const sourceCmds = node.commands.filter(c => c.type === 'source');
           sourceCmds.forEach((cmd) => {
-              // Prefer explicit alias; fallback to source table for backward compatibility.
               const effectiveAlias = cmd.config.alias || cmd.config.mainTable;
               
-              // Ensure we have a link ID. Fallback to cmd.id if linkId wasn't saved in older versions.
               const linkId = cmd.config.linkId || cmd.id;
 
               if (effectiveAlias) {
@@ -733,9 +138,33 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
       return aliases;
   }, [tree]);
 
-  const formatSourceOptionLabel = (alias: string, table: string | undefined, linkId: string) => {
-      const base = `${alias} to ${table || '?'}`;
-      return `${base} · ${linkId}`;
+  const handleParseSql = () => {
+      const result = parseSqlToCommands(sqlBuilderInput, (name) => resolveDataSource(availableSourceAliases, name));
+      setSqlBuilderWarnings(result.warnings);
+      setSqlBuilderError(result.error);
+      setSqlBuilderCommands(result.commands);
+  };
+
+  const handleApplySqlCommands = () => {
+      if (sqlBuilderCommands.length === 0) return;
+      const insertIndex = sqlInsertIndex ?? commands.length;
+      const merged = [
+          ...commands.slice(0, insertIndex),
+          ...sqlBuilderCommands,
+          ...commands.slice(insertIndex)
+      ].map((cmd, idx) => ({ ...cmd, order: idx + 1 }));
+      onUpdateCommands(operationId, merged);
+      setSqlBuilderOpen(false);
+      setSqlInsertIndex(null);
+      setSqlBuilderInput('');
+      setSqlBuilderCommands([]);
+      setSqlBuilderWarnings([]);
+      setSqlBuilderError(null);
+  };
+
+  const openSqlBuilder = (insertIndex: number | null = null) => {
+      setSqlInsertIndex(insertIndex);
+      setSqlBuilderOpen(true);
   };
 
   const ancestors = useMemo(() => {
@@ -745,7 +174,6 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
 
   const showStepOutline = commands.length >= 4;
 
-  // Collect outputs from Ancestor nodes (Parent -> Parent -> Root)
   const ancestorOutputs = useMemo(() => {
       const outputs = new Set<string>();
       ancestors.forEach(node => {
@@ -758,9 +186,6 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
       return Array.from(outputs);
   }, [tree, operationId]);
 
-  // Global list only for resolving schemas if needed, though strictly we should use scoped.
-  // We'll use this only for fallback in `inputSchema` resolution if necessary, 
-  // but for the Dropdown we will use `ancestorOutputs` + `localOutputs`.
   const allGeneratedTablesGlobal = useMemo(() => {
       if (!tree) return [];
       const names = new Set<string>();
@@ -777,7 +202,6 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
 
   const hasComplexView = useMemo(() => commands.some(c => c.type === 'multi_table'), [commands]);
 
-  // -- Setup Mode Handler --
   if (operationType === 'setup') {
       const sourceCommands = commands.filter(c => c.type === 'source');
       const configuredSourceCount = sourceCommands.filter(c => c.config.mainTable && String(c.config.mainTable).trim().length > 0).length;
@@ -823,7 +247,6 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
 
       const handleDatasetSelection = (cmdId: string, datasetName: string, currentAlias: string) => {
           const updates: any = { mainTable: datasetName };
-          // Auto-fill alias if empty when selecting a dataset
           if (!currentAlias && datasetName) {
               updates.alias = datasetName;
           }
@@ -846,29 +269,24 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                   return errors;
               }
 
-              // 1. Duplicate Data Source Check
               const isDuplicateTable = sourceCommands.some((c, idx) => 
                   idx !== index && c.config.mainTable === currentTable
               );
               if (isDuplicateTable) errors.push("This table is already selected.");
 
-              // 2. Dataset not found in current list
               const isMissingDataset = !datasets.some(d => d.name === currentTable);
               if (isMissingDataset) errors.push("Selected dataset is unavailable.");
 
-              // 3. Duplicate Alias Check
               if (currentAlias) {
                   const isDuplicateAlias = sourceCommands.some((c, idx) => 
                       idx !== index && c.config.alias === currentAlias
                   );
                   if (isDuplicateAlias) errors.push("Alias name must be unique.");
 
-                  // 4. Alias vs Variable Name Check (New Requirement)
                   const isConflictWithVariable = variableCommands.some(c => c.config.variableName === currentAlias);
                   if (isConflictWithVariable) errors.push("Alias conflicts with a variable name.");
               }
 
-              // 5. Alias vs Table Name Check
               if (currentAlias) {
                   const isConflictWithDataset = datasets.some(d => d.name === currentAlias);
                   if (isConflictWithDataset && currentAlias !== currentTable) {
@@ -885,17 +303,14 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
               const name = cmd.config.variableName;
               if (!name) return errors;
 
-              // Check against Dataset Names
               if (datasets.some(d => d.name === name)) {
                   errors.push("Conflict with dataset name.");
               }
 
-              // Check against Source Aliases
               if (sourceCommands.some(c => c.config.alias === name)) {
                   errors.push("Conflict with source alias.");
               }
 
-              // Check against Other Variable Names
               if (variableCommands.some(c => c.id !== cmd.id && c.config.variableName === name)) {
                   errors.push("Variable name must be unique.");
               }
@@ -904,7 +319,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
       };
 
       return (
-        <div className="flex flex-col h-full bg-gray-50/50">
+        <div className="flex flex-col h-full">
             {/* Unified Header Style */}
             <div className="px-6 py-5 border-b border-gray-200 flex justify-between items-center bg-white sticky top-0 z-10 shadow-sm">
                 <div className="flex-1 min-w-0">
@@ -932,8 +347,8 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                 </div>
             </div>
             
-            <div className="p-8 max-w-4xl mx-auto w-full h-full overflow-y-auto custom-scrollbar">
-                <div className="flex flex-col space-y-4 pb-20">
+            <div className="p-6 w-full h-full overflow-y-auto custom-scrollbar">
+                <div className="flex flex-col gap-4 min-h-full">
                     {/* Source Configuration */}
                     <CollapsibleSection title="Configured Sources" icon={Database} count={configuredSourceCount}>
                         {sourceCommands.map((cmd, idx) => {
@@ -1128,7 +543,6 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
       );
   }
 
-  // -- Standard Process Mode Handlers --
 
   const addCommand = () => {
     const newCmd: Command = {
@@ -1157,7 +571,6 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
     const newCommands = [...commands];
     newCommands.splice(index, 0, newCmd);
     
-    // Recalculate order
     const updated = newCommands.map((c, i) => ({ ...c, order: i + 1 }));
     onUpdateCommands(operationId, updated);
   };
@@ -1171,7 +584,6 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
       if (c.id === id) {
         if (field === 'type') {
             let newConfig: any = { dataSource: '' }; // Reset to empty on type change
-            // Source command removed from Process type
             if (value === 'filter') newConfig = { ...newConfig, filterRoot: { id: `root_${Date.now()}`, type: 'group', logicalOperator: 'AND', conditions: [] } };
             else if (value === 'group') newConfig = { ...newConfig, groupByFields: [], aggregations: [], havingConditions: [], outputTableName: '' };
             else if (value === 'join') newConfig = { ...newConfig, joinType: 'LEFT', joinTargetType: 'table', joinSuffix: '_joined' };
@@ -1192,7 +604,6 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
     onUpdateCommands(operationId, updated);
   };
 
-  // ... (Mapping and Aggregation helpers remain the same as original) ...
   const addMappingRule = (cmdId: string, current: MappingRule[]) => {
       updateCommand(cmdId, 'config.mappings', [...(current || []), { id: `m_${Date.now()}`, mode: 'simple', expression: '', outputField: `new_col_${(current || []).length + 1}` }]);
   };
@@ -1318,49 +729,45 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                <input type="text" value={operationName} onChange={(e) => onUpdateName(e.target.value)} className="text-xl font-bold text-gray-900 bg-transparent border-none focus:ring-0 p-0 hover:bg-gray-50 pl-1 rounded transition-colors placeholder-gray-300 flex-1 min-w-0" placeholder="Operation Name" />
            </div>
         </div>
-        <div className="flex items-center pl-4 border-l border-gray-200 ml-4">
+        <div className="flex items-center pl-4 border-l border-gray-200 ml-4 space-x-2">
+             <button
+                 onClick={() => setOutlinePinned(prev => !prev)}
+                 className={`p-2 rounded-md transition-colors ${
+                     outlinePinned ? 'text-blue-600 bg-blue-50' : 'text-gray-400 hover:text-blue-600 hover:bg-blue-50'
+                 }`}
+                 title={outlinePinned ? 'Unpin step outline' : 'Pin step outline'}
+             >
+                 {outlinePinned ? <PinOff className="w-5 h-5" /> : <Pin className="w-5 h-5" />}
+             </button>
              <button onClick={() => onViewPath()} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors" title="View Logic Path"><Layers className="w-5 h-5" /></button>
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-6 space-y-0">
         {commands.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 text-gray-400 border-2 border-dashed border-gray-200 rounded-xl bg-gray-50/50 hover:bg-gray-50 transition-colors cursor-pointer" onClick={addCommand}>
-            <Plus className="w-8 h-8 mb-2 opacity-50" />
-            <p className="font-medium text-sm">Add your first command</p>
+          <div className="flex flex-col items-center justify-center py-12 text-gray-400 border-2 border-dashed border-gray-200 rounded-xl bg-gray-50/50 hover:bg-gray-50 transition-colors">
+            <div className="flex flex-col items-center cursor-pointer" onClick={addCommand}>
+                <Plus className="w-8 h-8 mb-2 opacity-50" />
+                <p className="font-medium text-sm">Add your first command</p>
+            </div>
+            {operationType !== 'setup' && (
+                <div className="mt-4">
+                    <Button variant="secondary" size="sm" onClick={() => openSqlBuilder(null)}>
+                        Build from SQL
+                    </Button>
+                </div>
+            )}
           </div>
         ) : (
           <>
             {showStepOutline && (
-                <div className="mb-4 p-3 bg-white border border-gray-200 rounded-lg shadow-sm flex items-center justify-between">
-                    <div className="flex items-center space-x-2 overflow-x-auto no-scrollbar">
-                        {commands.map((c, idx) => (
-                            <button
-                                key={c.id}
-                                onClick={() => scrollToStep(c.id)}
-                                className="px-2.5 py-1 rounded-md text-xs font-medium border border-gray-200 bg-gray-50 hover:bg-blue-50 hover:border-blue-300 text-gray-700 shrink-0"
-                                title={`Jump to step #${idx + 1}`}
-                            >
-                                <span className="font-mono text-[10px] text-gray-500 mr-1">#{idx + 1}</span>
-                                {COMMAND_LABELS[c.type] || c.type}
-                            </button>
-                        ))}
-                    </div>
-                    <div className="flex items-center space-x-2 shrink-0 ml-3">
-                        <button
-                            onClick={collapseAllSteps}
-                            className="text-xs font-medium text-gray-600 hover:text-gray-900 px-2 py-1 rounded-md hover:bg-gray-100 border border-gray-200"
-                        >
-                            Collapse All
-                        </button>
-                        <button
-                            onClick={expandAllSteps}
-                            className="text-xs font-medium text-gray-600 hover:text-gray-900 px-2 py-1 rounded-md hover:bg-gray-100 border border-gray-200"
-                        >
-                            Expand All
-                        </button>
-                    </div>
-                </div>
+                <StepOutline
+                    commands={commands}
+                    onJump={scrollToStep}
+                    onCollapseAll={collapseAllSteps}
+                    onExpandAll={expandAllSteps}
+                    isPinned={outlinePinned}
+                />
             )}
             <Reorder.Group axis="y" values={commands} onReorder={(newCommands) => {
                 const updated = newCommands.map((c, i) => ({ ...c, order: i + 1 }));
@@ -1382,7 +789,6 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                     if (sourceAlias) {
                         targetDatasetName = sourceAlias.sourceTable || "";
                     } else {
-                        // Assume it's a direct table name (generated or otherwise)
                         targetDatasetName = normalizedDataSource;
                     }
 
@@ -1395,9 +801,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                  ds.fields.forEach(f => activeSchema[f] = 'string');
                              }
                         } else {
-                            // Fallback: Check globally if it's a generated table not in datasets yet (schema might be missing but we allow selection)
                             if (allGeneratedTablesGlobal.includes(targetDatasetName)) {
-                                // No schema available yet for un-executed generated tables
                             }
                         }
                     }
@@ -1406,7 +810,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                 const fieldNames = Object.keys(activeSchema);
                 const isCollapsed = !!collapsedSteps[cmd.id];
 
-                const sourceLabel = getSourceLabel(normalizedDataSource);
+                const sourceLabel = getSourceLabel(availableSourceAliases, normalizedDataSource);
                 const joinTargetType = cmd.config.joinTargetType || 'table';
                 const joinTargetKey = joinTargetType === 'node' ? cmd.config.joinTargetNodeId : cmd.config.joinTable;
                 const joinTargetNode = joinTargetType === 'node'
@@ -1425,7 +829,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                 const joinTargetDatasetName = joinTargetType === 'table'
                     ? (joinTargetSource?.sourceTable || (joinTargetKey || ''))
                     : '';
-                const joinTargetFields = getDatasetFieldNames(joinTargetDatasetName);
+                const joinTargetFields = getDatasetFieldNames(datasets, joinTargetDatasetName);
                 const canUseJoinBuilder = joinTargetType === 'table' && fieldNames.length > 0 && joinTargetFields.length > 0;
 
                 const joinLeftField = cmd.config.joinLeftField || '';
@@ -1462,7 +866,6 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                 if (cmd.type === 'view' && sourceLabel) summaryParts.push(`View: ${sourceLabel}`);
                 const stepSummary = summaryParts.length > 0 ? summaryParts.join(' • ') : 'No details';
 
-                // Calculate available tables for this specific command index
                 const localPrecedingOutputs = commands
                     .slice(0, index)
                     .filter(c => c.type === 'group' && c.config.outputTableName && c.config.outputTableName.trim() !== '')
@@ -1470,14 +873,11 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                 
                 const availableGeneratedTablesForCmd = Array.from(new Set([...ancestorOutputs, ...localPrecedingOutputs])).sort();
 
-                // Calculate Local Variables defined in previous steps of THIS operation
-                // Force convert to string to handle 'any' type from CommandConfig
                 const localVariables = commands
                     .slice(0, index)
                     .filter(c => c.type === 'save' && c.config.value)
                     .map(c => String(c.config.value));
                 
-                // Combine Ancestor + Local Variables for this command's context and deduplicate
                 const currentScopeVariables = Array.from(new Set([...ancestorVariables, ...localVariables]));
 
                 const isSourceRequired = index === 0 && (!ancestors || ancestors.length === 0);
@@ -1488,7 +888,11 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                 <DraggableItem key={cmd.id} cmd={cmd}>
                     {(dragControls) => (
                     <React.Fragment>
-                        <InsertDivider index={index} onInsert={insertCommand} />
+                        <InsertDivider
+                            index={index}
+                            onInsert={insertCommand}
+                            onOpenBuilder={operationType !== 'setup' ? (i) => openSqlBuilder(i) : undefined}
+                        />
                         <div
                             ref={(el) => { stepRefs.current[cmd.id] = el; }}
                             className="relative group bg-white border border-gray-200 rounded-lg shadow-sm hover:shadow-md transition-all duration-200"
@@ -2075,7 +1479,14 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                 </div>
             ) : (
                 <div className="flex justify-center pt-2">
-                    <Button variant="secondary" size="sm" onClick={addCommand} icon={<Plus className="w-4 h-4" />}>Add Step</Button>
+                    <div className="flex items-center space-x-2">
+                        <Button variant="secondary" size="sm" onClick={addCommand} icon={<Plus className="w-4 h-4" />}>Add Step</Button>
+                        {operationType !== 'setup' && (
+                            <Button variant="secondary" size="sm" onClick={() => openSqlBuilder(null)}>
+                                Build from SQL
+                            </Button>
+                        )}
+                    </div>
                 </div>
             )}
           </>
@@ -2086,6 +1497,21 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
           onClose={() => setSqlModalOpen(false)} 
           sql={sqlContent} 
           loading={sqlLoading} 
+      />
+      <SqlBuilderModal
+          isOpen={sqlBuilderOpen}
+          sqlInput={sqlBuilderInput}
+          onSqlInputChange={setSqlBuilderInput}
+          onParse={handleParseSql}
+          onApply={handleApplySqlCommands}
+          onClose={() => {
+              setSqlBuilderOpen(false);
+              setSqlInsertIndex(null);
+          }}
+          warnings={sqlBuilderWarnings}
+          error={sqlBuilderError}
+          commands={sqlBuilderCommands}
+          renderSummary={renderSqlCommandSummary}
       />
     </div>
   );

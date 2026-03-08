@@ -73,6 +73,7 @@ export const OperationTree: React.FC<OperationTreeProps> = ({
             fontSize: `${appearance.textSize}px`,
             color: isSelected ? undefined : appearance.textColor
         }}
+        title={node.name || node.id}
         onClick={(e) => { e.stopPropagation(); onSelect(node.id); }}
       >
         {/* Guide Lines */}

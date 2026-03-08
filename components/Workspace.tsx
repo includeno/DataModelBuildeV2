@@ -95,6 +95,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({
 
   const showExecutionTab = !!previewData;
   const isMultiTableMode = selectedNode?.commands.some(c => c.type === 'multi_table') ?? false;
+  const allowResultPanel = selectedNode?.operationType !== 'setup';
+  const showRightPanel = isRightPanelOpen && allowResultPanel;
 
   const handleRefreshView = async (viewId: string, page: number, pageSize: number): Promise<ExecutionResult> => {
       if (!selectedNode || !tree) throw new Error("No context");
@@ -283,7 +285,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
       </div>
   );
 
-  const resizer = !isMobile && isRightPanelOpen && (
+  const resizer = !isMobile && showRightPanel && (
       <div 
          className={`z-20 flex justify-center items-center transition-all ${
              isVertical 
@@ -316,7 +318,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
             <div className={`flex flex-1 min-w-0 h-full w-full ${isVertical ? 'flex-col' : 'flex-row'}`}>
                 
                 {/* Panel First (Left or Top) */}
-                {isRightPanelOpen && isPanelFirst && (
+                {showRightPanel && isPanelFirst && (
                     <>
                         {panelContent}
                         {resizer}
@@ -327,7 +329,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                 {mainContent}
 
                 {/* Panel Last (Right or Bottom) */}
-                {isRightPanelOpen && !isPanelFirst && (
+                {showRightPanel && !isPanelFirst && (
                     <>
                         {resizer}
                         {panelContent}

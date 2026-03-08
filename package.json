@@ -15,7 +15,8 @@
     "tauri": "tauri",
     "check:types": "tsc --noEmit",
     "lint": "tsc --noEmit",
-    "test": "vitest"
+    "test": "vitest",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "framer-motion": "^12.34.3",
@@ -31,6 +32,7 @@
     "jsdom": "^24.0.0",
     "concurrently": "^8.2.2",
     "pngjs": "^7.0.0",
+    "@playwright/test": "^1.50.0",
     "typescript": "^5.2.2",
     "vite": "^5.0.0",
     "vitest": "^1.2.0",
