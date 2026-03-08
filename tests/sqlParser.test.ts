@@ -21,8 +21,8 @@ describe('parseSqlToCommands (SQL Builder)', () => {
     const root = getFilterRoot(res.commands);
     expect(root.logicalOperator).toBe('AND');
     const [c1, c2] = root.conditions as FilterCondition[];
-    expect(c1).toMatchObject({ field: 'name', operator: 'is_empty' });
-    expect(c2).toMatchObject({ field: 'email', operator: 'is_not_empty' });
+    expect(c1).toMatchObject({ field: 'name', operator: 'is_null' });
+    expect(c2).toMatchObject({ field: 'email', operator: 'is_not_null' });
   });
 
   it('parses IN / NOT IN lists including IS IN variant', () => {
@@ -132,7 +132,7 @@ describe('parseSqlToCommands (SQL Builder)', () => {
     expect(res.error).toBeNull();
     const root = getFilterRoot(res.commands);
     const [c1, c2] = root.conditions as FilterCondition[];
-    expect(c1).toMatchObject({ field: 'name', operator: 'is_empty' });
+    expect(c1).toMatchObject({ field: 'name', operator: 'is_null' });
     expect(c2).toMatchObject({ field: 'age', operator: 'in_list', value: [18, 28] });
   });
 

@@ -228,8 +228,10 @@ def _build_single_condition(cond: Dict[str, Any], variables: Dict[str, Any]) -> 
             return f"{field_sql} NOT IN ({vals})"
         return f"{field_sql} NOT IN ({sql_val})"
         
-    if op == 'is_empty': return f"({field_sql} IS NULL OR {field_sql} = '')"
-    if op == 'is_not_empty': return f"({field_sql} IS NOT NULL AND {field_sql} != '')"
+    if op == 'is_null': return f"({field_sql} IS NULL)"
+    if op == 'is_not_null': return f"({field_sql} IS NOT NULL)"
+    if op == 'is_empty': return f"({field_sql} = '')"
+    if op == 'is_not_empty': return f"({field_sql} != '')"
     
     return f"{field_sql} {op} {sql_val}"
 

@@ -209,8 +209,10 @@ export const SqlBuilderModal: React.FC<SqlBuilderModalProps> = ({
         const condValNum = toNumber(cond.value);
 
         for (const peer of peers) {
-            if (peer.operator === 'is_empty' && cond.operator === 'is_not_empty') return `Conflicts with existing: ${cond.field} is null`;
-            if (peer.operator === 'is_not_empty' && cond.operator === 'is_empty') return `Conflicts with existing: ${cond.field} is not null`;
+            if (peer.operator === 'is_null' && cond.operator === 'is_not_null') return `Conflicts with existing: ${cond.field} is null`;
+            if (peer.operator === 'is_not_null' && cond.operator === 'is_null') return `Conflicts with existing: ${cond.field} is not null`;
+            if (peer.operator === 'is_empty' && cond.operator === 'is_not_empty') return `Conflicts with existing: ${cond.field} is null or empty`;
+            if (peer.operator === 'is_not_empty' && cond.operator === 'is_empty') return `Conflicts with existing: ${cond.field} is not null and not empty`;
 
             if (peer.operator === '=' && cond.operator === '!=') {
                 if (normalizeValue(peer.value) === val) return `Conflicts with existing: ${cond.field} = ${normalizeValue(peer.value)}`;

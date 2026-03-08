@@ -354,7 +354,7 @@ export const parseSqlToCommands = (rawSql: string, resolveDataSource: (tableName
                         id: makeId('cond'),
                         type: 'condition',
                         field,
-                        operator: isNot ? 'is_not_empty' : 'is_empty',
+                        operator: isNot ? 'is_not_null' : 'is_null',
                         value: ''
                     };
                 }

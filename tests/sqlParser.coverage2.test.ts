@@ -85,6 +85,14 @@ describe('parseSqlToCommands (additional coverage)', () => {
     expect(cond).toMatchObject({ field: 'deleted_at', operator: '=', value: null });
   });
 
+  it('parses IS NULL and IS NOT NULL into distinct operators', () => {
+    const res = parseSqlToCommands('select * from t where a is null and b is not null', resolveDataSource);
+    expect(res.error).toBeNull();
+    const [c1, c2] = getFilterConditions(res.commands);
+    expect(c1).toMatchObject({ field: 'a', operator: 'is_null' });
+    expect(c2).toMatchObject({ field: 'b', operator: 'is_not_null' });
+  });
+
   it('warns on NOT unary expressions', () => {
     const res = parseSqlToCommands('select * from t where not (a = 1)', resolveDataSource);
     expect(res.error).toBeNull();

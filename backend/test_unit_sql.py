@@ -106,11 +106,19 @@ def test_filter_not_in_variable(variables):
 
 def test_filter_is_empty(variables):
     cmd = create_cmd("filter", {"field": "col", "operator": "is_empty"})
-    assert "(col IS NULL OR col = '')" in gen(cmd, variables)
+    assert "(col = '')" in gen(cmd, variables)
 
 def test_filter_is_not_empty(variables):
     cmd = create_cmd("filter", {"field": "col", "operator": "is_not_empty"})
-    assert "(col IS NOT NULL AND col != '')" in gen(cmd, variables)
+    assert "(col != '')" in gen(cmd, variables)
+
+def test_filter_is_null(variables):
+    cmd = create_cmd("filter", {"field": "col", "operator": "is_null"})
+    assert "(col IS NULL)" in gen(cmd, variables)
+
+def test_filter_is_not_null(variables):
+    cmd = create_cmd("filter", {"field": "col", "operator": "is_not_null"})
+    assert "(col IS NOT NULL)" in gen(cmd, variables)
 
 def test_filter_complex_string_quote(variables):
     # Test handling of single quotes in values

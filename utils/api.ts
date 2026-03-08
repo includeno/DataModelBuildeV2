@@ -213,7 +213,9 @@ const evaluateCondition = (row: any, cond: FilterCondition, variables: Record<st
         case 'not_contains': return !String(val).toLowerCase().includes(String(target).toLowerCase());
         case 'starts_with': return String(val).startsWith(String(target));
         case 'ends_with': return String(val).endsWith(String(target));
-        case 'is_empty': return val === '' || val === null || val === undefined;
+        case 'is_null': return val === null || val === undefined;
+        case 'is_not_null': return val !== null && val !== undefined;
+        case 'is_empty': return val === '';
         case 'is_not_empty': return val !== '' && val !== null && val !== undefined;
         case 'is_true': return val === true;
         case 'is_false': return val === false;

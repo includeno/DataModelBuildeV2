@@ -72,70 +72,117 @@ export const FilterGroupEditor: React.FC<FilterGroupEditorProps> = ({ group, act
                         />
                     ) : (
                         <div key={item.id} className="space-y-1">
-                            <div className={`grid grid-cols-12 gap-2 items-center p-2 rounded-md border group/cond relative ${
-                                getConditionIssue && getConditionIssue(item) ? 'bg-red-50/50 border-red-200' : 'bg-gray-50/50 border-gray-100'
-                            }`}>
-                            <div className="col-span-3 relative">
-                                {(() => {
-                                    const isMissingField = !!item.field && !fieldNames.includes(item.field);
+                            {(() => {
+                                const isUnary = ['is_null', 'is_not_null', 'is_empty', 'is_not_empty'].includes(item.operator);
+                                if (isUnary) {
                                     return (
-                                        <select 
-                                            className={`${isMissingField ? errorInputStyles : baseInputStyles} py-1 pl-2 text-xs`} 
-                                            value={item.field} 
-                                            onChange={(e) => handleUpdateCondition(item.id, { field: e.target.value })}
-                                        >
-                                            <option value="">Field...</option>
-                                            {isMissingField && (
-                                                <option value={item.field}>{item.field} (Missing)</option>
-                                            )}
-                                            {fieldNames.map(f => <option key={f} value={f}>{f}</option>)}
-                                        </select>
+                                        <div className={`grid grid-cols-12 gap-2 items-center p-2 rounded-md border group/cond relative ${
+                                            getConditionIssue && getConditionIssue(item) ? 'bg-red-50/50 border-red-200' : 'bg-gray-50/50 border-gray-100'
+                                        }`}>
+                                            <div className="col-span-5 relative">
+                                                {(() => {
+                                                    const isMissingField = !!item.field && !fieldNames.includes(item.field);
+                                                    return (
+                                                        <select 
+                                                            className={`${isMissingField ? errorInputStyles : baseInputStyles} py-1 pl-2 text-xs`} 
+                                                            value={item.field} 
+                                                            onChange={(e) => handleUpdateCondition(item.id, { field: e.target.value })}
+                                                        >
+                                                            <option value="">Field...</option>
+                                                            {isMissingField && (
+                                                                <option value={item.field}>{item.field} (Missing)</option>
+                                                            )}
+                                                            {fieldNames.map(f => <option key={f} value={f}>{f}</option>)}
+                                                        </select>
+                                                    );
+                                                })()}
+                                            </div>
+                                            <div className="col-span-5">
+                                                <select 
+                                                    className={`${baseInputStyles} py-1 text-xs`} 
+                                                    value={item.operator} 
+                                                    onChange={(e) => handleUpdateCondition(item.id, { operator: e.target.value })}
+                                                >
+                                                    {(OPERATORS[activeSchema[item.field] || 'string'] || OPERATORS['string']).map(op => (
+                                                        <option key={op.value} value={op.value}>{op.label}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                            <div className="col-span-2 flex justify-end">
+                                                <button onClick={() => handleRemoveChild(item.id)} className="p-1 text-gray-300 hover:text-red-500 opacity-0 group-hover/cond:opacity-100 transition-all">
+                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                </button>
+                                            </div>
+                                        </div>
                                     );
-                                })()}
-                            </div>
-                            <div className="col-span-3">
-                                <select 
-                                    className={`${baseInputStyles} py-1 text-xs`} 
-                                    value={item.operator} 
-                                    onChange={(e) => handleUpdateCondition(item.id, { operator: e.target.value })}
-                                >
-                                    {(OPERATORS[activeSchema[item.field] || 'string'] || OPERATORS['string']).map(op => (
-                                        <option key={op.value} value={op.value}>{op.label}</option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div className="col-span-2">
-                                <select
-                                    className={`${baseInputStyles} py-1 text-xs font-mono text-blue-600 bg-blue-50/50 border-blue-100`}
-                                    value={item.valueType || 'raw'}
-                                    onChange={(e) => handleUpdateCondition(item.id, { valueType: e.target.value as 'raw' | 'variable' })}
-                                >
-                                    <option value="raw">Raw</option>
-                                    <option value="variable">Variable</option>
-                                </select>
-                            </div>
-                            <div className="col-span-3 relative">
-                                {(item.valueType === 'variable' || item.operator === 'in_variable' || item.operator === 'not_in_variable') ? (
-                                    <VariableSuggestionInput 
-                                        value={String(item.value)} 
-                                        onChange={(val) => handleUpdateCondition(item.id, { value: val })}
-                                        variables={availableVariables}
-                                    />
-                                ) : (
-                                    <input 
-                                        className={`${baseInputStyles} py-1 px-2`} 
-                                        placeholder="Value" 
-                                        value={String(item.value)} 
-                                        onChange={(e) => handleUpdateCondition(item.id, { value: e.target.value })} 
-                                    />
-                                )}
-                            </div>
-                            <div className="col-span-1 flex justify-end">
-                                <button onClick={() => handleRemoveChild(item.id)} className="p-1 text-gray-300 hover:text-red-500 opacity-0 group-hover/cond:opacity-100 transition-all">
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                            </div>
-                            </div>
+                                }
+                                return (
+                                    <div className={`grid grid-cols-12 gap-2 items-center p-2 rounded-md border group/cond relative ${
+                                        getConditionIssue && getConditionIssue(item) ? 'bg-red-50/50 border-red-200' : 'bg-gray-50/50 border-gray-100'
+                                    }`}>
+                                        <div className="col-span-3 relative">
+                                            {(() => {
+                                                const isMissingField = !!item.field && !fieldNames.includes(item.field);
+                                                return (
+                                                    <select 
+                                                        className={`${isMissingField ? errorInputStyles : baseInputStyles} py-1 pl-2 text-xs`} 
+                                                        value={item.field} 
+                                                        onChange={(e) => handleUpdateCondition(item.id, { field: e.target.value })}
+                                                    >
+                                                        <option value="">Field...</option>
+                                                        {isMissingField && (
+                                                            <option value={item.field}>{item.field} (Missing)</option>
+                                                        )}
+                                                        {fieldNames.map(f => <option key={f} value={f}>{f}</option>)}
+                                                    </select>
+                                                );
+                                            })()}
+                                        </div>
+                                        <div className="col-span-3">
+                                            <select 
+                                                className={`${baseInputStyles} py-1 text-xs`} 
+                                                value={item.operator} 
+                                                onChange={(e) => handleUpdateCondition(item.id, { operator: e.target.value })}
+                                            >
+                                                {(OPERATORS[activeSchema[item.field] || 'string'] || OPERATORS['string']).map(op => (
+                                                    <option key={op.value} value={op.value}>{op.label}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div className="col-span-2">
+                                            <select
+                                                className={`${baseInputStyles} py-1 text-xs font-mono text-blue-600 bg-blue-50/50 border-blue-100`}
+                                                value={item.valueType || 'raw'}
+                                                onChange={(e) => handleUpdateCondition(item.id, { valueType: e.target.value as 'raw' | 'variable' })}
+                                            >
+                                                <option value="raw">Raw</option>
+                                                <option value="variable">Variable</option>
+                                            </select>
+                                        </div>
+                                        <div className="col-span-3 relative">
+                                            {(item.valueType === 'variable' || item.operator === 'in_variable' || item.operator === 'not_in_variable') ? (
+                                                <VariableSuggestionInput 
+                                                    value={String(item.value)} 
+                                                    onChange={(val) => handleUpdateCondition(item.id, { value: val })}
+                                                    variables={availableVariables}
+                                                />
+                                            ) : (
+                                                <input 
+                                                    className={`${baseInputStyles} py-1 px-2`} 
+                                                    placeholder="Value" 
+                                                    value={String(item.value)} 
+                                                    onChange={(e) => handleUpdateCondition(item.id, { value: e.target.value })} 
+                                                />
+                                            )}
+                                        </div>
+                                        <div className="col-span-1 flex justify-end">
+                                            <button onClick={() => handleRemoveChild(item.id)} className="p-1 text-gray-300 hover:text-red-500 opacity-0 group-hover/cond:opacity-100 transition-all">
+                                                <Trash2 className="w-3.5 h-3.5" />
+                                            </button>
+                                        </div>
+                                    </div>
+                                );
+                            })()}
                             {getConditionIssue && getConditionIssue(item) && (
                                 <div className="text-[10px] text-red-600 pl-2">{getConditionIssue(item)}</div>
                             )}

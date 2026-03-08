@@ -661,6 +661,10 @@ class ExecutionEngine:
             return pd.Series([True] * len(df), index=df.index)
         if op == 'always_false':
             return pd.Series([False] * len(df), index=df.index)
+        if op == 'is_null':
+            return series.isnull()
+        if op == 'is_not_null':
+            return ~series.isnull()
 
         if field not in df.columns: 
             return pd.Series([True] * len(df), index=df.index)
@@ -774,7 +778,7 @@ class ExecutionEngine:
 
                  if op == 'starts_with': return s_str.str.startswith(v, na=False)
                  if op == 'ends_with': return s_str.str.endswith(v, na=False)
-                 if op == 'is_empty': return (s_str == '') | series.isna()
+                 if op == 'is_empty': return (s_str == '') & ~series.isna()
                  if op == 'is_not_empty': return (s_str != '') & ~series.isna()
         except: pass
         
