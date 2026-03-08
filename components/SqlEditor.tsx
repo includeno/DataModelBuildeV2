@@ -129,7 +129,18 @@ export const SqlEditor: React.FC<SqlEditorProps> = ({
   const computeSuggestions = (text: string, cursor: number): string[] => {
       const { token } = getTokenAtCursor(text, cursor);
       const trimmed = token.trim();
-      if (!trimmed) return [];
+      if (!trimmed) {
+          const before = text.slice(0, cursor);
+          const dotMatch = before.match(/([A-Za-z0-9_]+)\.$/);
+          if (dotMatch) {
+              const tablePart = dotMatch[1];
+              const tableMatch = datasetNames.find(t => t.toLowerCase() === tablePart.toLowerCase());
+              if (!tableMatch) return [];
+              const fields = datasetFieldMap[tableMatch] || [];
+              return fields.slice(0, 12).map(f => `${tableMatch}.${f}`);
+          }
+          return [];
+      }
 
       const lower = trimmed.toLowerCase();
       if (trimmed.includes('.')) {

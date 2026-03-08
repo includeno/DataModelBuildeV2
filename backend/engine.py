@@ -452,6 +452,9 @@ class ExecutionEngine:
 
     def _apply_node_commands(self, df: Optional[pd.DataFrame], commands: List[Command], session_id: str, variables: Dict[str, Any], tree: OperationNode, limit_command_id: str = None) -> Optional[pd.DataFrame]:
         sorted_cmds = sorted(commands, key=lambda x: x.order)
+        current_source_name = None
+        if df is not None and hasattr(df, "attrs"):
+            current_source_name = df.attrs.get("_source_name")
         
         for idx, cmd in enumerate(sorted_cmds):
             try:
@@ -465,18 +468,24 @@ class ExecutionEngine:
                      if resolved_table:
                          source = resolved_table
                      
-                     # If loading a specific source, replace df
-                     df = storage.get_full_dataset(session_id, source)
+                     # If the selected source matches the current source, do not reset the stream
+                     if df is not None and current_source_name and source == current_source_name:
+                         source = None
+                     else:
+                         df = storage.get_full_dataset(session_id, source)
+                         current_source_name = source
                 
                 # Legacy fallback for Source Type
                 if cmd.type == 'source':
                     table_name = cmd.config.mainTable
                     if table_name:
                         df = storage.get_full_dataset(session_id, table_name)
+                        current_source_name = table_name
                 elif df is None and (cmd.type not in ['join', 'group', 'multi_table', 'view', 'define_variable'] and cmd.config.mainTable):
                     table_name = cmd.config.mainTable
                     if table_name:
                         df = storage.get_full_dataset(session_id, table_name)
+                        current_source_name = table_name
                     # If it's purely a source command, we are done with this step logic, but check loop exit below
                     if cmd.type == 'source':
                         pass # Continue to check exit condition
@@ -567,6 +576,8 @@ class ExecutionEngine:
                     elif cmd.type == 'group' or cmd.type == 'aggregate': df = self._apply_group(df, cmd, session_id)
                     elif cmd.type == 'transform': df = self._apply_transform(df, cmd)
                     # multi_table and view are pass-throughs for the stream itself (data loaded via context above)
+                    if df is not None and current_source_name:
+                        df.attrs["_source_name"] = current_source_name
 
                 # Check Stop Condition
                 if limit_command_id and cmd.id == limit_command_id:

@@ -20,6 +20,8 @@ export default defineConfig(async () => ({
   },
   test: {
     environment: "jsdom",
-    globals: true
+    globals: true,
+    include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],
+    exclude: ["tests/e2e/**"]
   }
 }));

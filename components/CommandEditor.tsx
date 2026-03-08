@@ -172,6 +172,12 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
       return getAncestors(tree, operationId) || [];
   }, [tree, operationId]);
 
+  const compareCommands = useMemo(() => {
+      const ancestorCommands = ancestors.flatMap(node => node.commands);
+      const localBefore = sqlInsertIndex != null ? commands.slice(0, sqlInsertIndex) : commands;
+      return [...ancestorCommands, ...localBefore];
+  }, [ancestors, commands, sqlInsertIndex]);
+
   const showStepOutline = commands.length >= 4;
 
   const ancestorOutputs = useMemo(() => {
@@ -1511,6 +1517,10 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
           warnings={sqlBuilderWarnings}
           error={sqlBuilderError}
           commands={sqlBuilderCommands}
+          datasets={datasets}
+          availableSourceAliases={availableSourceAliases}
+          onUpdateCommands={setSqlBuilderCommands}
+          existingCommands={compareCommands}
           renderSummary={renderSqlCommandSummary}
       />
     </div>

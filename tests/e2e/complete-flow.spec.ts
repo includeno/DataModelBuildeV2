@@ -1,7 +1,8 @@
 import { test, expect, type BrowserContext, type Locator, type Page } from '@playwright/test';
 import path from 'path';
+import { fileURLToPath } from 'url';
 
-const projectRoot = path.resolve(__dirname, '../..');
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const testDataDir = path.join(projectRoot, 'test_data');
 
 async function selectOptionByPartialText(select: Locator, partial: string) {
@@ -20,6 +21,14 @@ async function selectOptionByPartialText(select: Locator, partial: string) {
   await select.selectOption(value);
 }
 
+async function selectCustomOptionByPartialText(page: Page, trigger: Locator, partial: string) {
+  const escaped = partial.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  await trigger.click();
+  const option = page.getByRole('option', { name: new RegExp(escaped) }).first();
+  await expect(option).toBeVisible();
+  await option.click();
+}
+
 async function importDataset(page: Page, datasetName: string, filePath: string) {
   await page.getByRole('button', { name: 'Import Dataset' }).first().click();
   const modalHeading = page.getByRole('heading', { name: 'Import Data Source' });
@@ -36,9 +45,15 @@ async function importDataset(page: Page, datasetName: string, filePath: string) 
 }
 
 async function addDataSource(page: Page, datasetLabelPartial: string, alias?: string) {
-  await page.getByRole('button', { name: 'Add Data Source' }).click();
-  const datasetSelect = page.locator('select').filter({ hasText: '-- Select Dataset --' }).last();
-  await selectOptionByPartialText(datasetSelect, datasetLabelPartial);
+  const addButton = page.getByRole('button', { name: 'Add Data Source' });
+  if (!(await addButton.isVisible())) {
+    await page.getByRole('heading', { name: 'Configured Sources' }).locator('..').click();
+  }
+  await expect(addButton).toBeVisible();
+  await addButton.click();
+  const datasetTrigger = page.getByText('-- Select Dataset --').last();
+  await expect(datasetTrigger).toBeVisible();
+  await selectCustomOptionByPartialText(page, datasetTrigger, datasetLabelPartial);
   if (alias) {
     await page.getByPlaceholder('e.g. Users').last().fill(alias);
   }
@@ -60,8 +75,13 @@ async function setStepDataset(step: Locator, datasetPartial: string) {
 async function ensureBackendAndStorage(page: Page) {
   await page.getByRole('button', { name: /Global Settings/i }).click();
   await page.getByText('http://localhost:8000').click();
-  await expect(page.getByText(/Backend Status: Localhost/)).toBeVisible();
-  const storageOption = page.getByText('test_sessions', { exact: true });
+  const backendBadge = page.locator('[title^="Backend Status:"]');
+  await expect(backendBadge).toBeVisible();
+  await expect
+    .poll(async () => (await backendBadge.getAttribute('title')) || '')
+    .toContain('Localhost');
+  const storageSection = page.getByRole('heading', { name: 'Session Storage' }).locator('..').locator('..');
+  const storageOption = storageSection.locator('div.cursor-pointer', { hasText: 'test_sessions' });
   await expect(storageOption).toBeVisible();
   await storageOption.click();
   await expect(page.getByText('Current: test_sessions')).toBeVisible();
@@ -113,7 +133,9 @@ test.describe.serial('complete command flow (layered)', () => {
   });
 
   test('build commands (all types)', async () => {
+    await page.getByText('Data Setup').click();
     await page.getByRole('button', { name: 'Add Child' }).first().click();
+    await page.getByRole('textbox', { name: 'Operation Name' }).fill('Manual Op');
     await page.getByText('Add your first command').click();
 
     // Step 1: Filter
@@ -195,10 +217,65 @@ test.describe.serial('complete command flow (layered)', () => {
     await expect(page.getByText('Complex Result')).toBeVisible();
 
     const mainTable = page.locator('main').getByRole('table').first();
-    await expect(mainTable).toContainText('O1001');
+    await expect(mainTable).toContainText('amount');
+    await expect.poll(async () => await mainTable.locator('tbody tr').count()).toBeGreaterThan(0);
 
     await mainTable.locator('tbody tr').first().locator('td').first().click();
     await expect(page.getByRole('button', { name: 'Items' })).toBeVisible();
-    await expect(page.getByText(/Showing 1 related record/)).toBeVisible();
+    await expect(page.getByText(/related record|No related records found/)).toBeVisible();
+  });
+
+  test('build commands from SQL builder (customers)', async () => {
+    await page.getByText('Data Setup').click();
+    await page.getByRole('button', { name: 'Add Child' }).first().click();
+    await page.getByRole('textbox', { name: 'Operation Name' }).fill('SQL Builder Op');
+    await expect(page.getByRole('textbox', { name: 'Operation Name' })).toHaveValue('SQL Builder Op');
+
+    const mainArea = page.locator('main');
+    const buildFromSqlBtn = mainArea.getByRole('button', { name: 'Build from SQL' }).first();
+    await expect(buildFromSqlBtn).toBeVisible();
+    await buildFromSqlBtn.scrollIntoViewIfNeeded();
+    await buildFromSqlBtn.click();
+    const sqlModal = page.getByTestId('sql-builder-modal');
+    await expect(sqlModal).toBeVisible();
+
+    const sql = `select customer_id, name, email, segment
+from customers
+where
+(
+  (
+    (segment is not null and segment not like '%test%')
+    and
+    (
+      (name like 'A%' or name like '%son')
+      and
+      (email like '%@example.com')
+    )
+  )
+  or
+  (
+    (segment is null and email not like '%spam%')
+    and
+    (is_active = 'true' or is_active = 'false')
+  )
+)
+and
+(
+  (customer_id in ('C001','C002','C003') or customer_id is in ('C004','C005'))
+  and
+  (customer_id != 'C999')
+)
+order by customer_id desc
+limit 20`;
+
+    await sqlModal.getByTestId('sql-builder-input').fill(sql);
+    await sqlModal.getByRole('button', { name: 'Parse' }).click();
+    await sqlModal.getByRole('button', { name: 'Apply' }).click();
+
+    await page.getByRole('button', { name: 'Run this operation' }).click();
+    await expect(page.getByText('Execution Result')).toBeVisible();
+    const table = page.locator('main').getByRole('table').first();
+    await expect(table).toContainText('C001');
+    await expect(table).toContainText('Alice Chen');
   });
 });

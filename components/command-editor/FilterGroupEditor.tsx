@@ -1,7 +1,7 @@
 import React from 'react';
 import { Trash2, Plus, Split } from 'lucide-react';
 import { DataType, FilterGroup, FilterCondition } from '../../types';
-import { OPERATORS, baseInputStyles } from './constants';
+import { OPERATORS, baseInputStyles, errorInputStyles } from './constants';
 import { VariableSuggestionInput } from './VariableSuggestionInput';
 
 interface FilterGroupEditorProps {
@@ -11,9 +11,10 @@ interface FilterGroupEditorProps {
     onRemove: (id: string) => void;
     isRoot?: boolean;
     availableVariables: string[];
+    getConditionIssue?: (condition: FilterCondition) => string | undefined;
 }
 
-export const FilterGroupEditor: React.FC<FilterGroupEditorProps> = ({ group, activeSchema, onUpdate, onRemove, isRoot = false, availableVariables }) => {
+export const FilterGroupEditor: React.FC<FilterGroupEditorProps> = ({ group, activeSchema, onUpdate, onRemove, isRoot = false, availableVariables, getConditionIssue }) => {
     const fieldNames = Object.keys(activeSchema);
     const handleUpdateCondition = (id: string, updates: Partial<FilterCondition>) => {
         const newConditions = group.conditions.map(c => {
@@ -67,18 +68,30 @@ export const FilterGroupEditor: React.FC<FilterGroupEditorProps> = ({ group, act
                             onUpdate={(g) => handleUpdateSubGroup(item.id, g)} 
                             onRemove={handleRemoveChild}
                             availableVariables={availableVariables}
+                            getConditionIssue={getConditionIssue}
                         />
                     ) : (
-                        <div key={item.id} className="grid grid-cols-12 gap-2 items-center bg-gray-50/50 p-2 rounded-md border border-gray-100 group/cond relative">
+                        <div key={item.id} className="space-y-1">
+                            <div className={`grid grid-cols-12 gap-2 items-center p-2 rounded-md border group/cond relative ${
+                                getConditionIssue && getConditionIssue(item) ? 'bg-red-50/50 border-red-200' : 'bg-gray-50/50 border-gray-100'
+                            }`}>
                             <div className="col-span-3 relative">
-                                <select 
-                                    className={`${baseInputStyles} py-1 pl-2 text-xs`} 
-                                    value={item.field} 
-                                    onChange={(e) => handleUpdateCondition(item.id, { field: e.target.value })}
-                                >
-                                    <option value="">Field...</option>
-                                    {fieldNames.map(f => <option key={f} value={f}>{f}</option>)}
-                                </select>
+                                {(() => {
+                                    const isMissingField = !!item.field && !fieldNames.includes(item.field);
+                                    return (
+                                        <select 
+                                            className={`${isMissingField ? errorInputStyles : baseInputStyles} py-1 pl-2 text-xs`} 
+                                            value={item.field} 
+                                            onChange={(e) => handleUpdateCondition(item.id, { field: e.target.value })}
+                                        >
+                                            <option value="">Field...</option>
+                                            {isMissingField && (
+                                                <option value={item.field}>{item.field} (Missing)</option>
+                                            )}
+                                            {fieldNames.map(f => <option key={f} value={f}>{f}</option>)}
+                                        </select>
+                                    );
+                                })()}
                             </div>
                             <div className="col-span-3">
                                 <select 
@@ -122,6 +135,10 @@ export const FilterGroupEditor: React.FC<FilterGroupEditorProps> = ({ group, act
                                     <Trash2 className="w-3.5 h-3.5" />
                                 </button>
                             </div>
+                            </div>
+                            {getConditionIssue && getConditionIssue(item) && (
+                                <div className="text-[10px] text-red-600 pl-2">{getConditionIssue(item)}</div>
+                            )}
                         </div>
                     )
                 ))}
