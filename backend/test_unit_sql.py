@@ -43,11 +43,12 @@ def test_source_basic(variables):
 def test_source_with_variable_in_name_not_supported_by_generator_logic_but_good_to_know(variables):
     # Current logic doesn't substitute in mainTable, but let's verify behavior
     cmd = create_cmd("source", {"mainTable": "users_{table_suffix}"})
-    assert gen(cmd, variables) == "SELECT * FROM users_{table_suffix}"
+    assert gen(cmd, variables) == 'SELECT * FROM "users_{table_suffix}"'
 
 def test_source_with_alias(variables):
     cmd = create_cmd("source", {"mainTable": "users", "alias": "u"})
     assert gen(cmd, variables) == "SELECT * FROM users AS u"
+
 
 # --- 2. Filter Command - Operators (40 cases) ---
 
@@ -119,6 +120,14 @@ def test_filter_complex_string_quote(variables):
 def test_filter_variable_complex_string(variables):
     cmd = create_cmd("filter", {"field": "col", "operator": "=", "value": "{complex_str}", "valueType": "variable"})
     assert "col = 'O'Connor'" in gen(cmd, variables)
+
+def test_filter_reserved_field_quotes(variables):
+    cmd = create_cmd("filter", {"field": "order", "operator": "=", "value": 1, "valueType": "raw"})
+    assert '"order" = 1' in gen(cmd, variables)
+
+def test_filter_hyphen_field_quotes(variables):
+    cmd = create_cmd("filter", {"field": "line-item", "operator": "=", "value": 1, "valueType": "raw"})
+    assert '"line-item" = 1' in gen(cmd, variables)
 
 # --- 3. Filter Groups (10 cases) ---
 
@@ -203,6 +212,10 @@ def test_filter_group_empty(variables):
 def test_join_types(join_type, variables):
     cmd = create_cmd("join", {"joinType": join_type, "joinTable": "other", "on": "t1.id=t2.id"})
     assert f"{join_type} JOIN other" in gen(cmd, variables)
+
+def test_join_reserved_table_quotes(variables):
+    cmd = create_cmd("join", {"joinType": "LEFT", "joinTable": "order-items", "on": "t1.id=t2.id"})
+    assert 'JOIN "order-items"' in gen(cmd, variables)
 
 def test_join_default_left(variables):
     cmd = create_cmd("join", {"joinTable": "other", "on": "t1.id=t2.id"})

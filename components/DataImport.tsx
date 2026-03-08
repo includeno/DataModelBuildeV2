@@ -21,6 +21,17 @@ export const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClos
   
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const RESERVED_WORDS = new Set([
+    'select', 'from', 'where', 'order', 'group', 'by', 'join', 'left', 'right',
+    'inner', 'outer', 'full', 'on', 'limit', 'offset', 'union', 'distinct',
+    'having', 'as', 'and', 'or', 'not', 'null', 'is', 'like', 'in', 'table', 'view'
+  ]);
+
+  const trimmedName = customName.trim();
+  const nameError = trimmedName && RESERVED_WORDS.has(trimmedName.toLowerCase())
+    ? `Dataset name '${trimmedName}' is a reserved keyword. Please choose another name.`
+    : null;
+
   const resetState = () => {
     setSelectedFile(null);
     setCustomName('');
@@ -80,6 +91,10 @@ export const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClos
 
   const handleUpload = async () => {
     if (!selectedFile) return;
+    if (nameError) {
+        setError(nameError);
+        return;
+    }
 
     setUploading(true);
     setError(null);
@@ -195,6 +210,9 @@ export const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClos
                             disabled={uploading}
                         />
                         <p className="mt-1 text-xs text-gray-500">This name will be used in SQL queries and operations.</p>
+                        {nameError && (
+                            <p className="mt-1 text-xs text-red-600">{nameError}</p>
+                        )}
                     </div>
                 </div>
             )}
@@ -214,7 +232,7 @@ export const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClos
                     <Button 
                         variant="primary" 
                         onClick={handleUpload} 
-                        disabled={uploading || !customName.trim()}
+                        disabled={uploading || !customName.trim() || !!nameError}
                         icon={uploading ? <Upload className="w-4 h-4 animate-bounce" /> : <CheckCircle className="w-4 h-4" />}
                     >
                         {uploading ? 'Importing...' : 'Import Dataset'}

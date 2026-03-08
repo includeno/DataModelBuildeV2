@@ -208,6 +208,17 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
 
   const hasComplexView = useMemo(() => commands.some(c => c.type === 'multi_table'), [commands]);
 
+  const RESERVED_WORDS = useMemo(() => new Set([
+      'select', 'from', 'where', 'order', 'group', 'by', 'join', 'left', 'right',
+      'inner', 'outer', 'full', 'on', 'limit', 'offset', 'union', 'distinct',
+      'having', 'as', 'and', 'or', 'not', 'null', 'is', 'like', 'in', 'table', 'view'
+  ]), []);
+
+  const isReservedName = (name?: string) => {
+      if (!name) return false;
+      return RESERVED_WORDS.has(String(name).trim().toLowerCase());
+  };
+
   if (operationType === 'setup') {
       const sourceCommands = commands.filter(c => c.type === 'source');
       const configuredSourceCount = sourceCommands.filter(c => c.config.mainTable && String(c.config.mainTable).trim().length > 0).length;
@@ -282,6 +293,9 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
 
               const isMissingDataset = !datasets.some(d => d.name === currentTable);
               if (isMissingDataset) errors.push("Selected dataset is unavailable.");
+              if (currentTable && isReservedName(currentTable)) {
+                  errors.push(`Dataset name '${currentTable}' is a reserved keyword. Please rename or re-import.`);
+              }
 
               if (currentAlias) {
                   const isDuplicateAlias = sourceCommands.some((c, idx) => 
@@ -291,6 +305,10 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
 
                   const isConflictWithVariable = variableCommands.some(c => c.config.variableName === currentAlias);
                   if (isConflictWithVariable) errors.push("Alias conflicts with a variable name.");
+
+                  if (isReservedName(currentAlias)) {
+                      errors.push(`Alias '${currentAlias}' is a reserved keyword.`);
+                  }
               }
 
               if (currentAlias) {
@@ -308,6 +326,10 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
           if (cmd.type === 'define_variable') {
               const name = cmd.config.variableName;
               if (!name) return errors;
+
+              if (isReservedName(name)) {
+                  errors.push("Variable name is a reserved keyword.");
+              }
 
               if (datasets.some(d => d.name === name)) {
                   errors.push("Conflict with dataset name.");
@@ -356,6 +378,11 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
             <div className="p-6 w-full h-full overflow-y-auto custom-scrollbar">
                 <div className="flex flex-col gap-4 min-h-full">
                     {/* Source Configuration */}
+                    {datasets.some(d => isReservedName(d.name)) && (
+                        <div className="mb-4 p-3 bg-red-50 text-red-700 text-xs rounded-lg border border-red-100">
+                            Reserved keyword dataset detected: {datasets.filter(d => isReservedName(d.name)).map(d => d.name).join(', ')}. Please re-import with a different name.
+                        </div>
+                    )}
                     <CollapsibleSection title="Configured Sources" icon={Database} count={configuredSourceCount}>
                         {sourceCommands.map((cmd, idx) => {
                             const errors = getValidationErrors(cmd, idx);
@@ -375,12 +402,15 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                 value: d.name,
                                 label: d.name,
                                 subLabel: `${d.totalCount} rows`,
-                                disabled: otherSelectedTables.has(d.name),
+                                disabled: otherSelectedTables.has(d.name) || isReservedName(d.name),
                                 icon: Database
                             }));
 
                             if (isMissing && currentSelection) {
                                 options.push({ value: currentSelection, label: `${currentSelection} (Unavailable)`, disabled: true, icon: Database });
+                            }
+                            if (currentSelection && isReservedName(currentSelection)) {
+                                options.push({ value: currentSelection, label: `${currentSelection} (Reserved)`, disabled: true, icon: Database });
                             }
 
                             return (

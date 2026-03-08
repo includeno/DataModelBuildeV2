@@ -9,6 +9,14 @@ from typing import List, Optional, Dict, Set, Any, Union
 from models import Command, OperationNode
 from storage import storage
 from simpleeval import simple_eval
+from sql_utils import (
+    quote_identifier,
+    unquote_identifier,
+    is_reserved_identifier,
+    SIMPLE_SELECT_RE,
+    SIMPLE_SELECT_WHERE_RE,
+    WHERE_EXTRACT_RE,
+)
 
 class ExecutionEngine:
     def execute(self, session_id: str, tree: OperationNode, target_node_id: str, view_id: str = "main", target_command_id: str = None) -> pd.DataFrame:
@@ -79,7 +87,7 @@ class ExecutionEngine:
                 if data_source and data_source != 'stream':
                     resolved = self._resolve_setup_table(data_source, allowed_tables, source_map)
                     if current_sql is None or current_base_table != resolved:
-                        current_sql = f"SELECT * FROM {resolved}"
+                        current_sql = f"SELECT * FROM {quote_identifier(resolved)}"
                         current_base_table = resolved
 
                 cmd_sql = ""
@@ -93,9 +101,9 @@ class ExecutionEngine:
                     resolved = self._resolve_setup_table(cmd.config.mainTable, allowed_tables, source_map)
                     source_alias = (cmd.config.alias or "").strip() if cmd.config.alias else ""
                     if source_alias:
-                        current_sql = f"SELECT * FROM {resolved} AS {source_alias}"
+                        current_sql = f"SELECT * FROM {quote_identifier(resolved)} AS {quote_identifier(source_alias)}"
                     else:
-                        current_sql = f"SELECT * FROM {resolved}"
+                        current_sql = f"SELECT * FROM {quote_identifier(resolved)}"
                     current_base_table = resolved
                     cmd_sql = current_sql
                 else:
@@ -124,9 +132,9 @@ class ExecutionEngine:
                             new_where = self._extract_where_clause(filter_sql)
                             if new_where:
                                 if existing_where:
-                                    cmd_sql = f"SELECT * FROM {base_table} WHERE ({existing_where}) AND ({new_where})"
+                                    cmd_sql = f"SELECT * FROM {quote_identifier(base_table)} WHERE ({existing_where}) AND ({new_where})"
                                 else:
-                                    cmd_sql = f"SELECT * FROM {base_table} WHERE {new_where}"
+                                    cmd_sql = f"SELECT * FROM {quote_identifier(base_table)} WHERE {new_where}"
                             else:
                                 cmd_sql = filter_sql
                         else:
@@ -227,13 +235,13 @@ class ExecutionEngine:
         # Map identifiers for the sub table to "sub."
         if sub_table and sub_table in table_to_ids:
             for ident in sorted(table_to_ids.get(sub_table, set()), key=len, reverse=True):
-                rewritten = re.sub(rf"\b{re.escape(ident)}\.", "sub.", rewritten)
+                rewritten = self._replace_ident_prefix(rewritten, ident, "sub.")
         # Map any other known identifiers to "main."
         for table, idents in table_to_ids.items():
             if table == sub_table:
                 continue
             for ident in sorted(idents, key=len, reverse=True):
-                rewritten = re.sub(rf"\b{re.escape(ident)}\.", "main.", rewritten)
+                rewritten = self._replace_ident_prefix(rewritten, ident, "main.")
         return rewritten
 
     def calculate_overlap(self, session_id: str, tree: OperationNode, parent_node_id: str) -> List[str]:
@@ -331,6 +339,8 @@ class ExecutionEngine:
         if not ref:
             return None
         resolved = source_map.get(ref, ref)
+        if is_reserved_identifier(resolved):
+            raise ValueError(f"Dataset name '{resolved}' is a reserved keyword. Please rename or re-import.")
         if resolved not in allowed_tables:
             raise ValueError(f"Table '{ref}' is not defined in Data Setup")
         return resolved
@@ -341,27 +351,37 @@ class ExecutionEngine:
         rewritten = on_clause
         if input_table:
             for ident in sorted(table_to_ids.get(input_table, set()), key=len, reverse=True):
-                rewritten = re.sub(rf"\b{re.escape(ident)}\.", "t1.", rewritten)
+                rewritten = self._replace_ident_prefix(rewritten, ident, "t1.")
         if join_table:
             for ident in sorted(table_to_ids.get(join_table, set()), key=len, reverse=True):
-                rewritten = re.sub(rf"\b{re.escape(ident)}\.", "t2.", rewritten)
+                rewritten = self._replace_ident_prefix(rewritten, ident, "t2.")
+        return rewritten
+
+    def _replace_ident_prefix(self, clause: str, ident: str, replacement: str) -> str:
+        if not ident:
+            return clause
+        forms = {ident, quote_identifier(ident)}
+        rewritten = clause
+        for form in forms:
+            pattern = rf"(?<![A-Za-z0-9_]){re.escape(form)}\."
+            rewritten = re.sub(pattern, replacement, rewritten)
         return rewritten
 
     def _extract_simple_select(self, sql: str) -> tuple[Optional[str], Optional[str]]:
         if not sql:
             return None, None
-        m = re.match(r"^\s*SELECT\s+\*\s+FROM\s+([A-Za-z0-9_]+)\s*$", sql, re.IGNORECASE)
+        m = SIMPLE_SELECT_RE.match(sql)
         if m:
-            return m.group(1), None
-        m = re.match(r"^\s*SELECT\s+\*\s+FROM\s+([A-Za-z0-9_]+)\s+WHERE\s+(.+)\s*$", sql, re.IGNORECASE)
+            return unquote_identifier(m.group(1)), None
+        m = SIMPLE_SELECT_WHERE_RE.match(sql)
         if m:
-            return m.group(1), m.group(2)
+            return unquote_identifier(m.group(1)), m.group(2)
         return None, None
 
     def _extract_where_clause(self, sql: str) -> Optional[str]:
         if not sql:
             return None
-        m = re.match(r"^\s*SELECT\s+\*\s+FROM\s+.+?\s+WHERE\s+(.+)\s*$", sql, re.IGNORECASE)
+        m = WHERE_EXTRACT_RE.match(sql)
         if not m:
             return None
         return m.group(1)
@@ -369,9 +389,10 @@ class ExecutionEngine:
     def _select_input_table(self, current_sql: str, current_base_table: Optional[str]) -> str:
         base_table, existing_where = self._extract_simple_select(current_sql)
         if base_table and current_base_table and base_table == current_base_table:
+            base_sql = quote_identifier(base_table)
             if existing_where:
-                return f"(SELECT * FROM {base_table} WHERE {existing_where})"
-            return base_table
+                return f"(SELECT * FROM {base_sql} WHERE {existing_where})"
+            return base_sql
         return f"({current_sql}) AS input_subq"
 
     def _build_view_sql(self, cmd: Command, base_table: str, existing_where: Optional[str]) -> str:
@@ -410,7 +431,8 @@ class ExecutionEngine:
         if not select_fields:
             select_fields = ["*"]
 
-        sql = f"SELECT {distinct}{', '.join(select_fields)} FROM {base_table}"
+        quoted_fields = ["*" if f == "*" else quote_identifier(f) for f in select_fields]
+        sql = f"SELECT {distinct}{', '.join(quoted_fields)} FROM {quote_identifier(base_table)}"
         if existing_where:
             sql = f"{sql} WHERE {existing_where}"
 
@@ -425,11 +447,11 @@ class ExecutionEngine:
                 seen.add(s.field)
                 sort_dir = "ASC" if getattr(s, 'ascending', True) is not False else "DESC"
                 if select_fields == ["*"] or s.field in select_fields:
-                    sort_parts.append(f"{s.field} {sort_dir}")
+                    sort_parts.append(f"{quote_identifier(s.field)} {sort_dir}")
         elif c.viewSortField:
             sort_dir = "ASC" if c.viewSortAscending is not False else "DESC"
             if select_fields == ["*"] or c.viewSortField in select_fields:
-                sort_parts.append(f"{c.viewSortField} {sort_dir}")
+                sort_parts.append(f"{quote_identifier(c.viewSortField)} {sort_dir}")
 
         if sort_parts:
             sql = f"{sql} ORDER BY {', '.join(sort_parts)}"
@@ -634,6 +656,11 @@ class ExecutionEngine:
         op = cond.get('operator')
         val = cond.get('value')
         value_type = cond.get('valueType')
+
+        if op == 'always_true':
+            return pd.Series([True] * len(df), index=df.index)
+        if op == 'always_false':
+            return pd.Series([False] * len(df), index=df.index)
 
         if field not in df.columns: 
             return pd.Series([True] * len(df), index=df.index)

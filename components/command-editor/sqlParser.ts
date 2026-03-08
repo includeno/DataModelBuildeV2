@@ -2,7 +2,7 @@ import { Command, FilterCondition, FilterGroup } from '../../types';
 
 export const parseSqlToCommands = (rawSql: string, resolveDataSource: (tableName: string) => string) => {
     const warnings: string[] = [];
-    const sql = rawSql.trim().replace(/;$/, '');
+    const sql = rawSql.trim().replace(/;+\s*$/, '');
     if (!sql) {
         return { commands: [] as Command[], warnings, error: "SQL is empty." };
     }
@@ -35,9 +35,28 @@ export const parseSqlToCommands = (rawSql: string, resolveDataSource: (tableName
         return { commands: [] as Command[], warnings, error: "Only simple SELECT ... FROM ... queries are supported." };
     }
 
-    const selectPart = selectMatch[1].trim();
-    const fromPart = selectMatch[2].trim().split(/\s+/)[0];
+    let selectPart = selectMatch[1].trim();
+    const rawFromPart = selectMatch[2].trim().split(/\s+/)[0];
+    const fromPart = normalizeIdentifier(rawFromPart);
     const dataSource = resolveDataSource(fromPart);
+
+    const fromRemainder = selectMatch[2].trim();
+    const hasUnsupportedFromClause = /\b(group\s+by|having|union|join|offset)\b/i.test(fromRemainder);
+    if (hasUnsupportedFromClause) {
+        warnings.push("Unsupported clause detected after FROM.");
+    }
+    if (limitValue === undefined && /\blimit\b/i.test(fromRemainder)) {
+        warnings.push("LIMIT clause is not supported.");
+    }
+
+    let distinctFlag = false;
+    if (/^distinct\s+/i.test(selectPart)) {
+        distinctFlag = true;
+        selectPart = selectPart.replace(/^distinct\s+/i, '').trim();
+        if (selectPart === '*') {
+            warnings.push("DISTINCT * is not supported. Treated as SELECT *.");
+        }
+    }
 
     const commands: Command[] = [];
     const makeId = (prefix: string) => `${prefix}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
@@ -64,6 +83,35 @@ export const parseSqlToCommands = (rawSql: string, resolveDataSource: (tableName
         let i = 0;
         const len = input.length;
         const isWordChar = (c: string) => /[A-Za-z0-9_.]/.test(c);
+        const isQuote = (c: string) => c === '"' || c === '`';
+
+        const readWord = (start: number) => {
+            let j = start;
+            let word = '';
+            while (j < len && isWordChar(input[j])) { word += input[j]; j += 1; }
+            return { word, end: j };
+        };
+
+        const readQuotedIdentifier = (start: number) => {
+            const quote = input[start];
+            let j = start + 1;
+            let value = '';
+            while (j < len) {
+                const cj = input[j];
+                if (cj === quote) {
+                    if (input[j + 1] === quote) {
+                        value += quote;
+                        j += 2;
+                        continue;
+                    }
+                    j += 1;
+                    break;
+                }
+                value += cj;
+                j += 1;
+            }
+            return { value, end: j };
+        };
 
         while (i < len) {
             const ch = input[i];
@@ -72,7 +120,7 @@ export const parseSqlToCommands = (rawSql: string, resolveDataSource: (tableName
             if (ch === ')') { tokens.push({ type: 'rparen' }); i += 1; continue; }
             if (ch === ',') { tokens.push({ type: 'comma' }); i += 1; continue; }
 
-            if (ch === '\'' || ch === '"') {
+            if (ch === '\'') {
                 const quote = ch;
                 let j = i + 1;
                 let value = '';
@@ -95,6 +143,35 @@ export const parseSqlToCommands = (rawSql: string, resolveDataSource: (tableName
                 continue;
             }
 
+            if (isQuote(ch)) {
+                const first = readQuotedIdentifier(i);
+                let combined = first.value;
+                let j = first.end;
+
+                while (j < len) {
+                    let k = j;
+                    while (k < len && /\s/.test(input[k])) k += 1;
+                    if (input[k] !== '.') break;
+                    k += 1;
+                    while (k < len && /\s/.test(input[k])) k += 1;
+                    if (k >= len) break;
+                    if (isQuote(input[k])) {
+                        const nextQuoted = readQuotedIdentifier(k);
+                        combined = `${combined}.${nextQuoted.value}`;
+                        j = nextQuoted.end;
+                        continue;
+                    }
+                    const nextWord = readWord(k);
+                    if (!nextWord.word) break;
+                    combined = `${combined}.${nextWord.word}`;
+                    j = nextWord.end;
+                }
+
+                tokens.push({ type: 'identifier', value: combined });
+                i = j;
+                continue;
+            }
+
             if (/[0-9]/.test(ch) || (ch === '.' && /[0-9]/.test(input[i + 1] || ''))) {
                 let j = i;
                 let num = '';
@@ -105,9 +182,9 @@ export const parseSqlToCommands = (rawSql: string, resolveDataSource: (tableName
             }
 
             if (isWordChar(ch)) {
-                let j = i;
-                let word = '';
-                while (j < len && isWordChar(input[j])) { word += input[j]; j += 1; }
+                const parsed = readWord(i);
+                const word = parsed.word;
+                const j = parsed.end;
                 const lower = word.toLowerCase();
                 if (['and', 'or', 'not', 'in', 'is', 'null', 'like'].includes(lower)) {
                     tokens.push({ type: 'keyword', value: lower });
@@ -136,9 +213,30 @@ export const parseSqlToCommands = (rawSql: string, resolveDataSource: (tableName
         return tokens;
     };
 
-    const toFieldName = (raw: string) => raw.includes('.') ? raw.split('.').pop() || raw : raw;
+    function stripIdentifierQuotes(value: string) {
+        const trimmed = value.trim();
+        if ((trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+            (trimmed.startsWith('`') && trimmed.endsWith('`')) ||
+            (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+            return trimmed.slice(1, -1).replace(/""/g, '"');
+        }
+        return trimmed;
+    }
 
-    const parseWhereExpression = (input: string): { group?: FilterGroup; error?: string } => {
+    function normalizeIdentifier(raw: string) {
+        if (!raw) return raw;
+        const parts = raw.split('.').map(p => stripIdentifierQuotes(p));
+        return parts.join('.');
+    }
+
+    function toFieldName(raw: string) {
+        const normalized = normalizeIdentifier(raw);
+        return normalized.includes('.') ? normalized.split('.').pop() || normalized : normalized;
+    }
+
+    type ExprNode = FilterGroup | FilterCondition | { type: 'const'; value: boolean };
+
+    const parseWhereExpression = (input: string): { group?: FilterGroup; error?: string; warning?: string } => {
         const tokens = tokenizeWhere(input);
         let pos = 0;
 
@@ -168,6 +266,23 @@ export const parseSqlToCommands = (rawSql: string, resolveDataSource: (tableName
                 logicalOperator: op,
                 conditions: [left, right]
             };
+        };
+
+        const isConst = (node: ExprNode): node is { type: 'const'; value: boolean } => (node as any).type === 'const';
+
+        const combineExpr = (op: 'AND' | 'OR', left: ExprNode, right: ExprNode): ExprNode => {
+            if (isConst(left) && isConst(right)) {
+                return { type: 'const', value: op === 'AND' ? (left.value && right.value) : (left.value || right.value) };
+            }
+            if (op === 'AND') {
+                if (isConst(left)) return left.value ? right : { type: 'const', value: false };
+                if (isConst(right)) return right.value ? left : { type: 'const', value: false };
+            }
+            if (op === 'OR') {
+                if (isConst(left)) return left.value ? { type: 'const', value: true } : right;
+                if (isConst(right)) return right.value ? { type: 'const', value: true } : left;
+            }
+            return combineGroup(op, left as FilterGroup | FilterCondition, right as FilterGroup | FilterCondition);
         };
 
         const parseValueToken = () => {
@@ -224,11 +339,13 @@ export const parseSqlToCommands = (rawSql: string, resolveDataSource: (tableName
             };
         };
 
-        const parseCondition = (): FilterCondition | null => {
+        const parseCondition = (): ExprNode | null => {
             const fieldToken = peek();
-            if (!fieldToken || fieldToken.type !== 'identifier') return null;
+            if (!fieldToken || (fieldToken.type !== 'identifier' && fieldToken.type !== 'number')) return null;
             consume();
-            const field = toFieldName(fieldToken.value);
+            const field = fieldToken.type === 'number'
+                ? String(fieldToken.value)
+                : toFieldName(fieldToken.value);
 
             if (matchKeyword('is')) {
                 const isNot = matchKeyword('not');
@@ -291,6 +408,20 @@ export const parseSqlToCommands = (rawSql: string, resolveDataSource: (tableName
             if (opToken && opToken.type === 'operator') {
                 consume();
                 const value = parseValueToken();
+                // Constant predicate folding for numeric-only comparisons
+                if (fieldToken.type === 'number' && typeof value === 'number') {
+                    const leftVal = Number(field);
+                    let boolVal: boolean | null = null;
+                    if (opToken.value === '=') boolVal = leftVal === value;
+                    if (opToken.value === '!=' || opToken.value === '<>') boolVal = leftVal !== value;
+                    if (opToken.value === '>') boolVal = leftVal > value;
+                    if (opToken.value === '>=') boolVal = leftVal >= value;
+                    if (opToken.value === '<') boolVal = leftVal < value;
+                    if (opToken.value === '<=') boolVal = leftVal <= value;
+                    if (boolVal !== null) {
+                        return { type: 'const', value: boolVal };
+                    }
+                }
                 const opMap: Record<string, string> = { '=': '=', '!=': '!=', '<>': '!=', '>': '>', '>=': '>=', '<': '<', '<=': '<=' };
                 const mapped = opMap[opToken.value] || '=';
                 return {
@@ -305,7 +436,7 @@ export const parseSqlToCommands = (rawSql: string, resolveDataSource: (tableName
             return null;
         };
 
-        const parsePrimary = (): FilterGroup | FilterCondition | null => {
+        const parsePrimary = (): ExprNode | null => {
             const t = peek();
             if (!t) return null;
             if (t.type === 'lparen') {
@@ -317,20 +448,26 @@ export const parseSqlToCommands = (rawSql: string, resolveDataSource: (tableName
             return parseCondition();
         };
 
-        const parseAnd = (): FilterGroup | FilterCondition => {
-            let left = parsePrimary()!;
+        const parseAnd = (): ExprNode | null => {
+            let left = parsePrimary();
             while (matchKeyword('and')) {
-                const right = parsePrimary()!;
-                left = combineGroup('AND', left, right);
+                const right = parsePrimary();
+                if (!left && !right) left = null;
+                else if (!left) left = right;
+                else if (!right) left = left;
+                else left = combineExpr('AND', left, right);
             }
             return left;
         };
 
-        const parseOr = (): FilterGroup | FilterCondition => {
+        const parseOr = (): ExprNode | null => {
             let left = parseAnd();
             while (matchKeyword('or')) {
                 const right = parseAnd();
-                left = combineGroup('OR', left, right);
+                if (!left && !right) left = null;
+                else if (!left) left = right;
+                else if (!right) left = left;
+                else left = combineExpr('OR', left, right);
             }
             return left;
         };
@@ -341,9 +478,30 @@ export const parseSqlToCommands = (rawSql: string, resolveDataSource: (tableName
             if (pos < tokens.length) {
                 return { error: 'Unsupported tokens in WHERE clause.' };
             }
-            const root: FilterGroup = expr.type === 'group'
-                ? expr
-                : { id: makeId('group'), type: 'group', logicalOperator: 'AND', conditions: [expr] };
+            if ((expr as any).type === 'const') {
+                const constNode = expr as { type: 'const'; value: boolean };
+                if (constNode.value) {
+                    return { warning: 'Constant TRUE predicate removed from WHERE clause.' };
+                }
+                const alwaysFalse: FilterCondition = {
+                    id: makeId('cond'),
+                    type: 'condition',
+                    field: '__const__',
+                    operator: 'always_false',
+                    value: ''
+                };
+                return {
+                    group: {
+                        id: makeId('group'),
+                        type: 'group',
+                        logicalOperator: 'AND',
+                        conditions: [alwaysFalse]
+                    }
+                };
+            }
+            const root: FilterGroup = (expr as any).type === 'group'
+                ? (expr as FilterGroup)
+                : { id: makeId('group'), type: 'group', logicalOperator: 'AND', conditions: [expr as FilterCondition] };
             return { group: root };
         } catch {
             return { error: 'Failed to parse WHERE clause.' };
@@ -354,6 +512,8 @@ export const parseSqlToCommands = (rawSql: string, resolveDataSource: (tableName
         const parsed = parseWhereExpression(whereClause);
         if (parsed.error) {
             warnings.push(parsed.error);
+        } else if (parsed.warning) {
+            warnings.push(parsed.warning);
         } else if (parsed.group) {
             commands.push({
                 id: makeId('cmd_filter'),
@@ -387,20 +547,21 @@ export const parseSqlToCommands = (rawSql: string, resolveDataSource: (tableName
     let viewFields: { field: string; distinct?: boolean }[] | undefined;
     if (selectPart && selectPart !== '*') {
         const fields = selectPart.split(',').map(f => f.trim()).filter(Boolean);
-        const cleaned = fields.map(f => f.split(/\s+as\s+/i)[0].trim());
-        const simpleFields = cleaned.filter(f => !/[()]/.test(f));
+        const cleaned = fields.map(f => normalizeIdentifier(f.split(/\s+as\s+/i)[0].trim()));
+        const simpleFields = cleaned.filter(f => !/[()]/.test(f) && !/\s[+\-*/]\s/.test(f));
         if (simpleFields.length !== cleaned.length) {
             warnings.push("Some selected fields contain functions/expressions and were ignored.");
         }
         viewFields = simpleFields.map(f => ({
-            field: f.includes('.') ? f.split('.').pop() || f : f
+            field: f.includes('.') ? f.split('.').pop() || f : f,
+            distinct: distinctFlag || undefined
         }));
         if (viewFields.length === 0) {
             warnings.push("No valid fields found in SELECT list.");
         }
     }
 
-    if (viewFields || limitValue) {
+    if ((viewFields || limitValue !== undefined || distinctFlag) && selectPart !== '*') {
         commands.push({
             id: makeId('cmd_view'),
             type: 'view',

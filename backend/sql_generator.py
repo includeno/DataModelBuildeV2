@@ -1,6 +1,7 @@
 
 from typing import Dict, Any, List, Union
 from models import Command, CommandConfig
+from sql_utils import quote_identifier, quote_table_ref
 
 def generate_sql_for_command(cmd: Command, variables: Dict[str, Any], input_table: str = "input_table") -> str:
     c = cmd.config
@@ -20,7 +21,8 @@ def generate_sql_for_command(cmd: Command, variables: Dict[str, Any], input_tabl
         if not where_clause:
             where_clause = "1=1"
             
-        return f"SELECT * FROM {input_table} WHERE {where_clause}"
+        table_ref = quote_table_ref(input_table)
+        return f"SELECT * FROM {table_ref} WHERE {where_clause}"
         
     elif cmd.type == 'join':
         join_type = (c.joinType or 'LEFT').upper()
@@ -33,23 +35,26 @@ def generate_sql_for_command(cmd: Command, variables: Dict[str, Any], input_tabl
         
         suffix = c.joinSuffix or "_joined"
         
-        return f"SELECT t1.*, t2.* FROM {input_table} t1 {join_type} JOIN {target} t2 ON {on}"
+        table_ref = quote_table_ref(input_table)
+        target_ref = quote_identifier(target)
+        return f"SELECT t1.*, t2.* FROM {table_ref} t1 {join_type} JOIN {target_ref} t2 ON {on}"
         
     elif cmd.type == 'group' or cmd.type == 'aggregate':
         dims = c.groupByFields or (c.groupBy if c.groupBy else [])
         aggs = c.aggregations or []
         
-        select_parts = list(dims)
+        select_parts = [quote_identifier(d) for d in dims]
         for agg in aggs:
             func = (agg.get('func') or 'count').upper()
             field = agg.get('field') or '*'
             alias = agg.get('alias') or f"{func}_{field}"
-            select_parts.append(f"{func}({field}) AS {alias}")
+            field_sql = "*" if field == "*" else quote_identifier(field)
+            select_parts.append(f"{func}({field_sql}) AS {quote_identifier(alias)}")
             
         if not select_parts:
             select_parts = ["*"]
             
-        group_by_clause = f"GROUP BY {', '.join(dims)}" if dims else ""
+        group_by_clause = f"GROUP BY {', '.join([quote_identifier(d) for d in dims])}" if dims else ""
         
         having_parts = []
         for h in (c.havingConditions or []):
@@ -57,17 +62,20 @@ def generate_sql_for_command(cmd: Command, variables: Dict[str, Any], input_tabl
             op = h.get('operator')
             val = h.get('value')
             val = _resolve_value(val, variables)
-            having_parts.append(f"{metric} {op} {val}")
+            metric_sql = quote_identifier(metric) if metric else metric
+            having_parts.append(f"{metric_sql} {op} {val}")
             
         having_clause = f"HAVING {' AND '.join(having_parts)}" if having_parts else ""
         
-        return f"SELECT {', '.join(select_parts)} FROM {input_table} {group_by_clause} {having_clause}"
+        table_ref = quote_table_ref(input_table)
+        return f"SELECT {', '.join(select_parts)} FROM {table_ref} {group_by_clause} {having_clause}"
         
     elif cmd.type == 'sort':
         field = c.field
-        if not field: return f"SELECT * FROM {input_table}"
+        table_ref = quote_table_ref(input_table)
+        if not field: return f"SELECT * FROM {table_ref}"
         direction = "ASC" if c.ascending is not False else "DESC"
-        return f"SELECT * FROM {input_table} ORDER BY {field} {direction}"
+        return f"SELECT * FROM {table_ref} ORDER BY {quote_identifier(field)} {direction}"
         
     elif cmd.type == 'transform':
         selects = ["*"]
@@ -77,20 +85,23 @@ def generate_sql_for_command(cmd: Command, variables: Dict[str, Any], input_tabl
             if m.expression and m.outputField:
                 expr = _substitute_variables(m.expression, variables)
                 selects.append(f"{expr} AS {m.outputField}")
-        return f"SELECT {', '.join(selects)} FROM {input_table}"
+        table_ref = quote_table_ref(input_table)
+        return f"SELECT {', '.join(selects)} FROM {table_ref}"
         
     elif cmd.type == 'save':
         field = c.field
         if not field: return f"-- Invalid Save Command"
         distinct = "DISTINCT " if c.distinct else ""
-        return f"SELECT {distinct}{field} FROM {input_table}"
+        table_ref = quote_table_ref(input_table)
+        return f"SELECT {distinct}{quote_identifier(field)} FROM {table_ref}"
 
     elif cmd.type == 'source':
         table = c.mainTable or input_table
         alias = (c.alias or "").strip() if hasattr(c, 'alias') else ""
+        table_ref = quote_identifier(table)
         if alias:
-            return f"SELECT * FROM {table} AS {alias}"
-        return f"SELECT * FROM {table}"
+            return f"SELECT * FROM {table_ref} AS {quote_identifier(alias)}"
+        return f"SELECT * FROM {table_ref}"
 
     elif cmd.type == 'view':
         view_fields = c.viewFields or []
@@ -117,7 +128,9 @@ def generate_sql_for_command(cmd: Command, variables: Dict[str, Any], input_tabl
         if not select_fields:
             select_fields = ["*"]
 
-        base_sql = f"SELECT {distinct}{', '.join(select_fields)} FROM {input_table}"
+        table_ref = quote_table_ref(input_table)
+        quoted_fields = ["*" if f == "*" else quote_identifier(f) for f in select_fields]
+        base_sql = f"SELECT {distinct}{', '.join(quoted_fields)} FROM {table_ref}"
 
         sort_parts = []
         if c.viewSorts:
@@ -130,11 +143,11 @@ def generate_sql_for_command(cmd: Command, variables: Dict[str, Any], input_tabl
                 seen.add(s.field)
                 sort_dir = "ASC" if getattr(s, 'ascending', True) is not False else "DESC"
                 if select_fields == ["*"] or s.field in select_fields:
-                    sort_parts.append(f"{s.field} {sort_dir}")
+                    sort_parts.append(f"{quote_identifier(s.field)} {sort_dir}")
         elif c.viewSortField:
             sort_dir = "ASC" if c.viewSortAscending is not False else "DESC"
             if select_fields == ["*"] or c.viewSortField in select_fields:
-                sort_parts.append(f"{c.viewSortField} {sort_dir}")
+                sort_parts.append(f"{quote_identifier(c.viewSortField)} {sort_dir}")
 
         if sort_parts:
             base_sql = f"{base_sql} ORDER BY {', '.join(sort_parts)}"
@@ -172,7 +185,10 @@ def _build_single_condition(cond: Dict[str, Any], variables: Dict[str, Any]) -> 
     val = cond.get('value')
     val_type = cond.get('valueType')
     
+    if op == 'always_true': return "1=1"
+    if op == 'always_false': return "1=0"
     if not field: return ""
+    field_sql = quote_identifier(field)
     
     # Resolve value
     resolved_val = val
@@ -188,34 +204,34 @@ def _build_single_condition(cond: Dict[str, Any], variables: Dict[str, Any]) -> 
             
     sql_val = _format_sql_value(resolved_val)
     
-    if op == '=': return f"{field} = {sql_val}"
-    if op == '!=': return f"{field} != {sql_val}"
-    if op == '>': return f"{field} > {sql_val}"
-    if op == '>=': return f"{field} >= {sql_val}"
-    if op == '<': return f"{field} < {sql_val}"
-    if op == '<=': return f"{field} <= {sql_val}"
+    if op == '=': return f"{field_sql} = {sql_val}"
+    if op == '!=': return f"{field_sql} != {sql_val}"
+    if op == '>': return f"{field_sql} > {sql_val}"
+    if op == '>=': return f"{field_sql} >= {sql_val}"
+    if op == '<': return f"{field_sql} < {sql_val}"
+    if op == '<=': return f"{field_sql} <= {sql_val}"
     
-    if op == 'contains': return f"{field} LIKE '%{str(resolved_val)}%'"
-    if op == 'not_contains': return f"{field} NOT LIKE '%{str(resolved_val)}%'"
-    if op == 'starts_with': return f"{field} LIKE '{str(resolved_val)}%'"
-    if op == 'ends_with': return f"{field} LIKE '%{str(resolved_val)}'"
+    if op == 'contains': return f"{field_sql} LIKE '%{str(resolved_val)}%'"
+    if op == 'not_contains': return f"{field_sql} NOT LIKE '%{str(resolved_val)}%'"
+    if op == 'starts_with': return f"{field_sql} LIKE '{str(resolved_val)}%'"
+    if op == 'ends_with': return f"{field_sql} LIKE '%{str(resolved_val)}'"
     
     if op == 'in_list' or op == 'in_variable':
         if isinstance(resolved_val, list):
             vals = ", ".join([_format_sql_value_inner(x) for x in resolved_val])
-            return f"{field} IN ({vals})"
-        return f"{field} IN ({sql_val})"
+            return f"{field_sql} IN ({vals})"
+        return f"{field_sql} IN ({sql_val})"
         
     if op == 'not_in_list' or op == 'not_in_variable':
         if isinstance(resolved_val, list):
             vals = ", ".join([_format_sql_value_inner(x) for x in resolved_val])
-            return f"{field} NOT IN ({vals})"
-        return f"{field} NOT IN ({sql_val})"
+            return f"{field_sql} NOT IN ({vals})"
+        return f"{field_sql} NOT IN ({sql_val})"
         
-    if op == 'is_empty': return f"({field} IS NULL OR {field} = '')"
-    if op == 'is_not_empty': return f"({field} IS NOT NULL AND {field} != '')"
+    if op == 'is_empty': return f"({field_sql} IS NULL OR {field_sql} = '')"
+    if op == 'is_not_empty': return f"({field_sql} IS NOT NULL AND {field_sql} != '')"
     
-    return f"{field} {op} {sql_val}"
+    return f"{field_sql} {op} {sql_val}"
 
 def _substitute_variables(text: str, variables: Dict[str, Any]) -> str:
     if not text: return ""

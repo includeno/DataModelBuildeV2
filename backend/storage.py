@@ -9,6 +9,8 @@ import time
 import uuid
 from typing import List, Dict, Optional, Any
 
+from sql_utils import quote_identifier, is_reserved_identifier
+
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 DATA_ROOT = os.path.join(REPO_ROOT, "data")
 DEFAULT_SESSIONS_DIR = os.path.join(DATA_ROOT, "sessions")
@@ -261,7 +263,8 @@ class SessionStorage:
                 if not table_name or not file_path or not os.path.exists(file_path):
                     continue
                 safe_path = self._escape_sql_literal(file_path)
-                con.execute(f"CREATE OR REPLACE VIEW {table_name} AS SELECT * FROM read_parquet('{safe_path}')")
+                table_sql = quote_identifier(table_name)
+                con.execute(f"CREATE OR REPLACE VIEW {table_sql} AS SELECT * FROM read_parquet('{safe_path}')")
         finally:
             con.close()
 
@@ -314,15 +317,10 @@ class SessionStorage:
         # Sanitize table name: remove extension, replace bad chars, ensure starts with letter
         base_name = os.path.splitext(name)[0]
         # Replace non-alphanumeric chars with underscore
-        safe_name = re.sub(r'[^a-zA-Z0-9_]', '_', base_name)
-        
-        # Ensure it doesn't start with a number or is empty
-        if not safe_name:
-            table_name = "uploaded_table"
-        elif safe_name[0].isdigit():
-            table_name = f"t_{safe_name}"
-        else:
-            table_name = safe_name
+        # Preserve user-provided name for SQL usage (identifiers will be quoted when needed)
+        table_name = base_name or "uploaded_table"
+        if is_reserved_identifier(table_name):
+            raise ValueError(f"Dataset name '{table_name}' is a reserved keyword. Please choose another name.")
         
         datasets_dir = self._get_datasets_dir(session_id)
         os.makedirs(datasets_dir, exist_ok=True)
@@ -346,9 +344,10 @@ class SessionStorage:
             con.register('temp_df', df)
             safe_path = self._escape_sql_literal(dataset_file_path)
             con.execute(f"COPY temp_df TO '{safe_path}' (FORMAT PARQUET)")
-            con.execute(f"DROP VIEW IF EXISTS {table_name}")
-            con.execute(f"DROP TABLE IF EXISTS {table_name}")
-            con.execute(f"CREATE OR REPLACE VIEW {table_name} AS SELECT * FROM read_parquet('{safe_path}')")
+            table_sql = quote_identifier(table_name)
+            con.execute(f"DROP VIEW IF EXISTS {table_sql}")
+            con.execute(f"DROP TABLE IF EXISTS {table_sql}")
+            con.execute(f"CREATE OR REPLACE VIEW {table_sql} AS SELECT * FROM read_parquet('{safe_path}')")
         finally:
             con.close()
 
@@ -399,8 +398,9 @@ class SessionStorage:
             result = []
             for t in tables:
                 t_name = t[0]
-                count = con.execute(f"SELECT count(*) FROM {t_name}").fetchone()[0]
-                cols = con.execute(f"DESCRIBE {t_name}").fetchall()
+                table_sql = quote_identifier(t_name)
+                count = con.execute(f"SELECT count(*) FROM {table_sql}").fetchone()[0]
+                cols = con.execute(f"DESCRIBE {table_sql}").fetchall()
                 fields = [c[0] for c in cols]
 
                 result.append({
@@ -422,11 +422,14 @@ class SessionStorage:
         db_path = self._get_db_path(session_id)
         if not os.path.exists(db_path):
             return None
+        if is_reserved_identifier(table_name):
+            raise ValueError(f"Dataset name '{table_name}' is a reserved keyword. Please rename or re-import.")
 
         self._ensure_duckdb_views(session_id)
         con = duckdb.connect(db_path)
         try:
-            df = con.execute(f"SELECT * FROM {table_name} LIMIT {limit}").df()
+            table_sql = quote_identifier(table_name)
+            df = con.execute(f"SELECT * FROM {table_sql} LIMIT {limit}").df()
             return df
         except:
             return None
@@ -450,10 +453,13 @@ class SessionStorage:
         db_path = self._get_db_path(session_id)
         if not os.path.exists(db_path):
             return None
+        if is_reserved_identifier(table_name):
+            raise ValueError(f"Dataset name '{table_name}' is a reserved keyword. Please rename or re-import.")
         self._ensure_duckdb_views(session_id)
         con = duckdb.connect(db_path)
         try:
-            return con.execute(f"SELECT * FROM {table_name}").df()
+            table_sql = quote_identifier(table_name)
+            return con.execute(f"SELECT * FROM {table_sql}").df()
         except:
             return None
         finally:
@@ -548,8 +554,9 @@ class SessionStorage:
                             removed = True
                     except Exception:
                         pass
-                con.execute(f"DROP VIEW IF EXISTS {dataset_id}")
-                con.execute(f"DROP TABLE IF EXISTS {dataset_id}")
+                dataset_sql = quote_identifier(dataset_id)
+                con.execute(f"DROP VIEW IF EXISTS {dataset_sql}")
+                con.execute(f"DROP TABLE IF EXISTS {dataset_sql}")
             finally:
                 con.close()
 

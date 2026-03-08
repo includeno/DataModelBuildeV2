@@ -87,7 +87,7 @@ export const SqlEditor: React.FC<SqlEditorProps> = ({
   }, [activeTabId]);
 
   const handleOpenTable = (tableName: string) => {
-      const newQuery = `SELECT * FROM ${tableName}`; // Removed LIMIT to rely on pagination
+      const newQuery = `SELECT * FROM ${quoteIdentifier(tableName)}`; // Removed LIMIT to rely on pagination
       
       // Always update the active tab with the new table context and query
       // Instead of creating a new tab.
@@ -118,51 +118,110 @@ export const SqlEditor: React.FC<SqlEditorProps> = ({
       return acc;
   }, {} as Record<string, string[]>);
 
+  const RESERVED_WORDS = new Set([
+      'select', 'from', 'where', 'order', 'group', 'by', 'join', 'left', 'right',
+      'inner', 'outer', 'full', 'on', 'limit', 'offset', 'union', 'distinct',
+      'having', 'as', 'and', 'or', 'not', 'null', 'is', 'like', 'in', 'table', 'view'
+  ]);
+
+  const stripIdentifierQuotes = (value: string) => {
+      const trimmed = value.trim();
+      if ((trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+          (trimmed.startsWith('`') && trimmed.endsWith('`')) ||
+          (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+          return trimmed.slice(1, -1).replace(/""/g, '"');
+      }
+      return trimmed;
+  };
+
+  const needsQuoting = (name: string) => {
+      if (!name) return false;
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return true;
+      return RESERVED_WORDS.has(name.toLowerCase());
+  };
+
+  const quoteIdentifier = (name: string) => {
+      if (!name) return name;
+      if (name === '*') return name;
+      if ((name.startsWith('"') && name.endsWith('"')) ||
+          (name.startsWith('`') && name.endsWith('`')) ||
+          (name.startsWith('[') && name.endsWith(']'))) {
+          return name;
+      }
+      if (!needsQuoting(name)) return name;
+      return `"${name.replace(/"/g, '""')}"`;
+  };
+
   const getTokenAtCursor = (text: string, cursor: number) => {
       let start = cursor - 1;
-      while (start >= 0 && /[A-Za-z0-9_.]/.test(text[start])) start -= 1;
+      while (start >= 0 && /[A-Za-z0-9_."`\-\[\]]/.test(text[start])) start -= 1;
       start += 1;
       const token = text.slice(start, cursor);
       return { token, start };
   };
 
+  const getAliasMap = (text: string) => {
+      const map: Record<string, string> = {};
+      const regex = /\b(from|join)\s+(".*?"|`.*?`|\[[^\]]+\]|[A-Za-z0-9_.-]+)\s+(?:as\s+)?([A-Za-z0-9_]+)\b/gi;
+      let match: RegExpExecArray | null;
+      while ((match = regex.exec(text))) {
+          const tableRaw = stripIdentifierQuotes(match[2]);
+          const alias = match[3];
+          const table = datasetNames.find(t => t.toLowerCase() === tableRaw.toLowerCase());
+          if (table && alias) {
+              map[alias] = table;
+          }
+      }
+      return map;
+  };
+
   const computeSuggestions = (text: string, cursor: number): string[] => {
+      const aliasMap = getAliasMap(text);
       const { token } = getTokenAtCursor(text, cursor);
       const trimmed = token.trim();
+      const normalized = stripIdentifierQuotes(trimmed);
       if (!trimmed) {
           const before = text.slice(0, cursor);
-          const dotMatch = before.match(/([A-Za-z0-9_]+)\.$/);
+          const dotMatch = before.match(/([A-Za-z0-9_."`\-\[\]]+)\.$/);
           if (dotMatch) {
               const tablePart = dotMatch[1];
-              const tableMatch = datasetNames.find(t => t.toLowerCase() === tablePart.toLowerCase());
+              const tableLookup = stripIdentifierQuotes(tablePart);
+              const tableMatch = aliasMap[tableLookup] || datasetNames.find(t => t.toLowerCase() === tableLookup.toLowerCase());
               if (!tableMatch) return [];
               const fields = datasetFieldMap[tableMatch] || [];
-              return fields.slice(0, 12).map(f => `${tableMatch}.${f}`);
+              return fields.slice(0, 12).map(f => `${tablePart}.${quoteIdentifier(f)}`);
           }
           return [];
       }
 
-      const lower = trimmed.toLowerCase();
-      if (trimmed.includes('.')) {
-          const [tablePart, fieldPart = ''] = trimmed.split('.');
-          const tableMatch = datasetNames.find(t => t.toLowerCase() === tablePart.toLowerCase());
+      const lower = normalized.toLowerCase();
+      if (normalized.includes('.')) {
+          const [tablePartRaw, fieldPartRaw = ''] = normalized.split('.');
+          const tableMatch = aliasMap[tablePartRaw] || datasetNames.find(t => t.toLowerCase() === tablePartRaw.toLowerCase());
           if (!tableMatch) return [];
           const fields = datasetFieldMap[tableMatch] || [];
           return fields
-              .filter(f => f.toLowerCase().startsWith(fieldPart.toLowerCase()))
+              .filter(f => f.toLowerCase().startsWith(fieldPartRaw.toLowerCase()))
               .slice(0, 12)
-              .map(f => `${tableMatch}.${f}`);
+              .map(f => {
+                  const tablePrefix = trimmed.includes('.') ? trimmed.split('.')[0] : tablePartRaw;
+                  return `${tablePrefix}.${quoteIdentifier(f)}`;
+              });
       }
 
       const keywordMatches = SQL_KEYWORDS.filter(k => k.toLowerCase().startsWith(lower));
-      const tableMatches = datasetNames.filter(t => t.toLowerCase().startsWith(lower));
+      const tableMatches = datasetNames
+          .filter(t => t.toLowerCase().startsWith(lower))
+          .map(t => quoteIdentifier(t));
+      const aliasMatches = Object.keys(aliasMap).filter(a => a.toLowerCase().startsWith(lower));
       const fieldMatches = Object.values(datasetFieldMap)
           .flat()
           .filter((f, i, arr) => arr.indexOf(f) === i)
           .filter(f => f.toLowerCase().startsWith(lower))
           .slice(0, 10);
 
-      return [...keywordMatches, ...tableMatches, ...fieldMatches].slice(0, 12);
+      const fieldSuggestions = fieldMatches.map(f => quoteIdentifier(f));
+      return [...keywordMatches, ...tableMatches, ...aliasMatches, ...fieldSuggestions].slice(0, 12);
   };
 
   const applySuggestion = (suggestion: string) => {
@@ -433,10 +492,11 @@ export const SqlEditor: React.FC<SqlEditorProps> = ({
                         spellCheck={false}
                     />
                     {showSuggestions && suggestions.length > 0 && (
-                        <div className="absolute left-4 bottom-4 bg-[#1f2937] border border-[#374151] rounded-md shadow-lg w-80 max-h-56 overflow-y-auto z-20">
+                        <div data-testid="sql-suggestions" className="absolute left-4 bottom-4 bg-[#1f2937] border border-[#374151] rounded-md shadow-lg w-80 max-h-56 overflow-y-auto z-20">
                             {suggestions.map((s, i) => (
                                 <button
                                     key={`${s}-${i}`}
+                                    data-testid={`sql-suggestion-${i}`}
                                     className={`w-full text-left px-3 py-1.5 text-xs font-mono ${
                                         i === selectedSuggestionIndex ? 'bg-[#2563eb] text-white' : 'text-[#d1d5db] hover:bg-[#374151]'
                                     }`}

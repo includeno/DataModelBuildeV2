@@ -291,6 +291,7 @@ export const DataPreview: React.FC<DataPreviewProps> = ({
                 <button 
                     onClick={() => onPageChange(page - 1)}
                     disabled={page <= 1}
+                    data-testid="page-prev"
                     className="p-1 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
                 >
                     <ChevronLeft className="w-4 h-4" />
@@ -298,6 +299,7 @@ export const DataPreview: React.FC<DataPreviewProps> = ({
                 <button 
                     onClick={() => onPageChange(page + 1)}
                     disabled={page >= totalPages}
+                    data-testid="page-next"
                     className="p-1 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
                 >
                     <ChevronRight className="w-4 h-4" />
