@@ -313,10 +313,21 @@ async def get_session_diagnostics(session_id: str):
         if ds.get("id"):
             dataset_names.add(ds.get("id"))
 
+    missing_sources = []
     for op in operations:
+        op_name = op.get("name") or op.get("id") or "unknown-operation"
         for cmd in op.get("commands") or []:
+            cmd_type = cmd.get("type") or "unknown"
+            if cmd_type in ("source", "multi_table"):
+                continue
             data_source = cmd.get("dataSource")
-            if data_source is None or data_source == "stream":
+            if data_source is None:
+                missing_sources.append((cmd.get("id"), cmd_type, op_name))
+                continue
+            if isinstance(data_source, str) and data_source.strip() == "":
+                missing_sources.append((cmd.get("id"), cmd_type, op_name))
+                continue
+            if data_source == "stream":
                 continue
             resolved = None
             if node is not None:
@@ -331,7 +342,15 @@ async def get_session_diagnostics(session_id: str):
                 "status": status
             })
             if status == "missing":
-                report["warnings"].append(f"DataSource '{data_source}' resolved to '{resolved}' but dataset not found.")
+                report["warnings"].append(
+                    f"Command {cmd.get('id')} ({cmd_type}) in operation {op_name} "
+                    f"references dataSource '{data_source}' → '{resolved}', but dataset not found."
+                )
+
+    for cmd_id, cmd_type, op_name in missing_sources:
+        report["warnings"].append(
+            f"Missing data source: command {cmd_id} ({cmd_type}) in operation {op_name}."
+        )
 
     if not report["sources"]:
         report["warnings"].append("No source commands found.")

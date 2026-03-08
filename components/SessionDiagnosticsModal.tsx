@@ -70,9 +70,11 @@ export const SessionDiagnosticsModal: React.FC<SessionDiagnosticsModalProps> = (
                 <div className="bg-yellow-50 border border-yellow-100 rounded-md p-3 text-sm text-yellow-900">
                   <div className="font-semibold mb-1">Warnings</div>
                   <ul className="list-disc list-inside text-xs">
-                    {report.warnings.map((w, i) => (
-                      <li key={i}>{w}</li>
-                    ))}
+                    {report.warnings
+                      .flatMap(w => w.split('\n').map(line => line.trim()).filter(Boolean))
+                      .map((w, i) => (
+                        <li key={i}>{w}</li>
+                      ))}
                   </ul>
                 </div>
               )}

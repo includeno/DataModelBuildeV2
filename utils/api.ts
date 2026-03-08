@@ -81,6 +81,23 @@ const MOCK_SESSIONS: SessionMetadata[] = [
     { sessionId: "mock-session-demo", displayName: "Mock Demo Session", createdAt: Date.now() },
 ];
 
+const MOCK_IMPORT_HISTORY = [
+    {
+        timestamp: Date.now() - 1000 * 60 * 60 * 2,
+        originalFileName: "employees.csv",
+        datasetName: "employees.csv",
+        tableName: "employees.csv",
+        rows: 50
+    },
+    {
+        timestamp: Date.now() - 1000 * 60 * 30,
+        originalFileName: "sales_data.csv",
+        datasetName: "sales_data.csv",
+        tableName: "sales_data.csv",
+        rows: 200
+    }
+];
+
 const MOCK_SESSION_STATES: Record<string, any> = {};
 const MOCK_SESSION_METADATA: Record<string, any> = {};
 
@@ -123,6 +140,29 @@ const buildMockDiagnostics = (sessionId: string) => {
     } else {
         warnings.push("No tree found in mock session state.");
     }
+
+    const missingSources: Array<{ id: string; type: string; opName: string }> = [];
+    operations.forEach(op => {
+        const opName = op.name || op.id || 'unknown-operation';
+        (op.commands || []).forEach(cmd => {
+            const cmdType = cmd.type || 'unknown';
+            if (cmdType === 'source' || cmdType === 'multi_table') return;
+            const raw = cmd.dataSource;
+            if (raw === null || raw === undefined) {
+                missingSources.push({ id: cmd.id, type: cmdType, opName });
+                return;
+            }
+            if (typeof raw === 'string' && raw.trim() === '') {
+                missingSources.push({ id: cmd.id, type: cmdType, opName });
+                return;
+            }
+            if (raw === 'stream') return;
+        });
+    });
+
+    missingSources.forEach(m => {
+        warnings.push(`Missing data source: command ${m.id} (${m.type}) in operation ${m.opName}.`);
+    });
 
     return {
         sessionId,
@@ -591,6 +631,7 @@ export const api = {
                 const ds = MOCK_DATASETS.find(d => d.name === datasetName || d.id === datasetName);
                 return { rows: ds?.rows || [], totalCount: ds?.totalCount || 0 };
             }
+            if (endpoint.match(/\/sessions\/.*\/imports/)) return [...MOCK_IMPORT_HISTORY];
             if (endpoint.match(/\/sessions\/.*\/datasets$/)) return [...MOCK_DATASETS];
             if (endpoint.match(/\/sessions\/.*\/state/)) return MOCK_SESSION_STATES[endpoint.split('/')[2]] || {};
             if (endpoint.match(/\/sessions\/.*\/metadata/)) return MOCK_SESSION_METADATA[endpoint.split('/')[2]] || { displayName: "", settings: { cascadeDisable: false, panelPosition: 'right' }};

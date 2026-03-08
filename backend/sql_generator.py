@@ -18,10 +18,9 @@ def generate_sql_for_command(cmd: Command, variables: Dict[str, Any], input_tabl
                 "valueType": "raw" # Assume raw for legacy
             }, variables)
             
-        if not where_clause:
-            where_clause = "1=1"
-            
         table_ref = quote_table_ref(input_table)
+        if not where_clause:
+            return f"SELECT * FROM {table_ref}"
         return f"SELECT * FROM {table_ref} WHERE {where_clause}"
         
     elif cmd.type == 'join':
@@ -185,7 +184,7 @@ def _build_single_condition(cond: Dict[str, Any], variables: Dict[str, Any]) -> 
     val = cond.get('value')
     val_type = cond.get('valueType')
     
-    if op == 'always_true': return "1=1"
+    if op == 'always_true': return ""
     if op == 'always_false': return "1=0"
     if not field: return ""
     field_sql = quote_identifier(field)

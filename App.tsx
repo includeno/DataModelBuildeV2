@@ -57,7 +57,7 @@ function App() {
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [sqlHistory, setSqlHistory] = useState<SqlHistoryItem[]>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string>('setup_1');
-  const [currentView, setCurrentView] = useState<'workflow' | 'sql'>('workflow');
+  const [currentView, setCurrentView] = useState<'workflow' | 'sql' | 'data'>('workflow');
   
   // UI State
   const [isImportOpen, setIsImportOpen] = useState(false);
@@ -96,6 +96,7 @@ function App() {
 
   // SQL State
   const [targetSqlTable, setTargetSqlTable] = useState<string | null>(null);
+  const [targetDataTable, setTargetDataTable] = useState<string | null>(null);
 
   // --- DERIVED STATE ---
   const selectedNode = useMemo(() => {
@@ -533,13 +534,30 @@ function App() {
       const parent = findNode(tree);
       if (!parent) return;
 
+      const collectNames = (node: OperationNode, names: Set<string>) => {
+          if (node.name) names.add(node.name);
+          if (node.children) node.children.forEach(child => collectNames(child, names));
+      };
+
+      const getUniqueName = (base: string) => {
+          const names = new Set<string>();
+          collectNames(tree, names);
+          let index = 1;
+          let candidate = `${base} ${index}`;
+          while (names.has(candidate)) {
+              index += 1;
+              candidate = `${base} ${index}`;
+          }
+          return candidate;
+      };
+
       let newOpType: OperationType = 'process';
-      let newName = 'New Operation';
+      let newName = getUniqueName('Operation');
 
       // If adding to root, we create a new Setup node
       if (parent.operationType === 'root') {
           newOpType = 'setup';
-          newName = 'Data Setup';
+          newName = getUniqueName('Data Setup');
       }
 
       const newNode: OperationNode = {
@@ -805,6 +823,7 @@ function App() {
                                 onMoveNode={handleMoveNode}
                                 onImportClick={() => { if (sessionId) setIsImportOpen(true); }}
                                 onOpenTableInSql={(t) => { setTargetSqlTable(t); setCurrentView('sql'); setIsMobileSidebarOpen(false); }}
+                                onOpenTableInData={(t) => { setTargetDataTable(t); setCurrentView('data'); setIsMobileSidebarOpen(false); }}
                                 onOpenSchema={(name) => { handleOpenSchema(name, true); }}
                                 onDeleteDataset={handleDeleteDataset}
                                 appearance={appearance}
@@ -829,6 +848,7 @@ function App() {
                         onMoveNode={handleMoveNode}
                         onImportClick={() => { if (sessionId) setIsImportOpen(true); }}
                         onOpenTableInSql={(t) => { setTargetSqlTable(t); setCurrentView('sql'); }}
+                        onOpenTableInData={(t) => { setTargetDataTable(t); setCurrentView('data'); }}
                         onOpenSchema={(name) => { handleOpenSchema(name, false); }}
                         onDeleteDataset={handleDeleteDataset}
                         appearance={appearance}
@@ -845,6 +865,8 @@ function App() {
                     sessionId={sessionId}
                     apiConfig={apiConfig}
                     targetSqlTable={targetSqlTable}
+                    targetDataTable={targetDataTable}
+                    onSelectDataTable={(t) => setTargetDataTable(t)}
                     onClearTargetSqlTable={() => setTargetSqlTable(null)}
                     sqlRunRequestId={sqlRunRequestId}
                     onSqlRunStateChange={setSqlRunState}

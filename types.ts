@@ -148,6 +148,14 @@ export interface Dataset {
   totalCount?: number;
 }
 
+export interface ImportHistoryItem {
+  timestamp: number;
+  originalFileName: string;
+  datasetName: string;
+  tableName: string;
+  rows: number;
+}
+
 export interface SqlHistoryItem {
   id: string;
   timestamp: number;

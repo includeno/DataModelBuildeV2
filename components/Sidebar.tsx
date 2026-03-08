@@ -5,7 +5,7 @@ import { OperationNode, Dataset, AppearanceConfig } from '../types';
 
 interface SidebarProps {
   width: number;
-  currentView: 'workflow' | 'sql';
+  currentView: 'workflow' | 'sql' | 'data';
   sessionId: string;
   tree: OperationNode;
   datasets: Dataset[];
@@ -17,6 +17,7 @@ interface SidebarProps {
   onMoveNode?: (id: string, direction: 'up' | 'down') => void;
   onImportClick: () => void;
   onOpenTableInSql: (tableName: string) => void;
+  onOpenTableInData?: (tableName: string) => void;
   onExportOperations?: () => void;
   onImportOperations?: (file: File) => void;
   onAnalyzeOverlap?: (nodeId: string) => void;
@@ -39,6 +40,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onMoveNode,
   onImportClick,
   onOpenTableInSql,
+  onOpenTableInData,
   onExportOperations,
   onImportOperations,
   onAnalyzeOverlap,
@@ -53,6 +55,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [lastGlobalAction, setLastGlobalAction] = useState<'expand' | 'collapse' | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const canImportDataset = Boolean(sessionId);
+
+  const handleOpenDataset = (name: string) => {
+      if (currentView === 'data' && onOpenTableInData) {
+          onOpenTableInData(name);
+          return;
+      }
+      onOpenTableInSql(name);
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       if (e.target.files && e.target.files[0] && onImportOperations) {
@@ -177,7 +187,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Data Sources Section */}
       <div 
         className={`flex flex-col border-t border-gray-200 bg-white shrink-0 transition-all duration-300 ease-in-out ${
-            currentView === 'sql' ? 'flex-1' : 
+            currentView !== 'workflow' ? 'flex-1' : 
             (!isOpsExpanded ? 'flex-1' : 
             (isDataExpanded ? 'h-1/3 min-h-[150px]' : 'h-10'))
         }`}
@@ -211,7 +221,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <div className="space-y-0.5">
                         {datasets.map(ds => (
                             <div key={ds.id} className="flex items-center px-2 py-1 bg-white hover:bg-blue-50 rounded-md text-sm transition-colors group justify-between border border-transparent hover:border-blue-100">
-                                <div className="flex items-center min-w-0 cursor-pointer flex-1" onClick={() => onOpenTableInSql(ds.name)}>
+                                <div className="flex items-center min-w-0 cursor-pointer flex-1" onClick={() => handleOpenDataset(ds.name)}>
                                     <Database className="w-3 h-3 text-gray-400 mr-2 shrink-0 group-hover:text-blue-500" />
                                     <div className="font-medium text-gray-700 truncate group-hover:text-blue-700 text-xs" title={ds.name}>{ds.name}</div>
                                     {appearance.showDatasetIds && (
@@ -221,7 +231,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                     )}
                                 </div>
                                 <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity space-x-1">
-                                    <button onClick={(e) => { e.stopPropagation(); onOpenTableInSql(ds.name); }} className="p-1 text-gray-300 hover:text-blue-600" title="Query"><Search className="w-3 h-3" /></button>
+                                    <button onClick={(e) => { e.stopPropagation(); handleOpenDataset(ds.name); }} className="p-1 text-gray-300 hover:text-blue-600" title="Query"><Search className="w-3 h-3" /></button>
                                     <button onClick={(e) => { e.stopPropagation(); onOpenSchema && onOpenSchema(ds.name); }} className="p-1 text-gray-300 hover:text-gray-600" title="Settings"><Settings className="w-3 h-3" /></button>
                                     {onDeleteDataset && (
                                         <button

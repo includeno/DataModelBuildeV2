@@ -89,6 +89,16 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
 
   const handleGenerateSql = async (cmdId: string) => {
       if (!onGenerateSql) return;
+      const target = commands.find(c => c.id === cmdId);
+      const requiresSource = target ? (target.type !== 'source' && target.type !== 'multi_table') : false;
+      const rawSource = target?.config?.dataSource;
+      const isMissingSource = requiresSource && (!rawSource || String(rawSource).trim() === '' || rawSource === 'stream');
+      if (target && isMissingSource) {
+          setSqlModalOpen(true);
+          setSqlLoading(false);
+          setSqlContent('-- Error: No data source selected. Please choose a source first.');
+          return;
+      }
       setSqlModalOpen(true);
       setSqlLoading(true);
       setSqlContent('');
@@ -207,6 +217,14 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
   }, [tree]);
 
   const hasComplexView = useMemo(() => commands.some(c => c.type === 'multi_table'), [commands]);
+  const hasMissingCommandSources = useMemo(() => (
+      commands.some(cmd => {
+          const requiresSource = cmd.type !== 'source' && cmd.type !== 'multi_table';
+          if (!requiresSource) return false;
+          const rawSource = cmd.config?.dataSource;
+          return !rawSource || String(rawSource).trim() === '' || rawSource === 'stream';
+      })
+  ), [commands]);
 
   const RESERVED_WORDS = useMemo(() => new Set([
       'select', 'from', 'where', 'order', 'group', 'by', 'join', 'left', 'right',
@@ -753,11 +771,17 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                <div className="relative group shrink-0">
                     <button 
                         onClick={() => onRun && onRun()}
-                        disabled={!canRun}
+                        disabled={!canRun || hasMissingCommandSources}
                         className={`flex items-center justify-center w-8 h-8 rounded-lg transition-colors shadow-sm active:scale-95 ${
-                            canRun ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-300 text-white cursor-not-allowed'
+                            canRun && !hasMissingCommandSources ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-300 text-white cursor-not-allowed'
                         }`}
-                        title={canRun ? "Run this operation" : "Configure data sources before running"}
+                        title={
+                            !canRun
+                            ? "Configure data sources before running"
+                            : hasMissingCommandSources
+                            ? "Select a data source for each step before running"
+                            : "Run this operation"
+                        }
                     >
                         <Play className="w-4 h-4 ml-0.5" />
                     </button>
@@ -811,7 +835,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
             }}>
             {commands.map((cmd, index) => {
                 let activeSchema: Record<string, DataType> = {};
-                const normalizedDataSource = cmd.config.dataSource
+                const normalizedDataSource = cmd.config.dataSource && cmd.config.dataSource !== 'stream'
                     ? (availableSourceAliases.find(sa =>
                         sa.linkId === cmd.config.dataSource ||
                         sa.alias === cmd.config.dataSource ||
@@ -916,8 +940,10 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                 
                 const currentScopeVariables = Array.from(new Set([...ancestorVariables, ...localVariables]));
 
-                const isSourceRequired = index === 0 && (!ancestors || ancestors.length === 0);
-                const isMissingSource = isSourceRequired && !cmd.config.dataSource;
+                const showSourcePlaceholder = index === 0 && (!ancestors || ancestors.length === 0);
+                const isSourceRequired = cmd.type !== 'source' && cmd.type !== 'multi_table';
+                const rawSource = cmd.config?.dataSource;
+                const isMissingSource = isSourceRequired && (!rawSource || String(rawSource).trim() === '' || rawSource === 'stream');
 
                 const isDraggable = cmd.type !== 'source';
                 return (
@@ -992,11 +1018,17 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                 </button>
                                 <button 
                                     onClick={() => onRun && onRun(cmd.id)}
-                                    disabled={!canRun}
+                                    disabled={!canRun || isMissingSource}
                                     className={`p-1 rounded transition-colors ${
-                                        canRun ? 'text-gray-400 hover:text-blue-600 hover:bg-blue-50' : 'text-gray-300 cursor-not-allowed'
+                                        canRun && !isMissingSource ? 'text-gray-400 hover:text-blue-600 hover:bg-blue-50' : 'text-gray-300 cursor-not-allowed'
                                     }`}
-                                    title={canRun ? "Run logic up to this step" : "Configure data sources before running"}
+                                    title={
+                                        !canRun
+                                        ? "Configure data sources before running"
+                                        : isMissingSource
+                                        ? "Select a data source for this step before running"
+                                        : "Run logic up to this step"
+                                    }
                                 >
                                     <Play className="w-3.5 h-3.5" />
                                 </button>
@@ -1023,7 +1055,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                         onChange={(e) => updateCommand(cmd.id, 'config.dataSource', e.target.value)}
                                         className={`bg-transparent text-xs font-medium focus:outline-none cursor-pointer border-none p-0 pr-4 hover:underline ${isMissingSource ? 'text-red-600' : 'text-blue-700'}`}
                                     >
-                                        <option value="">{isSourceRequired ? "-- Select Source --" : "Inherit (Use Incoming Data)"}</option>
+                                        <option value="">{showSourcePlaceholder ? "-- Select Source --" : ""}</option>
                                         {availableSourceAliases.length > 0 && (
                                             <optgroup label="Data Sources">
                                                 {availableSourceAliases.map(sa => (

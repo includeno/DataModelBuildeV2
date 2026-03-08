@@ -5,14 +5,17 @@ import { CommandEditor } from './CommandEditor';
 import { SqlEditor } from './SqlEditor';
 import { DataPreview } from './DataPreview';
 import { ComplexDataPreview } from './ComplexDataPreview';
+import { DataBrowser } from './DataBrowser';
 import { OperationNode, Dataset, Command, ExecutionResult, ApiConfig, OperationType, DataType, SqlHistoryItem, AppearanceConfig } from '../types';
 import { api } from '../utils/api';
 
 interface WorkspaceProps {
-  currentView: 'workflow' | 'sql';
+  currentView: 'workflow' | 'sql' | 'data';
   sessionId: string;
   apiConfig: ApiConfig;
   targetSqlTable: string | null;
+  targetDataTable?: string | null;
+  onSelectDataTable?: (name: string) => void;
   onClearTargetSqlTable: () => void;
   sqlRunRequestId?: number;
   onSqlRunStateChange?: (state: { canRun: boolean; running: boolean }) => void;
@@ -48,6 +51,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   sessionId,
   apiConfig,
   targetSqlTable,
+  targetDataTable,
+  onSelectDataTable,
   onClearTargetSqlTable,
   sqlRunRequestId,
   onSqlRunStateChange,
@@ -312,6 +317,16 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                     onRunStateChange={onSqlRunStateChange}
                     history={sqlHistory}
                     onUpdateHistory={onUpdateSqlHistory}
+                />
+            </div>
+        ) : currentView === 'data' ? (
+            <div className="flex-1 h-full overflow-hidden">
+                <DataBrowser
+                    sessionId={sessionId}
+                    apiConfig={apiConfig}
+                    datasets={datasets}
+                    selectedTable={targetDataTable}
+                    onSelectTable={onSelectDataTable}
                 />
             </div>
         ) : (

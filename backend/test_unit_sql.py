@@ -212,7 +212,9 @@ def test_filter_deep_nested_group(variables):
 
 def test_filter_group_empty(variables):
     cmd = create_cmd("filter", {"filterRoot": {"logicalOperator": "AND", "conditions": []}})
-    assert "WHERE 1=1" in gen(cmd, variables)
+    sql = gen(cmd, variables)
+    assert "WHERE" not in sql
+    assert sql == "SELECT * FROM t"
 
 # --- 4. Join Command (10 cases) ---
 
