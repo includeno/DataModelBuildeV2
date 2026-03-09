@@ -476,6 +476,10 @@ export const SqlBuilderModal: React.FC<SqlBuilderModalProps> = ({
         const fieldNames = getDatasetFieldNames(datasets, datasetName);
         const activeSchema = buildActiveSchema(datasetName);
         const missingDataset = isMissingDataset(datasetName);
+        const updateConfig = (partial: Record<string, any>) => updateCommand(cmd.id, (current) => ({
+            ...current,
+            config: { ...current.config, ...partial }
+        }));
 
         const renderSourceSelect = () => (
             <div className="flex flex-col space-y-1">
@@ -661,6 +665,473 @@ export const SqlBuilderModal: React.FC<SqlBuilderModalProps> = ({
                                     config: { ...current.config, viewLimit: e.target.value ? Number(e.target.value) : undefined }
                                 }))}
                                 placeholder="0"
+                            />
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        if (cmd.type === 'join') {
+            const joinTargetType = cfg.joinTargetType || 'table';
+            const joinTargetDatasetName = resolveDatasetName(cfg.joinTable);
+            const joinFieldNames = getDatasetFieldNames(datasets, joinTargetDatasetName);
+            const joinLeftField = cfg.joinLeftField || '';
+            const joinRightField = cfg.joinRightField || '';
+            const joinOperator = cfg.joinOperator || '=';
+            const leftLabel = datasetName || 'left';
+            const rightLabel = joinTargetDatasetName || 'right';
+            const canBuildOn = joinTargetType === 'table' && !!joinLeftField && !!joinRightField;
+
+            return (
+                <div className="space-y-3">
+                    {renderSourceSelect()}
+                    <div className="grid grid-cols-3 gap-3">
+                        <div>
+                            <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Target Type</label>
+                            <select
+                                className="w-full text-xs border border-gray-200 rounded-md px-2 py-1"
+                                value={joinTargetType}
+                                onChange={(e) => updateConfig({ joinTargetType: e.target.value })}
+                            >
+                                <option value="table">Table</option>
+                                <option value="node">Node</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Join Type</label>
+                            <select
+                                className="w-full text-xs border border-gray-200 rounded-md px-2 py-1"
+                                value={cfg.joinType || 'LEFT'}
+                                onChange={(e) => updateConfig({ joinType: e.target.value })}
+                            >
+                                <option value="INNER">INNER</option>
+                                <option value="LEFT">LEFT</option>
+                                <option value="RIGHT">RIGHT</option>
+                                <option value="FULL">FULL</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Target</label>
+                            {joinTargetType === 'node' ? (
+                                <input
+                                    className={baseInputStyles}
+                                    value={cfg.joinTargetNodeId || ''}
+                                    onChange={(e) => updateConfig({ joinTargetNodeId: e.target.value })}
+                                    placeholder="Node ID"
+                                />
+                            ) : (
+                                <select
+                                    className={baseInputStyles}
+                                    value={cfg.joinTable || ''}
+                                    onChange={(e) => updateConfig({ joinTable: e.target.value })}
+                                >
+                                    <option value="">-- Select Source --</option>
+                                    {getSourceOptions(cfg.joinTable).map(opt => (
+                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                    ))}
+                                </select>
+                            )}
+                        </div>
+                    </div>
+                    <div>
+                        <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">ON Condition</label>
+                        <input
+                            className={baseInputStyles}
+                            value={cfg.on || ''}
+                            onChange={(e) => updateConfig({ on: e.target.value })}
+                            placeholder="left.id = right.user_id"
+                        />
+                    </div>
+                    {joinTargetType === 'table' && fieldNames.length > 0 && joinFieldNames.length > 0 && (
+                        <div className="border border-gray-100 rounded-md p-2 bg-gray-50">
+                            <div className="text-[10px] font-bold text-gray-500 uppercase mb-2">ON Builder</div>
+                            <div className="grid grid-cols-12 gap-2 items-center">
+                                <div className="col-span-5">
+                                    <select
+                                        className={baseInputStyles}
+                                        value={joinLeftField}
+                                        onChange={(e) => updateConfig({ joinLeftField: e.target.value })}
+                                    >
+                                        <option value="">Left Field...</option>
+                                        {fieldNames.map(f => <option key={f} value={f}>{f}</option>)}
+                                    </select>
+                                </div>
+                                <div className="col-span-2">
+                                    <select
+                                        className={baseInputStyles}
+                                        value={joinOperator}
+                                        onChange={(e) => updateConfig({ joinOperator: e.target.value })}
+                                    >
+                                        <option value="=">=</option>
+                                        <option value="!=">!=</option>
+                                        <option value=">">&gt;</option>
+                                        <option value="<">&lt;</option>
+                                        <option value=">=">&gt;=</option>
+                                        <option value="<=">&lt;=</option>
+                                    </select>
+                                </div>
+                                <div className="col-span-5">
+                                    <select
+                                        className={baseInputStyles}
+                                        value={joinRightField}
+                                        onChange={(e) => updateConfig({ joinRightField: e.target.value })}
+                                    >
+                                        <option value="">Right Field...</option>
+                                        {joinFieldNames.map(f => <option key={f} value={f}>{f}</option>)}
+                                    </select>
+                                </div>
+                            </div>
+                            <div className="mt-2 flex items-center justify-between">
+                                <div className="text-[10px] text-gray-500">
+                                    {leftLabel}.{joinLeftField || '...'} {joinOperator} {rightLabel}.{joinRightField || '...'}
+                                </div>
+                                <button
+                                    className="text-[10px] font-semibold text-blue-600 hover:underline disabled:text-gray-300 disabled:no-underline"
+                                    disabled={!canBuildOn}
+                                    onClick={() => updateConfig({ on: `${leftLabel}.${joinLeftField} ${joinOperator} ${rightLabel}.${joinRightField}` })}
+                                >
+                                    Apply to ON
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        if (cmd.type === 'group') {
+            const groupByFields = Array.isArray(cfg.groupByFields) ? cfg.groupByFields : [];
+            const aggregations = Array.isArray(cfg.aggregations) ? cfg.aggregations : [];
+            const havingConditions = Array.isArray(cfg.havingConditions) ? cfg.havingConditions : [];
+
+            return (
+                <div className="space-y-3">
+                    {renderSourceSelect()}
+                    <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                            <label className="text-[10px] font-bold text-gray-500 uppercase">Group By</label>
+                            <button
+                                className="text-[10px] font-semibold text-blue-600 hover:underline"
+                                onClick={() => updateConfig({ groupByFields: [...groupByFields, ''] })}
+                            >
+                                Add Field
+                            </button>
+                        </div>
+                        {groupByFields.map((field: string, idx: number) => (
+                            <div key={idx} className="grid grid-cols-12 gap-2 items-center">
+                                <div className="col-span-10">
+                                    <select
+                                        className={baseInputStyles}
+                                        value={field || ''}
+                                        onChange={(e) => {
+                                            const next = [...groupByFields];
+                                            next[idx] = e.target.value;
+                                            updateConfig({ groupByFields: next });
+                                        }}
+                                    >
+                                        <option value="">Select Field...</option>
+                                        {fieldNames.map(f => <option key={f} value={f}>{f}</option>)}
+                                    </select>
+                                </div>
+                                <div className="col-span-2 text-right">
+                                    <button
+                                        className="text-[11px] text-red-500 hover:underline"
+                                        onClick={() => {
+                                            const next = [...groupByFields];
+                                            next.splice(idx, 1);
+                                            updateConfig({ groupByFields: next });
+                                        }}
+                                    >
+                                        Remove
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                            <label className="text-[10px] font-bold text-gray-500 uppercase">Aggregations</label>
+                            <button
+                                className="text-[10px] font-semibold text-blue-600 hover:underline"
+                                onClick={() => updateConfig({ aggregations: [...aggregations, { field: '', func: 'count', alias: '' }] })}
+                            >
+                                Add Metric
+                            </button>
+                        </div>
+                        {aggregations.map((agg: any, idx: number) => (
+                            <div key={idx} className="grid grid-cols-12 gap-2 items-center">
+                                <div className="col-span-3">
+                                    <select
+                                        className={baseInputStyles}
+                                        value={agg.func || 'count'}
+                                        onChange={(e) => {
+                                            const next = [...aggregations];
+                                            next[idx] = { ...next[idx], func: e.target.value };
+                                            updateConfig({ aggregations: next });
+                                        }}
+                                    >
+                                        <option value="count">count</option>
+                                        <option value="sum">sum</option>
+                                        <option value="mean">mean</option>
+                                        <option value="min">min</option>
+                                        <option value="max">max</option>
+                                        <option value="first">first</option>
+                                        <option value="last">last</option>
+                                    </select>
+                                </div>
+                                <div className="col-span-4">
+                                    <select
+                                        className={baseInputStyles}
+                                        value={agg.field || ''}
+                                        onChange={(e) => {
+                                            const next = [...aggregations];
+                                            next[idx] = { ...next[idx], field: e.target.value };
+                                            updateConfig({ aggregations: next });
+                                        }}
+                                    >
+                                        <option value="">Field...</option>
+                                        <option value="*">*</option>
+                                        {fieldNames.map(f => <option key={f} value={f}>{f}</option>)}
+                                    </select>
+                                </div>
+                                <div className="col-span-4">
+                                    <input
+                                        className={baseInputStyles}
+                                        value={agg.alias || ''}
+                                        onChange={(e) => {
+                                            const next = [...aggregations];
+                                            next[idx] = { ...next[idx], alias: e.target.value };
+                                            updateConfig({ aggregations: next });
+                                        }}
+                                        placeholder="Alias"
+                                    />
+                                </div>
+                                <div className="col-span-1 text-right">
+                                    <button
+                                        className="text-[11px] text-red-500 hover:underline"
+                                        onClick={() => {
+                                            const next = [...aggregations];
+                                            next.splice(idx, 1);
+                                            updateConfig({ aggregations: next });
+                                        }}
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                            <label className="text-[10px] font-bold text-gray-500 uppercase">Having</label>
+                            <button
+                                className="text-[10px] font-semibold text-blue-600 hover:underline"
+                                onClick={() => updateConfig({ havingConditions: [...havingConditions, { id: `having_${Date.now()}`, metricAlias: '', operator: '=', value: '' }] })}
+                            >
+                                Add Condition
+                            </button>
+                        </div>
+                        {havingConditions.map((cond: any, idx: number) => (
+                            <div key={cond.id || idx} className="grid grid-cols-12 gap-2 items-center">
+                                <div className="col-span-4">
+                                    <select
+                                        className={baseInputStyles}
+                                        value={cond.metricAlias || ''}
+                                        onChange={(e) => {
+                                            const next = [...havingConditions];
+                                            next[idx] = { ...next[idx], metricAlias: e.target.value };
+                                            updateConfig({ havingConditions: next });
+                                        }}
+                                    >
+                                        <option value="">Metric...</option>
+                                        {aggregations.map((agg: any, i: number) => (
+                                            agg.alias ? <option key={`${agg.alias}_${i}`} value={agg.alias}>{agg.alias}</option> : null
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="col-span-2">
+                                    <select
+                                        className={baseInputStyles}
+                                        value={cond.operator || '='}
+                                        onChange={(e) => {
+                                            const next = [...havingConditions];
+                                            next[idx] = { ...next[idx], operator: e.target.value };
+                                            updateConfig({ havingConditions: next });
+                                        }}
+                                    >
+                                        <option value="=">=</option>
+                                        <option value="!=">!=</option>
+                                        <option value=">">&gt;</option>
+                                        <option value=">=">&gt;=</option>
+                                        <option value="<">&lt;</option>
+                                        <option value="<=">&lt;=</option>
+                                    </select>
+                                </div>
+                                <div className="col-span-5">
+                                    <input
+                                        className={baseInputStyles}
+                                        value={cond.value ?? ''}
+                                        onChange={(e) => {
+                                            const next = [...havingConditions];
+                                            next[idx] = { ...next[idx], value: e.target.value };
+                                            updateConfig({ havingConditions: next });
+                                        }}
+                                        placeholder="Value"
+                                    />
+                                </div>
+                                <div className="col-span-1 text-right">
+                                    <button
+                                        className="text-[11px] text-red-500 hover:underline"
+                                        onClick={() => {
+                                            const next = [...havingConditions];
+                                            next.splice(idx, 1);
+                                            updateConfig({ havingConditions: next });
+                                        }}
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    <div>
+                        <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Output Table Name</label>
+                        <input
+                            className={baseInputStyles}
+                            value={cfg.outputTableName || ''}
+                            onChange={(e) => updateConfig({ outputTableName: e.target.value })}
+                            placeholder="optional"
+                        />
+                    </div>
+                </div>
+            );
+        }
+
+        if (cmd.type === 'transform') {
+            const mappings = Array.isArray(cfg.mappings) ? cfg.mappings : [];
+            return (
+                <div className="space-y-3">
+                    {renderSourceSelect()}
+                    <div className="flex items-center justify-between">
+                        <label className="text-[10px] font-bold text-gray-500 uppercase">Mappings</label>
+                        <button
+                            className="text-[10px] font-semibold text-blue-600 hover:underline"
+                            onClick={() => updateConfig({ mappings: [...mappings, { id: `map_${Date.now()}`, mode: 'simple', expression: '', outputField: '' }] })}
+                        >
+                            Add Mapping
+                        </button>
+                    </div>
+                    {mappings.map((m: any, idx: number) => (
+                        <div key={m.id || idx} className="border border-gray-100 rounded-md p-2 bg-gray-50 space-y-2">
+                            <div className="grid grid-cols-12 gap-2 items-center">
+                                <div className="col-span-4">
+                                    <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Mode</label>
+                                    <select
+                                        className={baseInputStyles}
+                                        value={m.mode || 'simple'}
+                                        onChange={(e) => {
+                                            const next = [...mappings];
+                                            next[idx] = { ...next[idx], mode: e.target.value };
+                                            updateConfig({ mappings: next });
+                                        }}
+                                    >
+                                        <option value="simple">simple</option>
+                                        <option value="python">python</option>
+                                    </select>
+                                </div>
+                                <div className="col-span-7">
+                                    <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Output Field</label>
+                                    <input
+                                        className={baseInputStyles}
+                                        value={m.outputField || ''}
+                                        onChange={(e) => {
+                                            const next = [...mappings];
+                                            next[idx] = { ...next[idx], outputField: e.target.value };
+                                            updateConfig({ mappings: next });
+                                        }}
+                                        placeholder="new_field"
+                                    />
+                                </div>
+                                <div className="col-span-1 text-right">
+                                    <button
+                                        className="text-[11px] text-red-500 hover:underline mt-5"
+                                        onClick={() => {
+                                            const next = [...mappings];
+                                            next.splice(idx, 1);
+                                            updateConfig({ mappings: next });
+                                        }}
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Expression</label>
+                                {m.mode === 'python' ? (
+                                    <textarea
+                                        className={`${baseInputStyles} min-h-[90px] font-mono`}
+                                        value={m.expression || ''}
+                                        onChange={(e) => {
+                                            const next = [...mappings];
+                                            next[idx] = { ...next[idx], expression: e.target.value };
+                                            updateConfig({ mappings: next });
+                                        }}
+                                        placeholder="def transform(row): ..."
+                                    />
+                                ) : (
+                                    <input
+                                        className={baseInputStyles}
+                                        value={m.expression || ''}
+                                        onChange={(e) => {
+                                            const next = [...mappings];
+                                            next[idx] = { ...next[idx], expression: e.target.value };
+                                            updateConfig({ mappings: next });
+                                        }}
+                                        placeholder="amount * 1.1"
+                                    />
+                                )}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            );
+        }
+
+        if (cmd.type === 'save') {
+            return (
+                <div className="space-y-3">
+                    {renderSourceSelect()}
+                    <div className="grid grid-cols-3 gap-3">
+                        <div>
+                            <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Field</label>
+                            <select
+                                className={baseInputStyles}
+                                value={cfg.field || ''}
+                                onChange={(e) => updateConfig({ field: e.target.value })}
+                            >
+                                <option value="">Select Field...</option>
+                                {fieldNames.map(f => <option key={f} value={f}>{f}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Distinct</label>
+                            <select
+                                className={baseInputStyles}
+                                value={cfg.distinct ? 'true' : 'false'}
+                                onChange={(e) => updateConfig({ distinct: e.target.value === 'true' })}
+                            >
+                                <option value="true">true</option>
+                                <option value="false">false</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Variable</label>
+                            <input
+                                className={baseInputStyles}
+                                value={cfg.value || ''}
+                                onChange={(e) => updateConfig({ value: e.target.value })}
+                                placeholder="var_name"
                             />
                         </div>
                     </div>

@@ -26,13 +26,13 @@
 
 ## Phase 1（核心功能修复）
 
-- [ ] T02 SQL Builder 补齐命令编辑能力（`join/group/having/transform/save`）
-  - [ ] T02.1 `join`：target/joinType/on/字段辅助构建可编辑
-  - [ ] T02.2 `group`：groupByFields/aggregations 可编辑
-  - [ ] T02.3 `having`：metricAlias/operator/value 可编辑
-  - [ ] T02.4 `transform`：mapping 列表、mode、表达式、输出字段可编辑
-  - [ ] T02.5 `save`：field/distinct/value 可编辑
-  - [ ] T02.6 验收：导入 SQL 后可在弹窗内完成修正并直接 Apply
+- [x] T02 SQL Builder 补齐命令编辑能力（`join/group/having/transform/save`）
+  - [x] T02.1 `join`：target/joinType/on/字段辅助构建可编辑
+  - [x] T02.2 `group`：groupByFields/aggregations 可编辑
+  - [x] T02.3 `having`：metricAlias/operator/value 可编辑
+  - [x] T02.4 `transform`：mapping 列表、mode、表达式、输出字段可编辑
+  - [x] T02.5 `save`：field/distinct/value 可编辑
+  - [x] T02.6 验收：导入 SQL 后可在弹窗内完成修正并直接 Apply
 
 - [ ] T03 SQL Builder 校验补全（Apply 阻断）
   - [ ] T03.1 增加 `join` 校验（target 必填、ON 合法）
@@ -150,7 +150,7 @@
 ## Phase 4（测试与交付）
 
 - [ ] T21 测试矩阵补全（UI + Parser + Backend）
-  - [ ] T21.1 SQL Builder UI：`join/group/having/transform/save` 编辑+校验
+  - [x] T21.1 SQL Builder UI：`join/group/having/transform/save` 编辑+校验
   - [ ] T21.2 Parser：边界语法与降级路径
   - [ ] T21.3 Backend：SQL 导出一致性测试
   - [ ] T21.4 round-trip：metadata + 纯 SQL 子集
