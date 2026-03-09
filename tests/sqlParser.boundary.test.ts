@@ -47,12 +47,22 @@ describe('parseSqlToCommands (boundary cases)', () => {
     expect(c2).toMatchObject({ field: 'note', operator: '=', value: "C'D" });
   });
 
-  it('ignores select expressions and warns', () => {
+  it('parses aggregate projections into group metrics', () => {
     const sql = 'select id, sum(amount), count(*) from t';
     const res = parseSqlToCommands(sql, resolveDataSource);
     expect(res.error).toBeNull();
-    expect(res.warnings.length).toBeGreaterThan(0);
-    expect(getView(res.commands)?.config.viewFields).toEqual([{ field: 'id' }]);
+    expect(res.warnings).toEqual([]);
+    const group = res.commands.find(c => c.type === 'group');
+    expect(group?.config.groupByFields).toEqual([]);
+    expect(group?.config.aggregations).toEqual([
+      { func: 'sum', field: 'amount', alias: 'sum_amount' },
+      { func: 'count', field: '*', alias: 'count_all' }
+    ]);
+    expect(getView(res.commands)?.config.viewFields).toEqual([
+      { field: 'id' },
+      { field: 'sum_amount' },
+      { field: 'count_all' }
+    ]);
   });
 
   it('handles select aliases by stripping AS alias', () => {

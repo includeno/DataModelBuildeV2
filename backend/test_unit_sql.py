@@ -106,11 +106,13 @@ def test_filter_not_in_variable(variables):
 
 def test_filter_is_empty(variables):
     cmd = create_cmd("filter", {"field": "col", "operator": "is_empty"})
-    assert "(col = '')" in gen(cmd, variables)
+    sql = gen(cmd, variables)
+    assert "(col IS NULL OR col = '')" in sql
 
 def test_filter_is_not_empty(variables):
     cmd = create_cmd("filter", {"field": "col", "operator": "is_not_empty"})
-    assert "(col != '')" in gen(cmd, variables)
+    sql = gen(cmd, variables)
+    assert "(col IS NOT NULL AND col != '')" in sql
 
 def test_filter_is_null(variables):
     cmd = create_cmd("filter", {"field": "col", "operator": "is_null"})
@@ -354,6 +356,24 @@ def test_save_all(variables):
 def test_save_invalid(variables):
     cmd = create_cmd("save", {})
     assert "-- Invalid Save Command" in gen(cmd, variables)
+
+# --- 9. View Command (3 cases) ---
+
+def test_view_limit_zero(variables):
+    cmd = create_cmd("view", {"viewFields": [{"field": "a"}], "viewLimit": 0})
+    sql = gen(cmd, variables)
+    assert "SELECT a FROM t LIMIT 0" in sql
+
+def test_view_limit_positive(variables):
+    cmd = create_cmd("view", {"viewFields": [{"field": "a"}], "viewLimit": 5})
+    sql = gen(cmd, variables)
+    assert "SELECT a FROM t LIMIT 5" in sql
+
+def test_view_limit_undefined(variables):
+    cmd = create_cmd("view", {"viewFields": [{"field": "a"}]})
+    sql = gen(cmd, variables)
+    assert "SELECT a FROM t" in sql
+    assert "LIMIT" not in sql
 
 # --- 9. Variable Boundary Cases (10 cases) ---
 

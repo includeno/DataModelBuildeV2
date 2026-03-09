@@ -152,7 +152,7 @@ def generate_sql_for_command(cmd: Command, variables: Dict[str, Any], input_tabl
             base_sql = f"{base_sql} ORDER BY {', '.join(sort_parts)}"
 
         limit = c.viewLimit
-        if isinstance(limit, int) and limit > 0:
+        if isinstance(limit, int) and limit >= 0:
             base_sql = f"{base_sql} LIMIT {limit}"
 
         return base_sql
@@ -229,8 +229,8 @@ def _build_single_condition(cond: Dict[str, Any], variables: Dict[str, Any]) -> 
         
     if op == 'is_null': return f"({field_sql} IS NULL)"
     if op == 'is_not_null': return f"({field_sql} IS NOT NULL)"
-    if op == 'is_empty': return f"({field_sql} = '')"
-    if op == 'is_not_empty': return f"({field_sql} != '')"
+    if op == 'is_empty': return f"({field_sql} IS NULL OR {field_sql} = '')"
+    if op == 'is_not_empty': return f"({field_sql} IS NOT NULL AND {field_sql} != '')"
     
     return f"{field_sql} {op} {sql_val}"
 

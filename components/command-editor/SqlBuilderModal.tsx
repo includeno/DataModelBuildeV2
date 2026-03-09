@@ -373,7 +373,7 @@ export const SqlBuilderModal: React.FC<SqlBuilderModalProps> = ({
                     const list = cfg.viewFields.map((f: any) => f.field).filter(Boolean).join(', ');
                     if (list) lines.push(`Fields: ${list}`);
                 }
-                if (cfg.viewLimit) lines.push(`Limit: ${cfg.viewLimit}`);
+                if (cfg.viewLimit !== undefined && cfg.viewLimit !== null) lines.push(`Limit: ${cfg.viewLimit}`);
             }
 
             if (cmd.type === 'group') {
@@ -655,7 +655,7 @@ export const SqlBuilderModal: React.FC<SqlBuilderModalProps> = ({
                             <input
                                 type="number"
                                 className="w-full text-xs border border-gray-200 rounded-md px-2 py-1"
-                                value={cfg.viewLimit || ''}
+                                value={cfg.viewLimit ?? ''}
                                 onChange={(e) => updateCommand(cmd.id, (current) => ({
                                     ...current,
                                     config: { ...current.config, viewLimit: e.target.value ? Number(e.target.value) : undefined }
@@ -693,6 +693,9 @@ export const SqlBuilderModal: React.FC<SqlBuilderModalProps> = ({
                 <div className="p-6 space-y-4 overflow-y-auto">
                     <div>
                         <label className="block text-xs font-bold text-gray-500 uppercase mb-2">SQL</label>
+                        <p className="text-[11px] text-gray-500 mb-2">
+                            Supports plain SQL and command metadata lines like <code>-- DMB_COMMAND: {"{...}"}</code>.
+                        </p>
                         <textarea
                             data-testid="sql-builder-input"
                             value={sqlInput}

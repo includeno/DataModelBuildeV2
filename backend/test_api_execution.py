@@ -202,6 +202,28 @@ def test_execute_sort_operation(session_id):
     assert rows[1]["val"] == 2
     assert rows[2]["val"] == 3
 
+def test_execute_view_limit_zero(session_id):
+    df = pd.DataFrame({"id": [1, 2, 3], "name": ["A", "B", "C"]})
+    storage.add_dataset(session_id, "users.csv", df)
+
+    tree = build_tree(
+        [
+            {
+                "id": "v1",
+                "type": "view",
+                "order": 1,
+                "config": {"viewFields": [{"field": "id"}], "viewLimit": 0}
+            }
+        ],
+        "users"
+    )
+
+    response = client.post("/execute", json={"sessionId": session_id, "tree": tree, "targetNodeId": "root"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["totalCount"] == 0
+    assert data["rows"] == []
+
 def test_execute_complex_view_subtable_linkid(session_id):
     df_orders = pd.DataFrame({
         "order_id": [1, 2, 3],

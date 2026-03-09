@@ -1213,7 +1213,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
 
                                     <div className="border-t border-purple-100 pt-4">
                                         <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Limit</label>
-                                        <input className={baseInputStyles} type="number" min={1} value={cmd.config.viewLimit || ''} onChange={(e) => updateCommand(cmd.id, 'config.viewLimit', e.target.value ? Number(e.target.value) : undefined)} placeholder="e.g. 100" />
+                                        <input className={baseInputStyles} type="number" min={0} value={cmd.config.viewLimit ?? ''} onChange={(e) => updateCommand(cmd.id, 'config.viewLimit', e.target.value ? Number(e.target.value) : undefined)} placeholder="e.g. 100" />
                                     </div>
                                 </div>
                             )}

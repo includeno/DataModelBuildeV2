@@ -1,4 +1,5 @@
 
+import json
 import pytest
 from fastapi.testclient import TestClient
 from main import app
@@ -85,6 +86,40 @@ def test_generate_sql_source():
     
     assert res.status_code == 200
     assert res.json()["sql"] == "SELECT * FROM users"
+
+def test_generate_sql_with_command_meta():
+    session_id = setup_session_with_data()
+
+    tree = {
+        "id": "root",
+        "type": "operation",
+        "name": "Root",
+        "enabled": True,
+        "commands": [
+            {"id": "c1", "type": "source", "config": {"mainTable": "users"}},
+            {"id": "c2", "type": "sort", "config": {"field": "age", "ascending": False}}
+        ],
+        "children": []
+    }
+
+    tree = add_setup_node(tree, ["users"])
+
+    res = client.post("/generate_sql", json={
+        "sessionId": session_id,
+        "tree": tree,
+        "targetNodeId": "root",
+        "targetCommandId": "c2",
+        "includeCommandMeta": True
+    })
+
+    assert res.status_code == 200
+    sql = res.json()["sql"]
+    first_line = sql.splitlines()[0]
+    assert first_line.startswith("-- DMB_COMMAND: ")
+    payload = json.loads(first_line.replace("-- DMB_COMMAND: ", "", 1))
+    assert payload["type"] == "sort"
+    assert payload["config"]["field"] == "age"
+    assert "ORDER BY age DESC" in sql
 
 def test_generate_sql_filter_chain():
     session_id = setup_session_with_data()
@@ -419,6 +454,33 @@ def test_generate_sql_sort_command():
     assert res.status_code == 200
     sql = res.json()["sql"]
     assert "ORDER BY age DESC" in sql
+
+def test_generate_sql_view_limit_zero():
+    session_id = setup_session_with_data()
+    tree = {
+        "id": "root",
+        "type": "operation",
+        "name": "Root",
+        "enabled": True,
+        "commands": [
+            {"id": "c1", "type": "source", "config": {"mainTable": "users"}},
+            {"id": "c2", "type": "view", "config": {"viewFields": [{"field": "id"}], "viewLimit": 0}}
+        ],
+        "children": []
+    }
+
+    tree = add_setup_node(tree, ["users"])
+
+    res = client.post("/generate_sql", json={
+        "sessionId": session_id,
+        "tree": tree,
+        "targetNodeId": "root",
+        "targetCommandId": "c2"
+    })
+
+    assert res.status_code == 200
+    sql = res.json()["sql"]
+    assert "SELECT id FROM users LIMIT 0" in sql
 
 def test_generate_sql_save_distinct():
     session_id = setup_session_with_data()

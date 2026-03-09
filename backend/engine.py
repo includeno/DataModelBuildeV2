@@ -4,6 +4,7 @@ import numpy as np
 import math
 import datetime
 import re
+import json
 import duckdb
 from typing import List, Optional, Dict, Set, Any, Union
 from models import Command, OperationNode
@@ -58,7 +59,14 @@ class ExecutionEngine:
 
         return df
 
-    def generate_sql(self, session_id: str, tree: OperationNode, target_node_id: str, target_command_id: str) -> str:
+    def generate_sql(
+        self,
+        session_id: str,
+        tree: OperationNode,
+        target_node_id: str,
+        target_command_id: str,
+        include_command_meta: bool = False,
+    ) -> str:
         from sql_generator import generate_sql_for_command
         
         path = self._find_path_to_node(tree, target_node_id)
@@ -94,7 +102,7 @@ class ExecutionEngine:
                 if cmd.type == 'define_variable':
                     cmd_sql = "-- SQL generation not supported for define_variable"
                     if node.id == target_node_id and cmd.id == target_command_id:
-                        return cmd_sql
+                        return self._decorate_sql_with_command_meta(cmd, cmd_sql, include_command_meta)
                     continue
 
                 if cmd.type == 'source':
@@ -146,15 +154,52 @@ class ExecutionEngine:
 
                 if node.id == target_node_id and cmd.id == target_command_id:
                     if cmd_sql.strip().startswith("--"):
-                        return cmd_sql
+                        return self._decorate_sql_with_command_meta(cmd, cmd_sql, include_command_meta)
                     if cmd_sql.strip():
-                        return cmd_sql
-                    return "-- No SQL generated (or all commands were unsupported)"
+                        return self._decorate_sql_with_command_meta(cmd, cmd_sql, include_command_meta)
+                    return self._decorate_sql_with_command_meta(
+                        cmd,
+                        "-- No SQL generated (or all commands were unsupported)",
+                        include_command_meta,
+                    )
 
                 if cmd_sql and not cmd_sql.strip().startswith("--"):
                     current_sql = cmd_sql
 
         raise ValueError("Target command not found")
+
+    def _serialize_command_meta(self, cmd: Command) -> Dict[str, Any]:
+        config_dict: Dict[str, Any] = {}
+        try:
+            if hasattr(cmd.config, "model_dump"):
+                config_dict = cmd.config.model_dump(exclude_none=True)  # pydantic v2
+            elif hasattr(cmd.config, "dict"):
+                config_dict = cmd.config.dict(exclude_none=True)  # pydantic v1
+        except Exception:
+            config_dict = {}
+        return {
+            "version": 1,
+            "type": cmd.type,
+            "config": config_dict,
+        }
+
+    def _decorate_sql_with_command_meta(self, cmd: Command, sql_text: str, include_command_meta: bool) -> str:
+        if not include_command_meta:
+            return sql_text
+
+        try:
+            payload = json.dumps(
+                self._serialize_command_meta(cmd),
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+        except Exception:
+            payload = json.dumps({"version": 1, "type": cmd.type, "config": {}}, separators=(",", ":"))
+
+        prefix = f"-- DMB_COMMAND: {payload}"
+        if sql_text and sql_text.strip():
+            return f"{prefix}\n{sql_text}"
+        return prefix
 
     def _execute_multi_table_sub(self, session_id: str, path: List[OperationNode], multi_cmd: Command, view_id: str) -> pd.DataFrame:
         # 1. Execute everything UP TO the multi_table command to get the "Main" context
@@ -457,7 +502,7 @@ class ExecutionEngine:
             sql = f"{sql} ORDER BY {', '.join(sort_parts)}"
 
         limit = c.viewLimit
-        if isinstance(limit, int) and limit > 0:
+        if isinstance(limit, int) and limit >= 0:
             sql = f"{sql} LIMIT {limit}"
 
         return sql
@@ -586,7 +631,7 @@ class ExecutionEngine:
                             df = df.sort_values(by=sort_fields, ascending=sort_dirs)
 
                         limit = cmd.config.viewLimit
-                        if isinstance(limit, int) and limit > 0:
+                        if isinstance(limit, int) and limit >= 0:
                             df = df.head(limit)
 
                 # 3. Variable Logic

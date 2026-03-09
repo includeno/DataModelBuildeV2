@@ -158,7 +158,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({
               sessionId,
               tree,
               targetNodeId: selectedNode.id,
-              targetCommandId: commandId
+              targetCommandId: commandId,
+              includeCommandMeta: true
           });
           return res.sql;
       } catch (e: any) {

@@ -53,10 +53,13 @@ describe('parseSqlToCommands (additional coverage)', () => {
     expect(view?.config.viewLimit).toBeUndefined();
   });
 
-  it('warns on unsupported trailing GROUP BY clause', () => {
+  it('parses GROUP BY clause after WHERE', () => {
     const res = parseSqlToCommands('select * from t where a = 1 group by b', resolveDataSource);
     expect(res.error).toBeNull();
-    expect(res.warnings.length).toBeGreaterThan(0);
+    expect(res.warnings).toEqual([]);
+    const group = res.commands.find(c => c.type === 'group');
+    expect(group).toBeTruthy();
+    expect(group?.config.groupByFields).toEqual(['b']);
   });
 
   it('warns on BETWEEN in WHERE', () => {

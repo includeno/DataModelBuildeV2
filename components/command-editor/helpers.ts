@@ -44,13 +44,42 @@ export const renderSqlCommandSummary = (cmd: Command) => {
         const count = cmd.config.filterRoot?.conditions?.length || 0;
         return `Filter (${count} conditions)`;
     }
+    if (cmd.type === 'join') {
+        const target = cmd.config.joinTable || cmd.config.joinTargetNodeId || '';
+        const joinType = (cmd.config.joinType || 'LEFT').toUpperCase();
+        return `Join ${joinType} ${target}`.trim();
+    }
+    if (cmd.type === 'group') {
+        const dims = (cmd.config.groupByFields || []).filter(Boolean);
+        const aggs = (cmd.config.aggregations || []).length;
+        return `Group ${dims.length > 0 ? `by ${dims.join(', ')}` : ''} ${aggs > 0 ? `(${aggs} metrics)` : ''}`.trim();
+    }
     if (cmd.type === 'sort') {
         return `Sort ${cmd.config.field || ''} ${cmd.config.ascending === false ? 'DESC' : 'ASC'}`.trim();
     }
+    if (cmd.type === 'transform') {
+        const count = (cmd.config.mappings || []).length;
+        return `Mapping (${count})`;
+    }
+    if (cmd.type === 'save') {
+        const distinct = cmd.config.distinct ? 'Distinct ' : '';
+        return `Save ${distinct}${cmd.config.field || ''} -> ${cmd.config.value || ''}`.trim();
+    }
     if (cmd.type === 'view') {
         const fields = (cmd.config.viewFields || []).map(f => f.field).filter(Boolean);
-        const limit = cmd.config.viewLimit ? `Limit ${cmd.config.viewLimit}` : '';
+        const hasLimit = cmd.config.viewLimit !== undefined && cmd.config.viewLimit !== null;
+        const limit = hasLimit ? `Limit ${cmd.config.viewLimit}` : '';
         return `View ${fields.length > 0 ? fields.join(', ') : 'All Fields'} ${limit}`.trim();
+    }
+    if (cmd.type === 'source') {
+        return `Source ${cmd.config.mainTable || ''}`.trim();
+    }
+    if (cmd.type === 'define_variable') {
+        return `Define Variable ${cmd.config.variableName || ''}`.trim();
+    }
+    if (cmd.type === 'multi_table') {
+        const count = (cmd.config.subTables || []).length;
+        return `Complex View (${count} sub-table${count === 1 ? '' : 's'})`;
     }
     return cmd.type;
 };

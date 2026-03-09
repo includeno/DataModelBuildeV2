@@ -115,6 +115,7 @@ class ExecuteRequest(BaseModel):
     tree: OperationNode
     targetNodeId: str
     targetCommandId: Optional[str] = None
+    includeCommandMeta: bool = False
     page: int = 1
     pageSize: int = 50
     viewId: str = "main" # 'main' or specific subTable ID

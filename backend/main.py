@@ -483,7 +483,13 @@ async def generate_sql(req: ExecuteRequest):
         if not req.targetCommandId:
             raise HTTPException(status_code=400, detail="targetCommandId is required")
         
-        sql = engine.generate_sql(req.session_id, req.tree, req.targetNodeId, req.targetCommandId)
+        sql = engine.generate_sql(
+            req.session_id,
+            req.tree,
+            req.targetNodeId,
+            req.targetCommandId,
+            req.includeCommandMeta,
+        )
         return {"sql": sql}
     except HTTPException as e:
         # Preserve explicit HTTP errors (e.g., missing targetCommandId)
