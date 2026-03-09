@@ -13,9 +13,16 @@ from sql_utils import quote_identifier, is_reserved_identifier
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 DATA_ROOT = os.path.join(REPO_ROOT, "data")
-DEFAULT_SESSIONS_DIR = os.path.join(DATA_ROOT, "sessions")
-SESSION_STORAGE_CONFIG = os.path.join(os.path.dirname(__file__), "session_storage.json")
-IS_TEST_ENV = bool(os.environ.get("PYTEST_CURRENT_TEST"))
+BACKEND_ENV = (os.environ.get("BACKEND_ENV") or "production").strip().lower()
+IS_TEST_ENV = BACKEND_ENV == "test" or bool(os.environ.get("PYTEST_CURRENT_TEST"))
+DEFAULT_SESSIONS_DIR = os.path.join(DATA_ROOT, "sessions_test" if IS_TEST_ENV else "sessions")
+SESSION_STORAGE_CONFIG = os.environ.get(
+    "SESSION_STORAGE_CONFIG_PATH",
+    os.path.join(
+        os.path.dirname(__file__),
+        "session_storage_test.json" if IS_TEST_ENV else "session_storage.json",
+    ),
+)
 
 DATASETS_DIRNAME = "datasets"
 DATASETS_INDEX = "datasets.json"
@@ -78,7 +85,7 @@ def load_sessions_dir() -> str:
         return resolve_data_subdir(env_override) if not os.path.isabs(env_override) else env_override
 
     if IS_TEST_ENV:
-        return os.path.join(DATA_ROOT, "sessions_test")
+        return DEFAULT_SESSIONS_DIR
 
     cfg = _read_session_storage_config()
     if cfg:

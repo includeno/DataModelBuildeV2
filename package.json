@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "dev:aistudio": "vite --mode aistudio",
-    "backend": "cd backend && python -m uvicorn main:app --reload --port 8000",
+    "backend": "cd backend && BACKEND_ENV=production python -m uvicorn main:app --reload --port 8000",
+    "backend:test": "cd backend && BACKEND_ENV=test python -m uvicorn main:app --reload --port 8000",
     "build": "tsc && vite build",
     "build:web": "tsc && vite build",
     "build:tauri": "tauri build",

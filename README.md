@@ -92,6 +92,10 @@ To use the real Python backend engine:
    ```bash
    npm run backend
    ```
+   Test environment (isolated sessions/config):
+   ```bash
+   npm run backend:test
+   ```
 3. In the Web App, open **Settings**, enter `http://localhost:8000`, and add the server.
 
 ### 🐳 Docker / Compose

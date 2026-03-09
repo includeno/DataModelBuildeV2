@@ -9,6 +9,8 @@ lerna-debug.log*
 backend/.pytest_cache
 backend/__pycache__
 backend/sessions
+backend/session_test_config.json
+backend/session_storage_test.json
 scripts/__pycache__
 
 node_modules

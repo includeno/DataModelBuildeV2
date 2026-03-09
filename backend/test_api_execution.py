@@ -445,6 +445,96 @@ def test_data_source_override_ignores_parent_setup_stream(session_id):
     assert "name" in cols
     assert "order_id" not in cols
 
+def test_child_data_source_reloads_after_parent_group(session_id):
+    df_orders = pd.DataFrame({
+        "id": [1, 2, 3],
+        "dept": ["A", "A", "B"],
+        "amount": [10, 20, 30]
+    })
+    storage.add_dataset(session_id, "orders.csv", df_orders)
+
+    tree = {
+        "id": "root",
+        "type": "operation",
+        "name": "Root",
+        "enabled": True,
+        "commands": [],
+        "children": [
+            {
+                "id": "setup",
+                "type": "operation",
+                "operationType": "setup",
+                "name": "Data Setup",
+                "enabled": True,
+                "commands": [
+                    {
+                        "id": "src_orders",
+                        "type": "source",
+                        "order": 0,
+                        "config": {"mainTable": "orders", "alias": "orders", "linkId": "link_orders"}
+                    }
+                ],
+                "children": [
+                    {
+                        "id": "parent_group",
+                        "type": "operation",
+                        "name": "Parent Group",
+                        "enabled": True,
+                        "commands": [
+                            {
+                                "id": "cmd_group",
+                                "type": "group",
+                                "order": 1,
+                                "config": {
+                                    "dataSource": "link_orders",
+                                    "groupByFields": ["dept"],
+                                    "aggregations": [{"field": "amount", "func": "sum", "alias": "sum_amount"}]
+                                }
+                            }
+                        ],
+                        "children": [
+                            {
+                                "id": "child_filter",
+                                "type": "operation",
+                                "name": "Child Filter",
+                                "enabled": True,
+                                "commands": [
+                                    {
+                                        "id": "cmd_filter_amount",
+                                        "type": "filter",
+                                        "order": 1,
+                                        "config": {
+                                            "dataSource": "link_orders",
+                                            "field": "amount",
+                                            "operator": ">",
+                                            "value": 25,
+                                            "dataType": "number"
+                                        }
+                                    }
+                                ],
+                                "children": []
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+
+    response = client.post("/execute", json={
+        "sessionId": session_id,
+        "tree": tree,
+        "targetNodeId": "child_filter",
+        "targetCommandId": "cmd_filter_amount"
+    })
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["totalCount"] == 1
+    assert "amount" in data["columns"]
+    assert "sum_amount" not in data["columns"]
+    assert data["rows"][0]["id"] == 3
+
 def test_execute_aggregation_operation(session_id):
     df = pd.DataFrame({
         "dept": ["IT", "IT", "HR", "HR"],

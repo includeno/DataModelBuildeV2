@@ -12,7 +12,12 @@ from storage import storage
 client = TestClient(app)
 
 TEST_DATA_DIR = Path(__file__).resolve().parent.parent / "test_data"
-CONFIG_PATH = Path(__file__).resolve().parent / "session_config.json"
+CONFIG_PATH = Path(
+    os.environ.get(
+        "TEST_SESSION_CONFIG_PATH",
+        Path(__file__).resolve().parent / "session_test_config.json",
+    )
+)
 DATASET_FILES = [
     "ecommerce_orders.csv",
     "hr_employees.csv",

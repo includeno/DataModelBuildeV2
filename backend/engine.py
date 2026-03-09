@@ -475,8 +475,10 @@ class ExecutionEngine:
     def _apply_node_commands(self, df: Optional[pd.DataFrame], commands: List[Command], session_id: str, variables: Dict[str, Any], tree: OperationNode, limit_command_id: str = None) -> Optional[pd.DataFrame]:
         sorted_cmds = sorted(commands, key=lambda x: x.order)
         current_source_name = None
+        source_stream_reusable = True
         if df is not None and hasattr(df, "attrs"):
             current_source_name = df.attrs.get("_source_name")
+            source_stream_reusable = df.attrs.get("_source_stream_reusable", True)
         
         for idx, cmd in enumerate(sorted_cmds):
             try:
@@ -490,24 +492,36 @@ class ExecutionEngine:
                      if resolved_table:
                          source = resolved_table
                      
-                     # If the selected source matches the current source, do not reset the stream
-                     if df is not None and current_source_name and source == current_source_name:
+                     # Reuse stream only when it is still source-compatible (e.g. chained filters).
+                     # After group/aggregate the stream is derived and must be reloaded even if source name matches.
+                     if (
+                         df is not None
+                         and current_source_name
+                         and source == current_source_name
+                         and source_stream_reusable
+                     ):
                          source = None
                      else:
                          df = storage.get_full_dataset(session_id, source)
-                         current_source_name = source
+                         if df is not None:
+                             current_source_name = source
+                             source_stream_reusable = True
                 
                 # Legacy fallback for Source Type
                 if cmd.type == 'source':
                     table_name = cmd.config.mainTable
                     if table_name:
                         df = storage.get_full_dataset(session_id, table_name)
-                        current_source_name = table_name
+                        if df is not None:
+                            current_source_name = table_name
+                            source_stream_reusable = True
                 elif df is None and (cmd.type not in ['join', 'group', 'multi_table', 'view', 'define_variable'] and cmd.config.mainTable):
                     table_name = cmd.config.mainTable
                     if table_name:
                         df = storage.get_full_dataset(session_id, table_name)
-                        current_source_name = table_name
+                        if df is not None:
+                            current_source_name = table_name
+                            source_stream_reusable = True
                     # If it's purely a source command, we are done with this step logic, but check loop exit below
                     if cmd.type == 'source':
                         pass # Continue to check exit condition
@@ -595,11 +609,14 @@ class ExecutionEngine:
                     if cmd.type == 'filter': df = self._apply_filter(df, cmd, variables)
                     elif cmd.type == 'join': df = self._apply_join(df, cmd, session_id, tree)
                     elif cmd.type == 'sort': df = self._apply_sort(df, cmd)
-                    elif cmd.type == 'group' or cmd.type == 'aggregate': df = self._apply_group(df, cmd, session_id)
+                    elif cmd.type == 'group' or cmd.type == 'aggregate':
+                        df = self._apply_group(df, cmd, session_id)
+                        source_stream_reusable = False
                     elif cmd.type == 'transform': df = self._apply_transform(df, cmd)
                     # multi_table and view are pass-throughs for the stream itself (data loaded via context above)
                     if df is not None and current_source_name:
                         df.attrs["_source_name"] = current_source_name
+                        df.attrs["_source_stream_reusable"] = source_stream_reusable
 
                 # Check Stop Condition
                 if limit_command_id and cmd.id == limit_command_id:
@@ -661,15 +678,14 @@ class ExecutionEngine:
             return pd.Series([True] * len(df), index=df.index)
         if op == 'always_false':
             return pd.Series([False] * len(df), index=df.index)
-        if op == 'is_null':
-            return series.isnull()
-        if op == 'is_not_null':
-            return ~series.isnull()
-
         if field not in df.columns: 
             return pd.Series([True] * len(df), index=df.index)
 
         series = df[field]
+        if op == 'is_null':
+            return series.isnull()
+        if op == 'is_not_null':
+            return ~series.isnull()
         
         # Variable Resolution in Value
         target_val = val
@@ -778,8 +794,8 @@ class ExecutionEngine:
 
                  if op == 'starts_with': return s_str.str.startswith(v, na=False)
                  if op == 'ends_with': return s_str.str.endswith(v, na=False)
-                 if op == 'is_empty': return (s_str == '') & ~series.isna()
-                 if op == 'is_not_empty': return (s_str != '') & ~series.isna()
+                 if op == 'is_empty': return series.isna() | (s_str == '')
+                 if op == 'is_not_empty': return (~series.isna()) & (s_str != '')
         except: pass
         
         return pd.Series([True] * len(df), index=df.index)

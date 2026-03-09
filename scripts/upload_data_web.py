@@ -18,7 +18,9 @@ TEST_DATA_DIR = os.path.abspath("test_data")
 # Ensure backend directory exists for config
 if not os.path.exists("backend"):
     os.makedirs("backend")
-SESSION_CONFIG_PATH = os.path.abspath("backend/session_config.json")
+SESSION_CONFIG_PATH = os.path.abspath(
+    os.environ.get("TEST_SESSION_CONFIG_PATH", "backend/session_test_config.json")
+)
 
 def run():
     with sync_playwright() as p:

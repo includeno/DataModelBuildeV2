@@ -26,3 +26,6 @@ Result: `248 passed in 6.13s`
 
 **Notes**
 - Tests are currently fast and deterministic; no external services required.
+- `test_scenario_general.py` uses a dedicated test session config file by default: `backend/session_test_config.json`.
+  You can override it with `TEST_SESSION_CONFIG_PATH=/custom/path.json`.
+- To run backend in test mode locally, use `npm run backend:test` (or `./run_server.sh test`).
