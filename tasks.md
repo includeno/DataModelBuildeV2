@@ -156,6 +156,16 @@
   - [ ] T21.4 round-trip：metadata + 纯 SQL 子集
   - [ ] T21.5 验收：新增路径均有自动化覆盖
 
+- [x] T24 后端接口 1000+ 用例矩阵（`/execute` + `/generate_sql` + `/query`）
+  - [x] T24.1 建立后端接口覆盖维度矩阵（成功/失败、分页、变量、多命令组合）
+  - [x] T24.2 `/execute` 数值过滤矩阵（操作符 × 阈值 × 字段 × dataSource，>= 500 cases）
+  - [x] T24.3 `/execute` 文本/列表/空值过滤矩阵（contains/in_list/is_empty 等，>= 250 cases）
+  - [x] T24.4 `/generate_sql` 命令导出矩阵（filter/join/group/view/save/transform，>= 200 cases）
+  - [x] T24.5 `/query` SQL 接口矩阵（where/group/having/order/pagination，>= 100 cases）
+  - [x] T24.6 错误路径矩阵（无效 SQL/缺失参数/无效 target，>= 30 cases）
+  - [x] T24.7 验收：新增后端接口测试总量 >= 1000 且全部通过
+  - [x] T24.8 验收：执行 `pytest -q backend` 全绿
+
 - [ ] T22 端到端流程回归
   - [ ] T22.1 “Build from SQL -> Edit -> Apply -> Run -> Generate SQL” 主路径 E2E
   - [ ] T22.2 覆盖插入位置（中间插入/末尾插入）
