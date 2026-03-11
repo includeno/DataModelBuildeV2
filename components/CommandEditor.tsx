@@ -230,14 +230,44 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
   }, [tree]);
 
   const hasComplexView = useMemo(() => commands.some(c => c.type === 'multi_table'), [commands]);
+  const normalizeSourceToken = (value: unknown): string => {
+      if (value === null || value === undefined) return '';
+      return String(value).trim();
+  };
+  const withCurrentOption = (options: string[], currentValue?: string): string[] => {
+      const current = normalizeSourceToken(currentValue);
+      if (!current) return options;
+      return options.includes(current) ? options : [current, ...options];
+  };
+  const datasetNameSet = useMemo(() => new Set(datasets.map(d => String(d.name))), [datasets]);
+  const getKnownSourceTable = (table?: string): string | undefined => {
+      const normalized = normalizeSourceToken(table);
+      if (!normalized) return undefined;
+      return datasetNameSet.has(normalized) ? normalized : undefined;
+  };
+  const unresolvedSourceOptionStyle: React.CSSProperties = { color: '#dc2626', fontWeight: 600 };
+  const resolveSourceAlias = (sourceValue: string) => (
+      availableSourceAliases.find(sa =>
+          sa.linkId === sourceValue || sa.alias === sourceValue || sa.sourceTable === sourceValue
+      )
+  );
+  const isKnownSourceValue = (sourceValue: string, generatedTables: string[]): boolean => {
+      if (!sourceValue || sourceValue === 'stream') return false;
+      if (generatedTables.includes(sourceValue)) return true;
+      if (datasetNameSet.has(sourceValue)) return true;
+      const sourceAlias = resolveSourceAlias(sourceValue);
+      if (sourceAlias) return !!getKnownSourceTable(sourceAlias.sourceTable);
+      return false;
+  };
   const hasMissingCommandSources = useMemo(() => (
       commands.some(cmd => {
           const requiresSource = cmd.type !== 'source' && cmd.type !== 'multi_table';
           if (!requiresSource) return false;
-          const rawSource = cmd.config?.dataSource;
-          return !rawSource || String(rawSource).trim() === '' || rawSource === 'stream';
+          const sourceValue = normalizeSourceToken(cmd.config?.dataSource);
+          if (!sourceValue || sourceValue === 'stream') return true;
+          return !isKnownSourceValue(sourceValue, allGeneratedTablesGlobal);
       })
-  ), [commands]);
+  ), [commands, availableSourceAliases, allGeneratedTablesGlobal, datasetNameSet]);
 
   const RESERVED_WORDS = useMemo(() => new Set([
       'select', 'from', 'where', 'order', 'group', 'by', 'join', 'left', 'right',
@@ -440,7 +470,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                             }));
 
                             if (isMissing && currentSelection) {
-                                options.push({ value: currentSelection, label: `${currentSelection} (Unavailable)`, disabled: true, icon: Database });
+                                options.push({ value: currentSelection, label: currentSelection, disabled: true, icon: Database });
                             }
                             if (currentSelection && isReservedName(currentSelection)) {
                                 options.push({ value: currentSelection, label: `${currentSelection} (Reserved)`, disabled: true, icon: Database });
@@ -812,7 +842,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                             !canRun
                             ? "Configure data sources before running"
                             : hasMissingCommandSources
-                            ? "Select a data source for each step before running"
+                            ? "Select a valid data source for each step before running"
                             : "Run this operation"
                         }
                     >
@@ -903,7 +933,8 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                 const fieldNames = Object.keys(activeSchema);
                 const isCollapsed = !!collapsedSteps[cmd.id];
 
-                const sourceLabel = getSourceLabel(availableSourceAliases, normalizedDataSource);
+                const sourceLabel = getSourceLabel(availableSourceAliases, normalizedDataSource)
+                    || (allGeneratedTablesGlobal.includes(normalizedDataSource) ? normalizedDataSource : '');
                 const joinTargetType = cmd.config.joinTargetType || 'table';
                 const joinTargetKey = joinTargetType === 'node' ? cmd.config.joinTargetNodeId : cmd.config.joinTable;
                 const joinTargetNode = joinTargetType === 'node'
@@ -918,7 +949,12 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                     : null;
                 const joinTargetLabel = joinTargetType === 'node'
                     ? (joinTargetNode?.name || '')
-                    : (joinTargetSource?.alias || joinTargetSource?.sourceTable || (joinTargetKey || ''));
+                    : (
+                        joinTargetSource?.alias
+                        || joinTargetSource?.sourceTable
+                        || getSourceLabel(availableSourceAliases, joinTargetKey || '')
+                        || (allGeneratedTablesGlobal.includes(joinTargetKey || '') ? (joinTargetKey || '') : '')
+                    );
                 const joinTargetDatasetName = joinTargetType === 'table'
                     ? (joinTargetSource?.sourceTable || (joinTargetKey || ''))
                     : '';
@@ -965,6 +1001,19 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                     .map(c => c.config.outputTableName!.trim());
                 
                 const availableGeneratedTablesForCmd = Array.from(new Set([...ancestorOutputs, ...localPrecedingOutputs])).sort();
+                const normalizedJoinTarget = cmd.config.joinTable
+                    ? (availableSourceAliases.find(sa =>
+                        sa.linkId === cmd.config.joinTable ||
+                        sa.alias === cmd.config.joinTable ||
+                        sa.sourceTable === cmd.config.joinTable
+                    )?.linkId || cmd.config.joinTable)
+                    : '';
+                const isInvalidJoinTarget = joinTargetType === 'table'
+                    && !!normalizedJoinTarget
+                    && !isKnownSourceValue(normalizedJoinTarget, availableGeneratedTablesForCmd);
+                const unresolvedJoinTargetLabel = isInvalidJoinTarget && !resolveSourceAlias(normalizedJoinTarget)
+                    ? normalizedJoinTarget
+                    : '';
 
                 const localVariables = commands
                     .slice(0, index)
@@ -975,8 +1024,17 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
 
                 const showSourcePlaceholder = index === 0 && (!ancestors || ancestors.length === 0);
                 const isSourceRequired = cmd.type !== 'source' && cmd.type !== 'multi_table';
-                const rawSource = cmd.config?.dataSource;
-                const isMissingSource = isSourceRequired && (!rawSource || String(rawSource).trim() === '' || rawSource === 'stream');
+                const rawSource = normalizeSourceToken(cmd.config?.dataSource);
+                const normalizedSourceToken = normalizeSourceToken(normalizedDataSource);
+                const sourceTokenToValidate = normalizedSourceToken || rawSource;
+                const isMissingSource = isSourceRequired && (!rawSource || rawSource === 'stream');
+                const isInvalidSource = isSourceRequired
+                    && !isMissingSource
+                    && !isKnownSourceValue(sourceTokenToValidate, availableGeneratedTablesForCmd);
+                const hasSourceError = isMissingSource || isInvalidSource;
+                const unresolvedSourceLabel = isInvalidSource && !resolveSourceAlias(sourceTokenToValidate)
+                    ? sourceTokenToValidate
+                    : '';
 
                 const isDraggable = cmd.type !== 'source';
                 return (
@@ -1051,15 +1109,17 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                 </button>
                                 <button 
                                     onClick={() => onRun && onRun(cmd.id)}
-                                    disabled={!canRun || isMissingSource}
+                                    disabled={!canRun || hasSourceError}
                                     className={`p-1 rounded transition-colors ${
-                                        canRun && !isMissingSource ? 'text-gray-400 hover:text-blue-600 hover:bg-blue-50' : 'text-gray-300 cursor-not-allowed'
+                                        canRun && !hasSourceError ? 'text-gray-400 hover:text-blue-600 hover:bg-blue-50' : 'text-gray-300 cursor-not-allowed'
                                     }`}
                                     title={
                                         !canRun
                                         ? "Configure data sources before running"
                                         : isMissingSource
                                         ? "Select a data source for this step before running"
+                                        : isInvalidSource
+                                        ? "Selected data source is unavailable. Import it first or choose another source."
                                         : "Run logic up to this step"
                                     }
                                 >
@@ -1080,20 +1140,24 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                         {!isCollapsed && (
                         <>
                         {cmd.type !== 'view' && (
-                            <div className={`px-3 py-1.5 border-b border-gray-100 flex items-center space-x-2 ${isMissingSource ? 'bg-red-50/50' : 'bg-gray-50'}`}>
-                                <Database className={`w-3 h-3 ${isMissingSource ? 'text-red-400' : 'text-gray-400'}`} />
+                            <div className={`px-3 py-1.5 border-b border-gray-100 flex items-center space-x-2 ${hasSourceError ? 'bg-red-50/50' : 'bg-gray-50'}`}>
+                                <Database className={`w-3 h-3 ${hasSourceError ? 'text-red-400' : 'text-gray-400'}`} />
                                 <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Select Dataset:</span>
                                 <select
                                         value={normalizedDataSource}
                                         onChange={(e) => updateCommand(cmd.id, 'config.dataSource', e.target.value)}
-                                        className={`bg-transparent text-xs font-medium focus:outline-none cursor-pointer border-none p-0 pr-4 hover:underline ${isMissingSource ? 'text-red-600' : 'text-blue-700'}`}
+                                        className={`bg-transparent text-xs font-medium focus:outline-none cursor-pointer border-none p-0 pr-4 hover:underline ${hasSourceError ? 'text-red-600' : 'text-blue-700'}`}
                                     >
                                         <option value="">{showSourcePlaceholder ? "-- Select Source --" : ""}</option>
                                         {availableSourceAliases.length > 0 && (
                                             <optgroup label="Data Sources">
                                                 {availableSourceAliases.map(sa => (
-                                                    <option key={sa.linkId} value={sa.linkId}>
-                                                        {formatSourceOptionLabel(sa.alias, sa.sourceTable, sa.linkId)}
+                                                    <option
+                                                        key={sa.linkId}
+                                                        value={sa.linkId}
+                                                        style={!getKnownSourceTable(sa.sourceTable) ? unresolvedSourceOptionStyle : undefined}
+                                                    >
+                                                        {formatSourceOptionLabel(sa.alias, getKnownSourceTable(sa.sourceTable), sa.linkId)}
                                                     </option>
                                                 ))}
                                             </optgroup>
@@ -1104,6 +1168,11 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                                     <option key={name} value={name}>{name}</option>
                                                 ))}
                                             </optgroup>
+                                        )}
+                                        {unresolvedSourceLabel && (
+                                            <option value={unresolvedSourceLabel} disabled>
+                                                {unresolvedSourceLabel}
+                                            </option>
                                         )}
                                     </select>
                             </div>
@@ -1140,7 +1209,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                     <div className="flex flex-col">
                                         <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Table to View</label>
                                         <select 
-                                            className={`${baseInputStyles} py-2`}
+                                            className={`${isInvalidSource ? errorInputStyles : baseInputStyles} py-2`}
                                             value={normalizedDataSource} 
                                             onChange={(e) => updateCommand(cmd.id, 'config.dataSource', e.target.value)}
                                         >
@@ -1148,8 +1217,12 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                             {availableSourceAliases.length > 0 && (
                                                 <optgroup label="Data Sources">
                                                     {availableSourceAliases.map(sa => (
-                                                        <option key={sa.linkId} value={sa.linkId}>
-                                                            {formatSourceOptionLabel(sa.alias, sa.sourceTable, sa.linkId)}
+                                                        <option
+                                                            key={sa.linkId}
+                                                            value={sa.linkId}
+                                                            style={!getKnownSourceTable(sa.sourceTable) ? unresolvedSourceOptionStyle : undefined}
+                                                        >
+                                                            {formatSourceOptionLabel(sa.alias, getKnownSourceTable(sa.sourceTable), sa.linkId)}
                                                         </option>
                                                     ))}
                                                 </optgroup>
@@ -1160,6 +1233,11 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                                         <option key={name} value={name}>{name}</option>
                                                     ))}
                                                 </optgroup>
+                                            )}
+                                            {unresolvedSourceLabel && (
+                                                <option value={unresolvedSourceLabel} disabled>
+                                                    {unresolvedSourceLabel}
+                                                </option>
                                             )}
                                         </select>
                                     </div>
@@ -1184,7 +1262,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                                 <div className="col-span-5">
                                                 <select className={baseInputStyles} value={vf.field || ''} onChange={(e) => updateViewField(cmd.id, cmd.config.viewFields || [], i, 'field', e.target.value)}>
                                                     <option value="">Select Field...</option>
-                                                    {fieldNames.map(f => {
+                                                    {withCurrentOption(fieldNames, vf.field).map(f => {
                                                         const disabled = selectedFields.includes(f) && f !== vf.field;
                                                         return <option key={f} value={f} disabled={disabled}>{f}</option>;
                                                     })}
@@ -1225,7 +1303,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                                 <div className="col-span-6">
                                                     <select className={baseInputStyles} value={vs.field || ''} onChange={(e) => updateViewSort(cmd.id, currentList, i, 'field', e.target.value)}>
                                                         <option value="">-- Field --</option>
-                                                        {fieldNames.map(f => {
+                                                        {withCurrentOption(fieldNames, vs.field).map(f => {
                                                             const disabled = selectedFields.includes(f) && f !== vs.field;
                                                             return <option key={f} value={f} disabled={disabled}>{f}</option>;
                                                         })}
@@ -1264,19 +1342,41 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                     <div>
                                         <label className="text-xs font-bold text-gray-500 uppercase mb-2 flex items-center">Sub-Tables (Linked Data)</label>
                                         <div className="space-y-3">
-                                            {(cmd.config.subTables || []).map((sub, i) => (
+                                            {(cmd.config.subTables || []).map((sub, i) => {
+                                                const normalizedSubTable = sub.table
+                                                    ? (availableSourceAliases.find(sa =>
+                                                        sa.linkId === sub.table ||
+                                                        sa.alias === sub.table ||
+                                                        sa.sourceTable === sub.table
+                                                    )?.linkId || sub.table)
+                                                    : '';
+                                                const isInvalidSubTable = !!normalizedSubTable
+                                                    && !isKnownSourceValue(normalizedSubTable, availableGeneratedTablesForCmd);
+                                                const unresolvedSubTableLabel = isInvalidSubTable && !resolveSourceAlias(normalizedSubTable)
+                                                    ? normalizedSubTable
+                                                    : '';
+                                                return (
                                                 <div key={sub.id} className="grid grid-cols-12 gap-2 items-center bg-gray-50 p-2 rounded border border-gray-100">
                                                     <div className="col-span-3">
-                                                        <select className={baseInputStyles} value={sub.table} onChange={(e) => updateSubTable(cmd.id, cmd.config.subTables || [], i, 'table', e.target.value)}>
+                                                        <select className={isInvalidSubTable ? errorInputStyles : baseInputStyles} value={normalizedSubTable} onChange={(e) => updateSubTable(cmd.id, cmd.config.subTables || [], i, 'table', e.target.value)}>
                                                             <option value="">Select Source...</option>
                                                             {availableSourceAliases.map(sa => (
-                                                                <option key={sa.linkId} value={sa.linkId}>
-                                                                    {formatSourceOptionLabel(sa.alias, sa.sourceTable, sa.linkId)}
+                                                                <option
+                                                                    key={sa.linkId}
+                                                                    value={sa.linkId}
+                                                                    style={!getKnownSourceTable(sa.sourceTable) ? unresolvedSourceOptionStyle : undefined}
+                                                                >
+                                                                    {formatSourceOptionLabel(sa.alias, getKnownSourceTable(sa.sourceTable), sa.linkId)}
                                                                 </option>
                                                             ))}
                                                             {availableGeneratedTablesForCmd.map(name => (
                                                                 <option key={name} value={name}>{name}</option>
                                                             ))}
+                                                            {unresolvedSubTableLabel && (
+                                                                <option value={unresolvedSubTableLabel} disabled>
+                                                                    {unresolvedSubTableLabel}
+                                                                </option>
+                                                            )}
                                                         </select>
                                                     </div>
                                                     <div className="col-span-3">
@@ -1292,7 +1392,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                                         <button onClick={() => removeSubTable(cmd.id, cmd.config.subTables || [], i)} className="text-red-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
                                                     </div>
                                                 </div>
-                                            ))}
+                                            )})}
                                             <Button size="sm" variant="secondary" onClick={() => addSubTable(cmd.id, cmd.config.subTables || [])} icon={<Plus className="w-3 h-3"/>}>Add Sub-Table</Button>
                                         </div>
                                     </div>
@@ -1309,7 +1409,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                                     <div key={i} className="flex space-x-2">
                                                         <select className={getFieldStyle(field, fieldNames)} value={field} onChange={(e) => updateGroupField(cmd.id, cmd.config.groupByFields || [], i, e.target.value)}>
                                                             <option value="">Select Field...</option>
-                                                            {fieldNames.map(f => <option key={f} value={f}>{f}</option>)}
+                                                            {withCurrentOption(fieldNames, field).map(f => <option key={f} value={f}>{f}</option>)}
                                                         </select>
                                                         <button onClick={() => removeGroupField(cmd.id, cmd.config.groupByFields || [], i)} className="text-red-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
                                                     </div>
@@ -1326,7 +1426,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                                             <option value="count">Count</option><option value="sum">Sum</option><option value="mean">Avg</option><option value="min">Min</option><option value="max">Max</option>
                                                         </select>
                                                         <select className={getFieldStyle(agg.field, fieldNames)} value={agg.field} onChange={(e) => updateAggregation(cmd.id, cmd.config.aggregations || [], i, 'field', e.target.value)}>
-                                                            <option value="">Field...</option><option value="*">Any (*)</option>{fieldNames.map(f => <option key={f} value={f}>{f}</option>)}
+                                                            <option value="">Field...</option><option value="*">Any (*)</option>{withCurrentOption(fieldNames, agg.field === '*' ? '' : agg.field).map(f => <option key={f} value={f}>{f}</option>)}
                                                         </select>
                                                         <input className={`${baseInputStyles} w-24 shrink-0`} placeholder="As..." value={agg.alias} onChange={(e) => updateAggregation(cmd.id, cmd.config.aggregations || [], i, 'alias', e.target.value)} />
                                                         <button onClick={() => removeAggregation(cmd.id, cmd.config.aggregations || [], i)} className="text-red-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
@@ -1378,22 +1478,20 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                             </select>
                                         ) : (
                                             <select
-                                                className={baseInputStyles}
-                                                value={cmd.config.joinTable
-                                                    ? (availableSourceAliases.find(sa =>
-                                                        sa.linkId === cmd.config.joinTable ||
-                                                        sa.alias === cmd.config.joinTable ||
-                                                        sa.sourceTable === cmd.config.joinTable
-                                                    )?.linkId || cmd.config.joinTable)
-                                                    : ''}
+                                                className={isInvalidJoinTarget ? errorInputStyles : baseInputStyles}
+                                                value={normalizedJoinTarget}
                                                 onChange={(e) => updateCommand(cmd.id, 'config.joinTable', e.target.value)}
                                             >
                                                 <option value="">-- Select Source --</option>
                                                 {availableSourceAliases.length > 0 && (
                                                     <optgroup label="Data Sources">
                                                         {availableSourceAliases.map(sa => (
-                                                            <option key={sa.linkId} value={sa.linkId}>
-                                                                {formatSourceOptionLabel(sa.alias, sa.sourceTable, sa.linkId)}
+                                                            <option
+                                                                key={sa.linkId}
+                                                                value={sa.linkId}
+                                                                style={!getKnownSourceTable(sa.sourceTable) ? unresolvedSourceOptionStyle : undefined}
+                                                            >
+                                                                {formatSourceOptionLabel(sa.alias, getKnownSourceTable(sa.sourceTable), sa.linkId)}
                                                             </option>
                                                         ))}
                                                     </optgroup>
@@ -1404,6 +1502,11 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                                             <option key={name} value={name}>{name}</option>
                                                         ))}
                                                     </optgroup>
+                                                )}
+                                                {unresolvedJoinTargetLabel && (
+                                                    <option value={unresolvedJoinTargetLabel} disabled>
+                                                        {unresolvedJoinTargetLabel}
+                                                    </option>
                                                 )}
                                             </select>
                                         )}
@@ -1450,7 +1553,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                                             onChange={(e) => updateCommand(cmd.id, 'config.joinLeftField', e.target.value)}
                                                         >
                                                             <option value="">Left Field...</option>
-                                                            {fieldNames.map(f => <option key={f} value={f}>{f}</option>)}
+                                                            {withCurrentOption(fieldNames, joinLeftField).map(f => <option key={f} value={f}>{f}</option>)}
                                                         </select>
                                                     </div>
                                                     <div className="col-span-2">
@@ -1474,7 +1577,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                                             onChange={(e) => updateCommand(cmd.id, 'config.joinRightField', e.target.value)}
                                                         >
                                                             <option value="">Right Field...</option>
-                                                            {joinTargetFields.map(f => <option key={f} value={f}>{f}</option>)}
+                                                            {withCurrentOption(joinTargetFields, joinRightField).map(f => <option key={f} value={f}>{f}</option>)}
                                                         </select>
                                                     </div>
                                                 </div>
@@ -1500,7 +1603,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                     <div className="col-span-4">
                                         <select className={getFieldStyle(cmd.config.field || '', fieldNames)} value={cmd.config.field || ''} onChange={(e) => updateCommand(cmd.id, 'config.field', e.target.value)}>
                                             <option value="">Select Field...</option>
-                                            {fieldNames.map(f => <option key={f} value={f}>{f}</option>)}
+                                            {withCurrentOption(fieldNames, cmd.config.field || '').map(f => <option key={f} value={f}>{f}</option>)}
                                         </select>
                                     </div>
                                     <div className="col-span-4">
@@ -1545,7 +1648,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                     <div className="col-span-8">
                                         <select className={getFieldStyle(cmd.config.field || '', fieldNames)} value={cmd.config.field || ''} onChange={(e) => updateCommand(cmd.id, 'config.field', e.target.value)}>
                                             <option value="">Select Field...</option>
-                                            {fieldNames.map(f => <option key={f} value={f}>{f}</option>)}
+                                            {withCurrentOption(fieldNames, cmd.config.field || '').map(f => <option key={f} value={f}>{f}</option>)}
                                         </select>
                                     </div>
                                     <div className="col-span-4">

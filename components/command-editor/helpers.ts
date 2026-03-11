@@ -23,6 +23,8 @@ export const getSourceLabel = (availableSourceAliases: SourceAlias[], sourceId?:
     );
     if (sa?.alias) return sa.alias;
     if (sa?.sourceTable) return sa.sourceTable;
+    // Avoid leaking internal source ids (e.g. link_*) into UI labels.
+    if (/^(link|cmd|src)[_-]/i.test(sourceId)) return '';
     return sourceId;
 };
 

@@ -1,0 +1,195 @@
+{
+  "version": 1,
+  "type": "dmb_operations",
+  "exportedAt": "2026-03-11T17:41:28.934Z",
+  "sessionId": "sess_4b692ba7",
+  "tree": {
+    "id": "root",
+    "type": "operation",
+    "operationType": "root",
+    "name": "Project",
+    "enabled": true,
+    "commands": [],
+    "children": [
+      {
+        "id": "setup_1",
+        "type": "operation",
+        "operationType": "setup",
+        "name": "Data Setup",
+        "enabled": true,
+        "commands": [
+          {
+            "id": "cmd_src_1772732159227_909",
+            "type": "source",
+            "config": {
+              "mainTable": "customers",
+              "alias": "customers",
+              "linkId": "link_1772732159227_xlo44"
+            },
+            "order": 1
+          },
+          {
+            "id": "cmd_src_1772732175544_667",
+            "type": "source",
+            "config": {
+              "mainTable": "orders",
+              "alias": "orders",
+              "linkId": "link_1772732175544_phsvu"
+            },
+            "order": 2
+          }
+        ],
+        "children": [
+          {
+            "id": "op_1772732190444",
+            "type": "operation",
+            "operationType": "process",
+            "name": "Orders Summary Pipeline",
+            "enabled": true,
+            "commands": [
+              {
+                "id": "cmd_1772732684540_8xqei",
+                "type": "join",
+                "config": {
+                  "dataSource": "link_1772732159227_xlo44",
+                  "joinType": "LEFT",
+                  "joinTargetType": "table",
+                  "joinSuffix": "_joined",
+                  "joinTable": "link_1772732175544_phsvu",
+                  "on": "orders.customer_id = customers.customer_id"
+                },
+                "order": 1
+              },
+              {
+                "id": "cmd_1772732227244",
+                "type": "group",
+                "config": {
+                  "dataSource": "link_1772732175544_phsvu",
+                  "groupByFields": [
+                    "customer_id"
+                  ],
+                  "aggregations": [
+                    {
+                      "field": "amount",
+                      "func": "sum",
+                      "alias": "total_amount"
+                    }
+                  ],
+                  "havingConditions": [],
+                  "outputTableName": "21212212"
+                },
+                "order": 2
+              },
+              {
+                "id": "cmd_1772732327759",
+                "type": "sort",
+                "config": {
+                  "dataSource": "link_1772732175544_phsvu",
+                  "field": "amount",
+                  "ascending": false
+                },
+                "order": 3
+              },
+              {
+                "id": "cmd_1773250844819_7iljl",
+                "type": "filter",
+                "config": {
+                  "filterRoot": {
+                    "id": "root_1773250844819",
+                    "type": "group",
+                    "logicalOperator": "AND",
+                    "conditions": []
+                  },
+                  "dataSource": "link_1772732175544_phsvu"
+                },
+                "order": 4
+              },
+              {
+                "id": "cmd_1772732357442",
+                "type": "transform",
+                "config": {
+                  "dataSource": "link_1772732175544_phsvu",
+                  "mappings": [
+                    {
+                      "id": "m_1772732362787",
+                      "mode": "simple",
+                      "expression": "amount * 1.2",
+                      "outputField": "amount_copy"
+                    }
+                  ]
+                },
+                "order": 5
+              },
+              {
+                "id": "cmd_1772732389459",
+                "type": "save",
+                "config": {
+                  "dataSource": "link_1772732175544_phsvu",
+                  "field": "amount",
+                  "value": "amount_var",
+                  "distinct": true
+                },
+                "order": 6
+              },
+              {
+                "id": "cmd_1772732419792",
+                "type": "multi_table",
+                "config": {
+                  "dataSource": "link_1772732175544_phsvu",
+                  "subTables": [
+                    {
+                      "id": "sub_1772732439042",
+                      "table": "link_1772732159227_xlo44",
+                      "on": "main.customer_id = sub.customer_id",
+                      "label": "Customers"
+                    }
+                  ]
+                },
+                "order": 7
+              }
+            ],
+            "children": []
+          },
+          {
+            "id": "op_1772733676536",
+            "type": "operation",
+            "operationType": "process",
+            "name": "New Operation",
+            "enabled": true,
+            "commands": [
+              {
+                "id": "cmd_1772733677268",
+                "type": "filter",
+                "config": {
+                  "filterRoot": {
+                    "id": "root_1772733677268",
+                    "type": "group",
+                    "logicalOperator": "AND",
+                    "conditions": []
+                  },
+                  "dataSource": "link_1772732159227_xlo44"
+                },
+                "order": 1
+              },
+              {
+                "id": "cmd_1772733684217",
+                "type": "filter",
+                "config": {
+                  "filterRoot": {
+                    "id": "root_1772733684217",
+                    "type": "group",
+                    "logicalOperator": "AND",
+                    "conditions": []
+                  },
+                  "dataSource": "link_1772732175544_phsvu"
+                },
+                "order": 2
+              }
+            ],
+            "children": []
+          }
+        ]
+      }
+    ]
+  }
+}

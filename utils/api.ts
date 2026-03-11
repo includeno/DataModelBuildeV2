@@ -625,6 +625,7 @@ export const api = {
         if (config.isMock) {
             await new Promise(r => setTimeout(r, 400));
             if (endpoint === '/sessions') return MOCK_SESSIONS;
+            if (endpoint === '/datasets') return [...MOCK_DATASETS];
             if (endpoint.match(/\/sessions\/.*\/datasets\/.*\/preview/)) {
                 const parts = endpoint.split('/');
                 const datasetName = decodeURIComponent((parts[4] || '').split('?')[0]);

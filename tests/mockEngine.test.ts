@@ -31,6 +31,13 @@ const createFilterCommand = (filterRoot: FilterGroup, order = 1): Command => ({
 
 describe('Mock DataFlow Engine', () => {
     
+    it('should return mock datasets via /datasets endpoint', async () => {
+        const datasets = await api.get(MOCK_CONFIG, '/datasets');
+        expect(Array.isArray(datasets)).toBe(true);
+        expect(datasets.length).toBeGreaterThan(0);
+        expect(datasets[0]).toHaveProperty('name');
+    });
+
     it('should load mock data source', async () => {
         const tree = createTree([], 'employees.csv');
         const res: ExecutionResult = await api.post(MOCK_CONFIG, '/execute', {

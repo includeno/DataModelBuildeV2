@@ -314,12 +314,17 @@ export const SqlBuilderModal: React.FC<SqlBuilderModalProps> = ({
         const options = availableSourceAliases.length > 0
             ? availableSourceAliases.map(sa => ({
                 value: sa.linkId,
-                label: formatSourceOptionLabel(sa.alias, sa.sourceTable, sa.linkId)
+                label: formatSourceOptionLabel(
+                    sa.alias,
+                    datasets.some(d => d.name === sa.sourceTable) ? sa.sourceTable : undefined,
+                    sa.linkId
+                ),
+                unresolved: !datasets.some(d => d.name === sa.sourceTable)
             }))
-            : datasets.map(d => ({ value: d.name, label: d.name }));
+            : datasets.map(d => ({ value: d.name, label: d.name, unresolved: false }));
 
         if (currentValue && !options.some(opt => opt.value === currentValue)) {
-            options.push({ value: currentValue, label: currentValue });
+            options.push({ value: currentValue, label: currentValue, unresolved: true });
         }
         return options;
     };
@@ -495,7 +500,13 @@ export const SqlBuilderModal: React.FC<SqlBuilderModalProps> = ({
                     >
                         <option value="">{sourceOptions.length > 0 ? '-- Select Source --' : 'No sources'}</option>
                         {sourceOptions.map(opt => (
-                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            <option
+                                key={opt.value}
+                                value={opt.value}
+                                style={opt.unresolved ? { color: '#dc2626', fontWeight: 600 } : undefined}
+                            >
+                                {opt.label}
+                            </option>
                         ))}
                     </select>
                 </div>
@@ -728,7 +739,13 @@ export const SqlBuilderModal: React.FC<SqlBuilderModalProps> = ({
                                 >
                                     <option value="">-- Select Source --</option>
                                     {getSourceOptions(cfg.joinTable).map(opt => (
-                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                        <option
+                                            key={opt.value}
+                                            value={opt.value}
+                                            style={opt.unresolved ? { color: '#dc2626', fontWeight: 600 } : undefined}
+                                        >
+                                            {opt.label}
+                                        </option>
                                     ))}
                                 </select>
                             )}
