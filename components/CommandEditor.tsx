@@ -2,7 +2,7 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { Command, CommandType, Dataset, OperationType, AggregationConfig, OperationNode, DataType, HavingCondition, MappingRule, SubTableConfig, FieldInfo, AppearanceConfig } from '../types';
 import { Button } from './Button';
-import { Trash2, Plus, GripVertical, Type, Database, Play, Layers, ArrowRight, Filter as FilterIcon, Table, Calculator, List, Check, Info, ChevronDown, ChevronUp, Split, LayoutDashboard, AlertTriangle, Settings2, Eye, Variable, Route, Code, Pin, PinOff } from 'lucide-react';
+import { Trash2, Plus, GripVertical, Type, Database, Play, Layers, ArrowRight, Filter as FilterIcon, Table, Calculator, List, Check, ChevronDown, ChevronUp, Split, LayoutDashboard, AlertTriangle, Settings2, Eye, Variable, Route, Code, Pin, PinOff } from 'lucide-react';
 import { Reorder } from 'framer-motion';
 import { CustomSelect, SelectOption } from './command-editor/CustomSelect';
 import { CollapsibleSection } from './command-editor/CollapsibleSection';
@@ -229,7 +229,6 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
       return Array.from(names);
   }, [tree]);
 
-  const hasComplexView = useMemo(() => commands.some(c => c.type === 'multi_table'), [commands]);
   const normalizeSourceToken = (value: unknown): string => {
       if (value === null || value === undefined) return '';
       return String(value).trim();
@@ -1067,7 +1066,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                         <option value="group">Group</option>
                                         <option value="save">Save Variable</option>
                                         <option value="view">View / Select Table</option>
-                                        <option value="multi_table">Complex View (Final Step)</option>
+                                        <option value="multi_table">Complex View</option>
                                     </select>
                                     {appearance?.showCommandIds && (
                                         <span className="ml-2 text-[10px] font-mono text-gray-400 bg-gray-50 border border-gray-200 rounded px-1.5 py-0.5">
@@ -1676,23 +1675,16 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
             })}
             </Reorder.Group>
             
-            {hasComplexView ? (
-                <div className="flex justify-center pt-4 text-xs text-orange-500 font-medium bg-orange-50 p-2 rounded border border-orange-100 mx-4">
-                    <Info className="w-4 h-4 mr-2 inline" />
-                    Complex View must be the final step in this operation.
+            <div className="flex justify-center pt-2">
+                <div className="flex items-center space-x-2">
+                    <Button variant="secondary" size="sm" onClick={addCommand} icon={<Plus className="w-4 h-4" />}>Add Step</Button>
+                    {operationType !== 'setup' && (
+                        <Button variant="secondary" size="sm" onClick={() => openSqlBuilder(null)}>
+                            Build from SQL
+                        </Button>
+                    )}
                 </div>
-            ) : (
-                <div className="flex justify-center pt-2">
-                    <div className="flex items-center space-x-2">
-                        <Button variant="secondary" size="sm" onClick={addCommand} icon={<Plus className="w-4 h-4" />}>Add Step</Button>
-                        {operationType !== 'setup' && (
-                            <Button variant="secondary" size="sm" onClick={() => openSqlBuilder(null)}>
-                                Build from SQL
-                            </Button>
-                        )}
-                    </div>
-                </div>
-            )}
+            </div>
           </>
         )}
       </div>

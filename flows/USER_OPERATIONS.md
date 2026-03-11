@@ -177,7 +177,7 @@ This document outlines 10 core user workflows for the DataFlow Engine. For each 
 **User Goal**: View the main result alongside related records from another table (e.g., View Order, see related Customer details below it).
 
 **Steps**:
-1.  Select the final node. Set Command Type to **Complex View (Final Step)**.
+1.  Select a node and set Command Type to **Complex View**.
 2.  **Sub-Tables**: Click "Add Sub-Table".
 3.  **Table**: Select `Employees`.
 4.  **Join Condition**: `main.emp_id = sub.id`.

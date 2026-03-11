@@ -67,7 +67,7 @@ def build_pipeline(page: Page) -> None:
     command_selects.nth(2).select_option("Sort")
     command_selects.nth(3).select_option("Mapping")
     command_selects.nth(4).select_option("Save Variable")
-    command_selects.nth(5).select_option("Complex View (Final Step)")
+    command_selects.nth(5).select_option("Complex View")
 
     # Join config
     page.locator("select").filter(has_text="-- Select Source --").first.select_option("orders to orders")

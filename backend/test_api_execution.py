@@ -390,6 +390,95 @@ def test_execute_complex_view_subtable_linkid_without_setup_flag(session_id):
     assert data["totalCount"] == 1
     assert data["rows"][0]["customer_id"] == "C001"
 
+def test_execute_allows_commands_after_complex_view(session_id):
+    df_orders = pd.DataFrame({
+        "order_id": [1, 2, 3],
+        "customer_id": ["C001", "C002", "C003"]
+    })
+    df_customers = pd.DataFrame({
+        "customer_id": ["C001", "C003"],
+        "name": ["Alice", "Charlie"]
+    })
+
+    storage.add_dataset(session_id, "orders.csv", df_orders)
+    storage.add_dataset(session_id, "customers.csv", df_customers)
+
+    tree = {
+        "id": "setup_root",
+        "type": "operation",
+        "operationType": "setup",
+        "name": "Data Setup",
+        "enabled": True,
+        "commands": [
+            {
+                "id": "src_orders",
+                "type": "source",
+                "order": 0,
+                "config": {"mainTable": "orders", "alias": "orders", "linkId": "link_orders"}
+            },
+            {
+                "id": "src_customers",
+                "type": "source",
+                "order": 1,
+                "config": {"mainTable": "customers", "alias": "customers", "linkId": "link_customers"}
+            }
+        ],
+        "children": [
+            {
+                "id": "op1",
+                "type": "operation",
+                "name": "Orders Pipeline",
+                "enabled": True,
+                "commands": [
+                    {
+                        "id": "src_main",
+                        "type": "source",
+                        "order": 0,
+                        "config": {"mainTable": "orders"}
+                    },
+                    {
+                        "id": "multi1",
+                        "type": "multi_table",
+                        "order": 1,
+                        "config": {
+                            "subTables": [
+                                {
+                                    "id": "sub1",
+                                    "table": "link_customers",
+                                    "label": "Customers",
+                                    "on": "customers.customer_id = orders.customer_id"
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "id": "after_multi_filter",
+                        "type": "filter",
+                        "order": 2,
+                        "config": {
+                            "field": "customer_id",
+                            "operator": "=",
+                            "value": "C001",
+                            "dataType": "string"
+                        }
+                    }
+                ],
+                "children": []
+            }
+        ]
+    }
+
+    response = client.post("/execute", json={
+        "sessionId": session_id,
+        "tree": tree,
+        "targetNodeId": "op1"
+    })
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["totalCount"] == 1
+    assert data["rows"][0]["customer_id"] == "C001"
+
 def test_data_source_override_ignores_parent_setup_stream(session_id):
     df_orders = pd.DataFrame({
         "order_id": [1, 2],
