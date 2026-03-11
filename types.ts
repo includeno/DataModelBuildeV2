@@ -85,6 +85,8 @@ export interface CommandConfig {
   variableName?: string;
   variableType?: 'text' | 'list';
   variableValue?: string | string[];
+  // Shared note for setup source / define_variable commands
+  note?: string;
 
   // Join configs
   joinTargetType?: 'table' | 'node'; 
@@ -192,7 +194,7 @@ export interface SessionMetadataDetail {
 export interface SessionDiagnosticsReport {
   sessionId: string;
   generatedAt: string;
-  sources: Array<{ id: string; mainTable?: string; alias?: string; linkId?: string }>;
+  sources: Array<{ id: string; mainTable?: string; alias?: string; linkId?: string; note?: string }>;
   sourceMap: Array<{ identifier: string; table: string }>;
   datasets: Array<{ id?: string; name?: string; totalCount?: number; fieldCount?: number }>;
   operations: Array<{ id: string; name?: string; operationType?: string; commands: Array<{ id: string; type: string; order: number; dataSource?: string | null }> }>;

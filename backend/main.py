@@ -284,7 +284,8 @@ async def get_session_diagnostics(session_id: str):
             "id": s.get("id"),
             "mainTable": (s.get("config") or {}).get("mainTable"),
             "alias": (s.get("config") or {}).get("alias"),
-            "linkId": (s.get("config") or {}).get("linkId")
+            "linkId": (s.get("config") or {}).get("linkId"),
+            "note": (s.get("config") or {}).get("note")
         }
         for s in sources
     ]

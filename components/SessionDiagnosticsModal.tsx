@@ -91,6 +91,7 @@ export const SessionDiagnosticsModal: React.FC<SessionDiagnosticsModalProps> = (
                         <span className="bg-gray-50 border border-gray-200 rounded px-2 py-0.5">table: {s.mainTable || '-'}</span>
                         <span className="bg-gray-50 border border-gray-200 rounded px-2 py-0.5">alias: {s.alias || '-'}</span>
                         <span className="bg-gray-50 border border-gray-200 rounded px-2 py-0.5">linkId: {s.linkId || '-'}</span>
+                        <span className="bg-gray-50 border border-gray-200 rounded px-2 py-0.5">note: {s.note || '-'}</span>
                       </div>
                     </div>
                   ))}

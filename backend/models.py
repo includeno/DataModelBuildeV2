@@ -47,6 +47,7 @@ class CommandConfig(BaseModel):
     variableName: Optional[str] = None
     variableType: Optional[str] = None # 'text' or 'list'
     variableValue: Optional[Union[str, List[str]]] = None
+    note: Optional[str] = None
 
     # Join configs
     joinTargetType: Optional[str] = "table" # 'table' or 'node'

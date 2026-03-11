@@ -249,6 +249,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
               config: { 
                   mainTable: '', 
                   alias: '',
+                  note: '',
                   linkId: `link_${Date.now()}_${Math.random().toString(36).substr(2, 5)}` // Generate stable Link ID
               }, 
               order: commands.length + 1
@@ -263,7 +264,8 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
               config: {
                   variableName: '',
                   variableType: 'text',
-                  variableValue: ''
+                  variableValue: '',
+                  note: ''
               },
               order: commands.length + 1
           };
@@ -463,6 +465,15 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                                 />
                                             </div>
                                         </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Notes</label>
+                                            <textarea
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:border-blue-500 focus:ring-blue-500 text-sm min-h-[64px]"
+                                                value={cmd.config.note || ''}
+                                                onChange={(e) => handleUpdateSourceCmd(cmd.id, { note: e.target.value })}
+                                                placeholder="Describe this data source..."
+                                            />
+                                        </div>
                                     </div>
                                     <button 
                                         onClick={() => handleRemoveCmd(cmd.id)}
@@ -561,6 +572,15 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                                     placeholder="Enter value"
                                                 />
                                             )}
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Notes</label>
+                                            <textarea
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-purple-500 focus:border-purple-500 text-sm min-h-[64px]"
+                                                value={cmd.config.note || ''}
+                                                onChange={(e) => handleUpdateSourceCmd(cmd.id, { note: e.target.value })}
+                                                placeholder="Describe this variable..."
+                                            />
                                         </div>
                                     </div>
                                     <button 
