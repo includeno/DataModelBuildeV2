@@ -748,6 +748,142 @@ function App() {
       }
   };
 
+  const normalizeOperationNode = (raw: any): OperationNode | null => {
+      if (!raw || typeof raw !== 'object') return null;
+
+      const rawChildren = Array.isArray(raw.children) ? raw.children : [];
+      const normalizedChildren = rawChildren
+          .map((child: any) => normalizeOperationNode(child))
+          .filter((child: OperationNode | null): child is OperationNode => child !== null);
+
+      const rawCommands = Array.isArray(raw.commands) ? raw.commands : [];
+      const normalizedCommands: Command[] = rawCommands.map((cmd: any, idx: number) => ({
+          id: typeof cmd?.id === 'string' && cmd.id.trim() ? cmd.id : `cmd_import_${Date.now()}_${idx}`,
+          type: typeof cmd?.type === 'string' && cmd.type.trim() ? cmd.type : 'filter',
+          config: cmd?.config && typeof cmd.config === 'object' ? cmd.config : {},
+          order: Number.isFinite(Number(cmd?.order)) ? Number(cmd.order) : idx + 1
+      })) as Command[];
+
+      const opType = typeof raw.operationType === 'string' ? raw.operationType : 'process';
+      const normalizedType: OperationType = (
+          opType === 'setup' || opType === 'dataset' || opType === 'process' || opType === 'root'
+      ) ? opType : 'process';
+
+      if (typeof raw.id !== 'string' || !raw.id.trim()) return null;
+      if (typeof raw.name !== 'string' || !raw.name.trim()) return null;
+      if (raw.type !== 'operation') return null;
+
+      return {
+          id: raw.id,
+          type: 'operation',
+          operationType: normalizedType,
+          name: raw.name,
+          enabled: raw.enabled !== false,
+          commands: normalizedCommands,
+          children: normalizedChildren
+      };
+  };
+
+  const deriveImportedTree = (payload: any): OperationNode | null => {
+      const candidate = payload?.tree ?? payload;
+
+      if (Array.isArray(candidate)) {
+          const children = candidate
+              .map((item: any) => normalizeOperationNode(item))
+              .filter((item: OperationNode | null): item is OperationNode => item !== null);
+          return {
+              ...INITIAL_TREE,
+              children
+          };
+      }
+
+      const maybeRoot = normalizeOperationNode(candidate);
+      if (!maybeRoot) {
+          const ops = payload?.operations;
+          if (Array.isArray(ops)) {
+              const children = ops
+                  .map((item: any) => normalizeOperationNode(item))
+                  .filter((item: OperationNode | null): item is OperationNode => item !== null);
+              return {
+                  ...INITIAL_TREE,
+                  children
+              };
+          }
+          return null;
+      }
+
+      if (maybeRoot.operationType === 'root') {
+          return maybeRoot;
+      }
+
+      return {
+          ...INITIAL_TREE,
+          children: [maybeRoot]
+      };
+  };
+
+  const getPreferredSelectedNodeId = (nextTree: OperationNode): string => {
+      const firstSetup = nextTree.children?.find(c => c.operationType === 'setup');
+      if (firstSetup) return firstSetup.id;
+      const firstChild = nextTree.children?.[0];
+      if (firstChild) return firstChild.id;
+      return 'root';
+  };
+
+  const handleExportOperations = () => {
+      try {
+          const payload = {
+              version: 1,
+              type: 'dmb_operations',
+              exportedAt: new Date().toISOString(),
+              sessionId,
+              tree
+          };
+          const json = JSON.stringify(payload, null, 2);
+          const blob = new Blob([json], { type: 'application/json;charset=utf-8;' });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          const safeName = (sessionName || sessionId || 'workflow').replace(/[^a-zA-Z0-9_-]/g, '_');
+          link.href = url;
+          link.setAttribute('download', `operations_${safeName}_${Date.now()}.json`);
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+      } catch (e: any) {
+          alert(`Export operations failed: ${e.message || e}`);
+      }
+  };
+
+  const handleImportOperations = async (file: File) => {
+      if (!file) return;
+      const proceed = confirm("Import operations will replace the current workflow tree. Continue?");
+      if (!proceed) return;
+
+      try {
+          const rawText = await file.text();
+          const parsed = JSON.parse(rawText);
+          const importedTree = deriveImportedTree(parsed);
+          if (!importedTree) {
+              throw new Error("Invalid operations file structure");
+          }
+          setTree(importedTree);
+          setSelectedNodeId(getPreferredSelectedNodeId(importedTree));
+          setPreviewData(null);
+          setCurrentView('workflow');
+
+          if (sessionId) {
+              api.post(apiConfig, `/sessions/${sessionId}/state`, {
+                  tree: importedTree,
+                  datasets,
+                  sqlHistory
+              });
+          }
+      } catch (e: any) {
+          alert(`Import operations failed: ${e.message || e}`);
+      }
+  };
+
   const handleSchemaSave = async (datasetId: string, fieldTypes: any) => {
       // Update local state
       const updated = datasets.map(d => d.id === datasetId ? { ...d, fieldTypes } : d);
@@ -822,6 +958,8 @@ function App() {
                                 onDeleteNode={handleDeleteNode}
                                 onMoveNode={handleMoveNode}
                                 onImportClick={() => { if (sessionId) setIsImportOpen(true); }}
+                                onExportOperations={handleExportOperations}
+                                onImportOperations={handleImportOperations}
                                 onOpenTableInSql={(t) => { setTargetSqlTable(t); setCurrentView('sql'); setIsMobileSidebarOpen(false); }}
                                 onOpenTableInData={(t) => { setTargetDataTable(t); setCurrentView('data'); setIsMobileSidebarOpen(false); }}
                                 onOpenSchema={(name) => { handleOpenSchema(name, true); }}
@@ -847,6 +985,8 @@ function App() {
                         onDeleteNode={handleDeleteNode}
                         onMoveNode={handleMoveNode}
                         onImportClick={() => { if (sessionId) setIsImportOpen(true); }}
+                        onExportOperations={handleExportOperations}
+                        onImportOperations={handleImportOperations}
                         onOpenTableInSql={(t) => { setTargetSqlTable(t); setCurrentView('sql'); }}
                         onOpenTableInData={(t) => { setTargetDataTable(t); setCurrentView('data'); }}
                         onOpenSchema={(name) => { handleOpenSchema(name, false); }}

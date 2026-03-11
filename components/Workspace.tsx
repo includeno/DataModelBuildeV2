@@ -83,6 +83,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   onUpdateSqlHistory
 }) => {
   const [activeTab, setActiveTab] = useState<string>('');
+  const [lastRunCommandId, setLastRunCommandId] = useState<string | undefined>(undefined);
 
   // --- Tab Management Effects ---
 
@@ -100,8 +101,41 @@ export const Workspace: React.FC<WorkspaceProps> = ({
 
   const showExecutionTab = !!previewData;
   const isMultiTableMode = selectedNode?.commands.some(c => c.type === 'multi_table') ?? false;
+  const firstComplexIndex = selectedNode?.commands.findIndex(c => c.type === 'multi_table') ?? -1;
+  const lastRunIndex = lastRunCommandId && selectedNode
+      ? selectedNode.commands.findIndex(c => c.id === lastRunCommandId)
+      : -1;
+  const shouldUseComplexResult = isMultiTableMode && (
+      lastRunCommandId === undefined || firstComplexIndex < 0 || lastRunIndex >= firstComplexIndex
+  );
   const allowResultPanel = selectedNode?.operationType !== 'setup';
   const showRightPanel = isRightPanelOpen && allowResultPanel;
+
+  useEffect(() => {
+      // Reset run-step context when switching operation.
+      setLastRunCommandId(undefined);
+  }, [selectedNode?.id]);
+
+  useEffect(() => {
+      if (!previewData) {
+          setLastRunCommandId(undefined);
+      }
+  }, [previewData]);
+
+  const runPreview = (
+      page: number = 1,
+      commandId?: string,
+      options: { preserveLastCommandId?: boolean } = {}
+  ) => {
+      const shouldReuseLast = page > 1 || options.preserveLastCommandId === true;
+      const effectiveCommandId = commandId === undefined
+          ? (shouldReuseLast ? lastRunCommandId : undefined)
+          : commandId;
+      if (page === 1) {
+          setLastRunCommandId(effectiveCommandId);
+      }
+      onRefreshPreview(page, effectiveCommandId);
+  };
 
   const handleRefreshView = async (viewId: string, page: number, pageSize: number): Promise<ExecutionResult> => {
       if (!selectedNode || !tree) throw new Error("No context");
@@ -182,7 +216,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                 onUpdateName={onUpdateName}
                 onUpdateType={onUpdateType}
                 onViewPath={onViewPath}
-                onRun={(cmdId) => onRefreshPreview(1, cmdId)}
+                onRun={(cmdId) => runPreview(1, cmdId)}
                 canRun={canRunOperation}
                 onGenerateSql={handleGenerateSql}
                 tree={tree} 
@@ -229,7 +263,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                           }`}
                       >
                           <Play className="w-3 h-3 mr-2" />
-                          <span>{isMultiTableMode ? 'Complex Result' : 'Execution Result'}</span>
+                          <span>{shouldUseComplexResult ? 'Complex Result' : 'Execution Result'}</span>
                           <button 
                               onClick={(e) => {
                                   e.stopPropagation();
@@ -259,7 +293,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
 
           <div className="flex-1 overflow-hidden relative">
               {activeTab === 'output' && showExecutionTab ? (
-                  isMultiTableMode && selectedNode ? (
+                  shouldUseComplexResult && selectedNode ? (
                       <ComplexDataPreview 
                           initialResult={previewData}
                           selectedNode={selectedNode}
@@ -273,8 +307,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                           data={previewData} 
                           loading={loading}
                           pageSize={selectedNode?.pageSize}
-                          onRefresh={() => onRefreshPreview(previewData?.page || 1)}
-                          onPageChange={(page) => onRefreshPreview(page)}
+                          onRefresh={() => runPreview(previewData?.page || 1, undefined, { preserveLastCommandId: true })}
+                          onPageChange={(page) => runPreview(page)}
                           onUpdatePageSize={onUpdatePageSize}
                           onExportFull={onExportFull}
                           sourceId={selectedNode?.id}

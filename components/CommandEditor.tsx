@@ -122,9 +122,22 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
       return flattenNodes(tree).filter(n => n.id !== operationId);
   }, [tree, operationId]);
 
+  const scopedSetupIds = useMemo(() => {
+      if (!tree) return null;
+      if (operationType === 'setup') return new Set([operationId]);
+      const ancestorNodes = getAncestors(tree, operationId) || [];
+      const nearestSetup = [...ancestorNodes].reverse().find(n => n.operationType === 'setup');
+      if (!nearestSetup) return null;
+      return new Set([nearestSetup.id]);
+  }, [tree, operationId, operationType]);
+
   const availableSourceAliases = useMemo(() => {
       if (!tree) return [];
-      const setupNodes = flattenNodes(tree).filter(n => n.operationType === 'setup');
+      const setupNodes = flattenNodes(tree).filter(n => {
+          if (n.operationType !== 'setup') return false;
+          if (!scopedSetupIds) return true;
+          return scopedSetupIds.has(n.id);
+      });
       const aliases: SourceAlias[] = [];
       
       setupNodes.forEach(node => {
@@ -146,7 +159,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
           });
       });
       return aliases;
-  }, [tree]);
+  }, [tree, scopedSetupIds]);
 
   const handleParseSql = () => {
       const result = parseSqlToCommands(sqlBuilderInput, (name) => resolveDataSource(availableSourceAliases, name));
