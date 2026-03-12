@@ -17,6 +17,8 @@ from sql_utils import (
     SIMPLE_SELECT_RE,
     SIMPLE_SELECT_WHERE_RE,
     WHERE_EXTRACT_RE,
+    IDENT_RE,
+    IDENT_PART_RE,
 )
 
 class ExecutionEngine:
@@ -94,9 +96,20 @@ class ExecutionEngine:
                 data_source = cmd.config.dataSource
                 if data_source and data_source != 'stream':
                     resolved = self._resolve_setup_table(data_source, allowed_tables, source_map)
-                    if current_sql is None or current_base_table != resolved:
-                        current_sql = f"SELECT * FROM {quote_identifier(resolved)}"
-                        current_base_table = resolved
+                    preserved_alias = None
+                    if current_sql:
+                        prev_table, prev_alias, _ = self._extract_simple_select(current_sql)
+                        if prev_table == resolved and prev_alias:
+                            preserved_alias = prev_alias
+                    # Explicit dataSource should always restart SQL generation from that table,
+                    # even when the currently tracked base table name matches. Otherwise,
+                    # earlier transformations on the same base table (e.g. group/sort)
+                    # incorrectly leak into this command's exported SQL.
+                    table_ref = quote_identifier(resolved)
+                    if preserved_alias:
+                        table_ref = f"{table_ref} AS {quote_identifier(preserved_alias)}"
+                    current_sql = f"SELECT * FROM {table_ref}"
+                    current_base_table = resolved
 
                 cmd_sql = ""
                 if cmd.type == 'define_variable':
@@ -127,22 +140,27 @@ class ExecutionEngine:
                         input_table = f"({current_sql})"
                         cmd_sql = generate_sql_for_command(cmd_for_sql, variables, input_table)
                     elif cmd.type == 'view':
-                        base_table, existing_where = self._extract_simple_select(current_sql)
+                        base_table, base_alias, existing_where = self._extract_simple_select(current_sql)
                         if base_table and current_base_table and base_table == current_base_table:
-                            cmd_sql = self._build_view_sql(cmd, base_table, existing_where)
+                            cmd_sql = self._build_view_sql(cmd, base_table, existing_where, base_alias)
                         else:
                             input_table = self._select_input_table(current_sql, current_base_table)
                             cmd_sql = generate_sql_for_command(cmd, variables, input_table)
                     elif cmd.type == 'filter':
-                        base_table, existing_where = self._extract_simple_select(current_sql)
+                        base_table, base_alias, existing_where = self._extract_simple_select(current_sql)
                         if base_table and current_base_table and base_table == current_base_table:
-                            filter_sql = generate_sql_for_command(cmd, variables, base_table)
+                            if not base_alias:
+                                base_alias = self._infer_filter_alias(cmd)
+                            table_ref = quote_identifier(base_table)
+                            if base_alias:
+                                table_ref = f"{table_ref} AS {quote_identifier(base_alias)}"
+                            filter_sql = generate_sql_for_command(cmd, variables, table_ref)
                             new_where = self._extract_where_clause(filter_sql)
                             if new_where:
                                 if existing_where:
-                                    cmd_sql = f"SELECT * FROM {quote_identifier(base_table)} WHERE ({existing_where}) AND ({new_where})"
+                                    cmd_sql = f"SELECT * FROM {table_ref} WHERE ({existing_where}) AND ({new_where})"
                                 else:
-                                    cmd_sql = f"SELECT * FROM {quote_identifier(base_table)} WHERE {new_where}"
+                                    cmd_sql = f"SELECT * FROM {table_ref} WHERE {new_where}"
                             else:
                                 cmd_sql = filter_sql
                         else:
@@ -505,16 +523,32 @@ class ExecutionEngine:
             rewritten = re.sub(pattern, replacement, rewritten)
         return rewritten
 
-    def _extract_simple_select(self, sql: str) -> tuple[Optional[str], Optional[str]]:
+    def _extract_simple_select(self, sql: str) -> tuple[Optional[str], Optional[str], Optional[str]]:
         if not sql:
-            return None, None
+            return None, None, None
         m = SIMPLE_SELECT_RE.match(sql)
         if m:
-            return unquote_identifier(m.group(1)), None
+            return unquote_identifier(m.group(1)), None, None
         m = SIMPLE_SELECT_WHERE_RE.match(sql)
         if m:
-            return unquote_identifier(m.group(1)), m.group(2)
-        return None, None
+            return unquote_identifier(m.group(1)), None, m.group(2)
+
+        m = re.match(
+            rf"^\s*SELECT\s+\*\s+FROM\s+({IDENT_RE})\s+(?:AS\s+)?({IDENT_PART_RE})\s*WHERE\s+(.+)\s*$",
+            sql,
+            re.IGNORECASE,
+        )
+        if m:
+            return unquote_identifier(m.group(1)), unquote_identifier(m.group(2)), m.group(3)
+
+        m = re.match(
+            rf"^\s*SELECT\s+\*\s+FROM\s+({IDENT_RE})\s+(?:AS\s+)?({IDENT_PART_RE})\s*$",
+            sql,
+            re.IGNORECASE,
+        )
+        if m:
+            return unquote_identifier(m.group(1)), unquote_identifier(m.group(2)), None
+        return None, None, None
 
     def _extract_where_clause(self, sql: str) -> Optional[str]:
         if not sql:
@@ -524,16 +558,55 @@ class ExecutionEngine:
             return None
         return m.group(1)
 
+    def _infer_filter_alias(self, cmd: Command) -> Optional[str]:
+        if cmd.type != 'filter':
+            return None
+
+        def extract_alias(field: Any) -> Optional[str]:
+            if not isinstance(field, str):
+                return None
+            raw = field.strip()
+            if "." not in raw:
+                return None
+            alias = raw.split(".", 1)[0].strip()
+            return alias or None
+
+        if cmd.config.field:
+            return extract_alias(cmd.config.field)
+
+        root = cmd.config.filterRoot
+        if not isinstance(root, dict):
+            return None
+
+        stack = [root]
+        while stack:
+            node = stack.pop()
+            conditions = node.get("conditions") if isinstance(node, dict) else None
+            if not isinstance(conditions, list):
+                continue
+            for item in conditions:
+                if not isinstance(item, dict):
+                    continue
+                if item.get("type") == "group":
+                    stack.append(item)
+                    continue
+                alias = extract_alias(item.get("field"))
+                if alias:
+                    return alias
+        return None
+
     def _select_input_table(self, current_sql: str, current_base_table: Optional[str]) -> str:
-        base_table, existing_where = self._extract_simple_select(current_sql)
+        base_table, base_alias, existing_where = self._extract_simple_select(current_sql)
         if base_table and current_base_table and base_table == current_base_table:
             base_sql = quote_identifier(base_table)
+            if base_alias:
+                base_sql = f"{base_sql} AS {quote_identifier(base_alias)}"
             if existing_where:
                 return f"(SELECT * FROM {base_sql} WHERE {existing_where})"
             return base_sql
         return f"({current_sql}) AS input_subq"
 
-    def _build_view_sql(self, cmd: Command, base_table: str, existing_where: Optional[str]) -> str:
+    def _build_view_sql(self, cmd: Command, base_table: str, existing_where: Optional[str], base_alias: Optional[str] = None) -> str:
         c = cmd.config
         view_fields = c.viewFields or []
         fields = [vf.field for vf in view_fields if getattr(vf, 'field', None)]
@@ -570,7 +643,10 @@ class ExecutionEngine:
             select_fields = ["*"]
 
         quoted_fields = ["*" if f == "*" else quote_identifier(f) for f in select_fields]
-        sql = f"SELECT {distinct}{', '.join(quoted_fields)} FROM {quote_identifier(base_table)}"
+        table_ref = quote_identifier(base_table)
+        if base_alias:
+            table_ref = f"{table_ref} AS {quote_identifier(base_alias)}"
+        sql = f"SELECT {distinct}{', '.join(quoted_fields)} FROM {table_ref}"
         if existing_where:
             sql = f"{sql} WHERE {existing_where}"
 

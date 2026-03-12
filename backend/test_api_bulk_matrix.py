@@ -591,10 +591,13 @@ def test_generate_sql_matrix(api_context, command, include_meta, must_contain_to
         },
     )
     assert res.status_code == 200
-    sql_text = res.json()["sql"]
+    payload = res.json()
+    sql_text = payload["sql"]
     if include_meta:
-        first_line = sql_text.splitlines()[0]
-        assert first_line.startswith("-- DMB_COMMAND: ")
+        assert payload["dmb"] is not None
+    else:
+        assert payload["dmb"] is None
+    assert not sql_text.lstrip().startswith("-- DMB_COMMAND:")
     for token in must_contain_tokens:
         assert token in sql_text
 
