@@ -756,3 +756,56 @@ def test_generate_sql_single_table_commands_with_data_source_reset_chain(
         assert part in sql
     for part in forbidden_sql_parts:
         assert part not in sql
+
+def test_generate_sql_empty_filter_on_chain_does_not_wrap_with_redundant_subquery():
+    session_id = setup_session_with_data()
+
+    tree = {
+        "id": "root",
+        "type": "operation",
+        "name": "Root",
+        "enabled": True,
+        "commands": [
+            {"id": "c1", "type": "source", "config": {"mainTable": "users"}},
+            {
+                "id": "c2",
+                "type": "group",
+                "config": {
+                    "groupByFields": ["role"],
+                    "aggregations": [{"func": "sum", "field": "age", "alias": "total_age"}],
+                },
+            },
+            {"id": "c3", "type": "sort", "config": {"field": "total_age", "ascending": False}},
+            {
+                "id": "c4",
+                "type": "filter",
+                "config": {
+                    "dataSource": "stream",
+                    "filterRoot": {"id": "root", "type": "group", "logicalOperator": "AND", "conditions": []},
+                },
+            },
+        ],
+        "children": [],
+    }
+
+    tree = add_setup_node(tree, ["users"])
+
+    res = client.post(
+        "/generate_sql",
+        json={
+            "sessionId": session_id,
+            "tree": tree,
+            "targetNodeId": "root",
+            "targetCommandId": "c4",
+            "includeCommandMeta": True,
+        },
+    )
+
+    assert res.status_code == 200
+    sql = res.json()["sql"]
+    dmb = res.json()["dmb"]
+
+    assert dmb and dmb["type"] == "filter"
+    assert "GROUP BY role" in sql
+    assert "ORDER BY total_age DESC" in sql
+    assert "SELECT * FROM (SELECT * FROM (" not in sql

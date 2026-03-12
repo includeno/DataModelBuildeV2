@@ -137,20 +137,23 @@ class ExecutionEngine:
                             input_table = self._select_input_table(current_sql, current_base_table)
                             cmd_sql = generate_sql_for_command(cmd, variables, input_table)
                     elif cmd.type == 'filter':
-                        base_table, existing_where = self._extract_simple_select(current_sql)
-                        if base_table and current_base_table and base_table == current_base_table:
-                            filter_sql = generate_sql_for_command(cmd, variables, base_table)
-                            new_where = self._extract_where_clause(filter_sql)
-                            if new_where:
-                                if existing_where:
-                                    cmd_sql = f"SELECT * FROM {quote_identifier(base_table)} WHERE ({existing_where}) AND ({new_where})"
-                                else:
-                                    cmd_sql = f"SELECT * FROM {quote_identifier(base_table)} WHERE {new_where}"
-                            else:
-                                cmd_sql = filter_sql
+                        if self._is_noop_filter_command(cmd):
+                            cmd_sql = current_sql
                         else:
-                            input_table = self._select_input_table(current_sql, current_base_table)
-                            cmd_sql = generate_sql_for_command(cmd, variables, input_table)
+                            base_table, existing_where = self._extract_simple_select(current_sql)
+                            if base_table and current_base_table and base_table == current_base_table:
+                                filter_sql = generate_sql_for_command(cmd, variables, base_table)
+                                new_where = self._extract_where_clause(filter_sql)
+                                if new_where:
+                                    if existing_where:
+                                        cmd_sql = f"SELECT * FROM {quote_identifier(base_table)} WHERE ({existing_where}) AND ({new_where})"
+                                    else:
+                                        cmd_sql = f"SELECT * FROM {quote_identifier(base_table)} WHERE {new_where}"
+                                else:
+                                    cmd_sql = filter_sql
+                            else:
+                                input_table = self._select_input_table(current_sql, current_base_table)
+                                cmd_sql = generate_sql_for_command(cmd, variables, input_table)
                     else:
                         input_table = self._select_input_table(current_sql, current_base_table)
                         cmd_sql = generate_sql_for_command(cmd, variables, input_table)
@@ -170,6 +173,18 @@ class ExecutionEngine:
                     current_sql = cmd_sql
 
         raise ValueError("Target command not found")
+
+
+    def _is_noop_filter_command(self, cmd: Command) -> bool:
+        if cmd.type != 'filter':
+            return False
+        c = cmd.config
+        root = c.filterRoot
+        if isinstance(root, dict):
+            conditions = root.get('conditions')
+            if not conditions:
+                return True
+        return not (c.field and c.operator)
 
     def _serialize_command_meta(self, cmd: Command) -> Dict[str, Any]:
         config_dict: Dict[str, Any] = {}

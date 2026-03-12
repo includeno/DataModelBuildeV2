@@ -168,6 +168,17 @@ def main():
                 },
             },
         },
+        {
+            "name": "filter_noop_stream",
+            "cmd": {
+                "id": "c3",
+                "type": "filter",
+                "config": {
+                    "dataSource": "stream",
+                    "filterRoot": {"id": "root", "type": "group", "logicalOperator": "AND", "conditions": []},
+                },
+            },
+        },
     ]
 
     print("=== SQL Export Outputs For Single-Table Commands ===")
