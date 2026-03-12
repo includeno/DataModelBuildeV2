@@ -111,6 +111,27 @@ def _walk_operations(node: Dict, operations: List[Dict]) -> None:
     for child in node.get("children") or []:
         _walk_operations(child, operations)
 
+
+
+def _split_dmb_and_sql(sql_text: str):
+    if not isinstance(sql_text, str):
+        return None, sql_text
+    lines = sql_text.splitlines()
+    if not lines:
+        return None, sql_text
+    first = lines[0].strip()
+    prefix = "-- DMB_COMMAND: "
+    if not first.startswith(prefix):
+        return None, sql_text
+    payload_text = first[len(prefix):].strip()
+    dmb = None
+    if payload_text:
+        try:
+            dmb = json.loads(payload_text)
+        except Exception:
+            dmb = payload_text
+    body = "\n".join(lines[1:]).lstrip("\n")
+    return dmb, body
 def paginate_df(df: pd.DataFrame, page: int, page_size: int) -> pd.DataFrame:
     start = (page - 1) * page_size
     end = start + page_size
@@ -491,7 +512,8 @@ async def generate_sql(req: ExecuteRequest):
             req.targetCommandId,
             req.includeCommandMeta,
         )
-        return {"sql": sql}
+        dmb, pure_sql = _split_dmb_and_sql(sql)
+        return {"sql": pure_sql, "dmb": dmb}
     except HTTPException as e:
         # Preserve explicit HTTP errors (e.g., missing targetCommandId)
         raise e

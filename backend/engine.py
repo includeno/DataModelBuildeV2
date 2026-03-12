@@ -94,9 +94,12 @@ class ExecutionEngine:
                 data_source = cmd.config.dataSource
                 if data_source and data_source != 'stream':
                     resolved = self._resolve_setup_table(data_source, allowed_tables, source_map)
-                    if current_sql is None or current_base_table != resolved:
-                        current_sql = f"SELECT * FROM {quote_identifier(resolved)}"
-                        current_base_table = resolved
+                    # Explicit dataSource should always restart SQL generation from that table,
+                    # even when the currently tracked base table name matches. Otherwise,
+                    # earlier transformations on the same base table (e.g. group/sort)
+                    # incorrectly leak into this command's exported SQL.
+                    current_sql = f"SELECT * FROM {quote_identifier(resolved)}"
+                    current_base_table = resolved
 
                 cmd_sql = ""
                 if cmd.type == 'define_variable':

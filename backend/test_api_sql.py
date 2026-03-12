@@ -113,10 +113,8 @@ def test_generate_sql_with_command_meta():
     })
 
     assert res.status_code == 200
+    payload = res.json()["dmb"]
     sql = res.json()["sql"]
-    first_line = sql.splitlines()[0]
-    assert first_line.startswith("-- DMB_COMMAND: ")
-    payload = json.loads(first_line.replace("-- DMB_COMMAND: ", "", 1))
     assert payload["type"] == "sort"
     assert payload["config"]["field"] == "age"
     assert "ORDER BY age DESC" in sql
@@ -574,3 +572,187 @@ def test_generate_sql_list_variable_substitution():
     sql = res.json()["sql"]
     # Should be IN ('admin', 'user')
     assert "role IN ('admin', 'user')" in sql
+
+def test_generate_sql_filter_data_source_resets_previous_group_chain():
+    session_id = setup_session_with_data()
+
+    tree = {
+        "id": "root",
+        "type": "operation",
+        "name": "Root",
+        "enabled": True,
+        "commands": [
+            {"id": "c1", "type": "source", "config": {"mainTable": "users"}},
+            {
+                "id": "c2",
+                "type": "group",
+                "config": {
+                    "groupByFields": ["role"],
+                    "aggregations": [{"func": "sum", "field": "age", "alias": "total_age"}]
+                }
+            },
+            {
+                "id": "c3",
+                "type": "filter",
+                "config": {
+                    "dataSource": "users",
+                    "filterRoot": {
+                        "id": "root_1",
+                        "type": "group",
+                        "logicalOperator": "AND",
+                        "conditions": [
+                            {"id": "cond_1", "type": "condition", "field": "role", "operator": "=", "value": "user", "valueType": "raw"}
+                        ]
+                    }
+                }
+            }
+        ],
+        "children": []
+    }
+
+    tree = add_setup_node(tree, ["users"])
+
+    res = client.post("/generate_sql", json={
+        "sessionId": session_id,
+        "tree": tree,
+        "targetNodeId": "root",
+        "targetCommandId": "c3",
+        "includeCommandMeta": True
+    })
+
+    assert res.status_code == 200
+    sql = res.json()["sql"]
+    payload = res.json()["dmb"]
+    assert payload["type"] == "filter"
+    assert "WHERE role = 'user'" in sql
+    assert "FROM users" in sql
+    assert "GROUP BY" not in sql
+    assert "total_age" not in sql
+
+
+@pytest.mark.parametrize(
+    "target_cmd, expected_sql_parts, forbidden_sql_parts",
+    [
+        (
+            {
+                "id": "c3",
+                "type": "filter",
+                "config": {
+                    "dataSource": "users",
+                    "field": "role",
+                    "operator": "=",
+                    "value": "user",
+                    "valueType": "raw",
+                },
+            },
+            ["FROM users", "WHERE role = 'user'"],
+            ["polluted_total_age", "GROUP BY role"],
+        ),
+        (
+            {
+                "id": "c3",
+                "type": "sort",
+                "config": {"dataSource": "users", "field": "age", "ascending": False},
+            },
+            ["FROM users", "ORDER BY age DESC"],
+            ["polluted_total_age", "GROUP BY role"],
+        ),
+        (
+            {
+                "id": "c3",
+                "type": "group",
+                "config": {
+                    "dataSource": "users",
+                    "groupByFields": ["name"],
+                    "aggregations": [{"func": "count", "field": "*", "alias": "fresh_cnt"}],
+                },
+            },
+            ["FROM users", "GROUP BY name", "COUNT(*) AS fresh_cnt"],
+            ["polluted_total_age", "SUM(age)"],
+        ),
+        (
+            {
+                "id": "c3",
+                "type": "transform",
+                "config": {
+                    "dataSource": "users",
+                    "mappings": [{"expression": "age + 1", "outputField": "age_plus", "mode": "sql"}],
+                },
+            },
+            ["FROM users", "age + 1 AS age_plus"],
+            ["polluted_total_age", "GROUP BY role"],
+        ),
+        (
+            {
+                "id": "c3",
+                "type": "save",
+                "config": {"dataSource": "users", "field": "role", "distinct": True},
+            },
+            ["SELECT DISTINCT role FROM users"],
+            ["polluted_total_age", "GROUP BY role"],
+        ),
+        (
+            {
+                "id": "c3",
+                "type": "view",
+                "config": {
+                    "dataSource": "users",
+                    "viewFields": [{"field": "name"}],
+                    "viewSorts": [{"field": "name", "ascending": True}],
+                    "viewLimit": 2,
+                },
+            },
+            ["SELECT name FROM users", "ORDER BY name ASC", "LIMIT 2"],
+            ["polluted_total_age", "GROUP BY role"],
+        ),
+    ],
+)
+def test_generate_sql_single_table_commands_with_data_source_reset_chain(
+    target_cmd,
+    expected_sql_parts,
+    forbidden_sql_parts,
+):
+    session_id = setup_session_with_data()
+
+    tree = {
+        "id": "root",
+        "type": "operation",
+        "name": "Root",
+        "enabled": True,
+        "commands": [
+            {"id": "c1", "type": "source", "config": {"mainTable": "users"}},
+            {
+                "id": "c2",
+                "type": "group",
+                "config": {
+                    "groupByFields": ["role"],
+                    "aggregations": [{"func": "sum", "field": "age", "alias": "polluted_total_age"}],
+                },
+            },
+            target_cmd,
+        ],
+        "children": [],
+    }
+
+    tree = add_setup_node(tree, ["users"])
+
+    res = client.post(
+        "/generate_sql",
+        json={
+            "sessionId": session_id,
+            "tree": tree,
+            "targetNodeId": "root",
+            "targetCommandId": "c3",
+            "includeCommandMeta": True,
+        },
+    )
+
+    assert res.status_code == 200
+    sql = res.json()["sql"]
+    payload = res.json()["dmb"]
+    assert payload["type"] == target_cmd["type"]
+
+    for part in expected_sql_parts:
+        assert part in sql
+    for part in forbidden_sql_parts:
+        assert part not in sql
