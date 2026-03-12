@@ -479,6 +479,198 @@ def test_execute_allows_commands_after_complex_view(session_id):
     assert data["totalCount"] == 1
     assert data["rows"][0]["customer_id"] == "C001"
 
+def test_execute_complex_view_subtable_condition_group_main_field_compare(session_id):
+    df_orders = pd.DataFrame({
+        "order_id": [1, 2, 3],
+        "customer_id": ["C001", "C002", "C003"],
+        "expected_status": ["ACTIVE", "ACTIVE", "INACTIVE"]
+    })
+    df_customers = pd.DataFrame({
+        "customer_id": ["C001", "C001", "C002", "C003"],
+        "status": ["ACTIVE", "INACTIVE", "ACTIVE", "ACTIVE"],
+        "name": ["Alice A", "Alice I", "Bob A", "Charlie A"]
+    })
+
+    storage.add_dataset(session_id, "orders.csv", df_orders)
+    storage.add_dataset(session_id, "customers.csv", df_customers)
+
+    tree = {
+        "id": "setup_root",
+        "type": "operation",
+        "operationType": "setup",
+        "name": "Data Setup",
+        "enabled": True,
+        "commands": [
+            {
+                "id": "src_orders",
+                "type": "source",
+                "order": 0,
+                "config": {"mainTable": "orders", "alias": "orders", "linkId": "link_orders"}
+            },
+            {
+                "id": "src_customers",
+                "type": "source",
+                "order": 1,
+                "config": {"mainTable": "customers", "alias": "customers", "linkId": "link_customers"}
+            }
+        ],
+        "children": [
+            {
+                "id": "op1",
+                "type": "operation",
+                "name": "Orders Pipeline",
+                "enabled": True,
+                "commands": [
+                    {
+                        "id": "src_main",
+                        "type": "source",
+                        "order": 0,
+                        "config": {"mainTable": "orders"}
+                    },
+                    {
+                        "id": "multi1",
+                        "type": "multi_table",
+                        "order": 1,
+                        "config": {
+                            "subTables": [
+                                {
+                                    "id": "sub1",
+                                    "table": "link_customers",
+                                    "label": "Customers",
+                                    "on": "customers.customer_id = orders.customer_id",
+                                    "onConditionGroup": {
+                                        "id": "g1",
+                                        "type": "group",
+                                        "logicalOperator": "AND",
+                                        "conditions": [
+                                            {
+                                                "id": "c1",
+                                                "type": "condition",
+                                                "field": "status",
+                                                "operator": "=",
+                                                "mainField": "expected_status"
+                                            }
+                                        ]
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "children": []
+            }
+        ]
+    }
+
+    response = client.post("/execute", json={
+        "sessionId": session_id,
+        "tree": tree,
+        "targetNodeId": "op1",
+        "viewId": "sub1"
+    })
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["totalCount"] == 2
+    matched = {(row["customer_id"], row["status"]) for row in data["rows"]}
+    assert matched == {("C001", "ACTIVE"), ("C002", "ACTIVE")}
+
+def test_execute_complex_view_subtable_legacy_condition_group_compatible(session_id):
+    df_orders = pd.DataFrame({
+        "order_id": [1, 2, 3],
+        "customer_id": ["C001", "C002", "C003"],
+        "expected_status": ["ACTIVE", "ACTIVE", "INACTIVE"]
+    })
+    df_customers = pd.DataFrame({
+        "customer_id": ["C001", "C001", "C002", "C003"],
+        "status": ["ACTIVE", "INACTIVE", "ACTIVE", "ACTIVE"],
+        "name": ["Alice A", "Alice I", "Bob A", "Charlie A"]
+    })
+
+    storage.add_dataset(session_id, "orders.csv", df_orders)
+    storage.add_dataset(session_id, "customers.csv", df_customers)
+
+    tree = {
+        "id": "setup_root",
+        "type": "operation",
+        "operationType": "setup",
+        "name": "Data Setup",
+        "enabled": True,
+        "commands": [
+            {
+                "id": "src_orders",
+                "type": "source",
+                "order": 0,
+                "config": {"mainTable": "orders", "alias": "orders", "linkId": "link_orders"}
+            },
+            {
+                "id": "src_customers",
+                "type": "source",
+                "order": 1,
+                "config": {"mainTable": "customers", "alias": "customers", "linkId": "link_customers"}
+            }
+        ],
+        "children": [
+            {
+                "id": "op1",
+                "type": "operation",
+                "name": "Orders Pipeline",
+                "enabled": True,
+                "commands": [
+                    {
+                        "id": "src_main",
+                        "type": "source",
+                        "order": 0,
+                        "config": {"mainTable": "orders"}
+                    },
+                    {
+                        "id": "multi1",
+                        "type": "multi_table",
+                        "order": 1,
+                        "config": {
+                            "subTables": [
+                                {
+                                    "id": "sub1",
+                                    "table": "link_customers",
+                                    "label": "Customers",
+                                    "on": "customers.customer_id = orders.customer_id",
+                                    "conditionGroup": {
+                                        "id": "legacy_g1",
+                                        "type": "group",
+                                        "logicalOperator": "AND",
+                                        "conditions": [
+                                            {
+                                                "id": "legacy_c1",
+                                                "type": "condition",
+                                                "field": "status",
+                                                "operator": "=",
+                                                "mainField": "expected_status"
+                                            }
+                                        ]
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "children": []
+            }
+        ]
+    }
+
+    response = client.post("/execute", json={
+        "sessionId": session_id,
+        "tree": tree,
+        "targetNodeId": "op1",
+        "viewId": "sub1"
+    })
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["totalCount"] == 2
+    matched = {(row["customer_id"], row["status"]) for row in data["rows"]}
+    assert matched == {("C001", "ACTIVE"), ("C002", "ACTIVE")}
+
 def test_data_source_override_ignores_parent_setup_stream(session_id):
     df_orders = pd.DataFrame({
         "order_id": [1, 2],

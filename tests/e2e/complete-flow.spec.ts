@@ -152,7 +152,8 @@ test.describe.serial('complete command flow (layered)', () => {
     const step2 = getStep(page, 1);
     await setCommandType(step2, 'join');
     await selectOptionByPartialText(step2.locator('select').filter({ hasText: '-- Select Source --' }).first(), 'customers to');
-    await step2.getByPlaceholder(/ON Condition/).fill('orders.customer_id = customers.customer_id');
+    await selectOptionByPartialText(step2.locator('select').filter({ hasText: 'Left Field...' }).first(), 'customer_id');
+    await selectOptionByPartialText(step2.locator('select').filter({ hasText: 'Right Field...' }).first(), 'customer_id');
 
     // Step 3: Mapping
     await page.getByRole('button', { name: 'Add Step' }).click();
@@ -209,7 +210,9 @@ test.describe.serial('complete command flow (layered)', () => {
     await step8.getByRole('button', { name: 'Add Sub-Table' }).click();
     await selectOptionByPartialText(step8.locator('select').filter({ hasText: 'Select Source...' }).first(), 'order_items to');
     await step8.getByPlaceholder('Tab Name').fill('Items');
-    await step8.getByPlaceholder('main.id = sub.user_id').fill('main.order_id = sub.order_id');
+    await step8.getByRole('button', { name: 'Add Rule' }).click();
+    await selectOptionByPartialText(step8.locator('select').filter({ hasText: 'Sub Field...' }).first(), 'order_id');
+    await selectOptionByPartialText(step8.locator('select').filter({ hasText: 'Main Field...' }).first(), 'order_id');
   });
 
   test('run and verify complex view', async () => {

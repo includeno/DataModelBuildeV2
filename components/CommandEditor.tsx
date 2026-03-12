@@ -1,6 +1,6 @@
 
 import React, { useMemo, useState, useRef, useEffect } from 'react';
-import { Command, CommandType, Dataset, OperationType, AggregationConfig, OperationNode, DataType, HavingCondition, MappingRule, SubTableConfig, FieldInfo, AppearanceConfig } from '../types';
+import { Command, CommandType, Dataset, OperationType, AggregationConfig, OperationNode, DataType, HavingCondition, MappingRule, SubTableConfig, FieldInfo, AppearanceConfig, SubTableConditionGroup } from '../types';
 import { Button } from './Button';
 import { Trash2, Plus, GripVertical, Type, Database, Play, Layers, ArrowRight, Filter as FilterIcon, Table, Calculator, List, Check, ChevronDown, ChevronUp, Split, LayoutDashboard, AlertTriangle, Settings2, Eye, Variable, Route, Code, Pin, PinOff } from 'lucide-react';
 import { Reorder } from 'framer-motion';
@@ -13,6 +13,7 @@ import { DraggableItem } from './command-editor/DraggableItem';
 import { VariableInserter } from './command-editor/VariableInserter';
 import { InsertDivider } from './command-editor/InsertDivider';
 import { FilterGroupEditor } from './command-editor/FilterGroupEditor';
+import { SubTableConditionGroupEditor } from './command-editor/SubTableConditionGroupEditor';
 import { flattenNodes, findAncestorVariables, getAncestors } from './command-editor/treeUtils';
 import { parseSqlToCommands } from './command-editor/sqlParser';
 import { StepOutline } from './command-editor/StepOutline';
@@ -43,6 +44,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
   operationType, 
   commands, 
   datasets,
+  inputSchema,
   appearance,
   onUpdateCommands,
   onUpdateName,
@@ -764,13 +766,89 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
       const newList = [...(current || [])]; newList[idx] = { ...newList[idx], [key]: val };
       updateCommand(cmdId, 'config.havingConditions', newList);
   };
+  const normalizeOnField = (field: unknown): string => {
+      if (field === null || field === undefined) return '';
+      const raw = String(field).trim();
+      if (!raw) return '';
+      if (raw.includes('.')) return raw.split('.').pop() || '';
+      return raw;
+  };
+  const isSubTableOnGroupEmpty = (group?: SubTableConditionGroup | null): boolean => {
+      if (!group || !Array.isArray(group.conditions) || group.conditions.length === 0) return true;
+      return group.conditions.every((item: any) => item?.type === 'group'
+          ? isSubTableOnGroupEmpty(item as SubTableConditionGroup)
+          : false);
+  };
+  const buildSubTableOnExpressionFromGroup = (group?: SubTableConditionGroup | null): string => {
+      if (!group || !Array.isArray(group.conditions) || group.conditions.length === 0) return '';
+      const parts = group.conditions.map((item: any): string => {
+          if (item?.type === 'group') {
+              const nested = buildSubTableOnExpressionFromGroup(item as SubTableConditionGroup);
+              return nested ? `(${nested})` : '';
+          }
+          const leftField = normalizeOnField(item?.field);
+          const op = String(item?.operator || '=').toLowerCase();
+          if (!leftField) return '';
+          const leftExpr = `sub.${leftField}`;
+          if (op === 'is_null') return `${leftExpr} IS NULL`;
+          if (op === 'is_not_null') return `${leftExpr} IS NOT NULL`;
+          if (op === 'is_empty') return `(${leftExpr} IS NULL OR ${leftExpr} = '')`;
+          if (op === 'is_not_empty') return `(${leftExpr} IS NOT NULL AND ${leftExpr} != '')`;
+          const rightField = normalizeOnField(item?.mainField ?? item?.value);
+          if (!rightField) return '';
+          const rightExpr = `main.${rightField}`;
+          if (op === 'contains') return `CAST(${leftExpr} AS VARCHAR) ILIKE '%' || CAST(${rightExpr} AS VARCHAR) || '%'`;
+          if (op === 'not_contains') return `CAST(${leftExpr} AS VARCHAR) NOT ILIKE '%' || CAST(${rightExpr} AS VARCHAR) || '%'`;
+          if (op === 'starts_with') return `CAST(${leftExpr} AS VARCHAR) ILIKE CAST(${rightExpr} AS VARCHAR) || '%'`;
+          if (op === 'ends_with') return `CAST(${leftExpr} AS VARCHAR) ILIKE '%' || CAST(${rightExpr} AS VARCHAR)`;
+          const safeOp = ['=', '!=', '>', '>=', '<', '<='].includes(op) ? op : '=';
+          return `${leftExpr} ${safeOp} ${rightExpr}`;
+      }).filter(Boolean);
+      if (parts.length === 0) return '';
+      const logical = group.logicalOperator === 'OR' ? 'OR' : 'AND';
+      return parts.join(` ${logical} `);
+  };
+  const countSubTableOnRules = (group?: SubTableConditionGroup | null): number => {
+      if (!group || !Array.isArray(group.conditions) || group.conditions.length === 0) return 0;
+      return group.conditions.reduce((count, item: any) => {
+          if (item?.type === 'group') return count + countSubTableOnRules(item as SubTableConditionGroup);
+          return count + 1;
+      }, 0);
+  };
+  const updateSubTableOnConditionGroup = (cmdId: string, current: SubTableConfig[], idx: number, group: SubTableConditionGroup) => {
+      const newList = [...(current || [])];
+      const normalizedGroup = isSubTableOnGroupEmpty(group) ? undefined : group;
+      const nextOn = normalizedGroup ? buildSubTableOnExpressionFromGroup(normalizedGroup) : '';
+      newList[idx] = {
+          ...newList[idx],
+          on: nextOn,
+          onConditionGroup: normalizedGroup,
+          conditionGroup: undefined
+      };
+      updateCommand(cmdId, 'config.subTables', newList);
+  };
+  const createDefaultSubTableConditionGroup = (): SubTableConditionGroup => ({
+      id: `sub_group_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      type: 'group',
+      logicalOperator: 'AND',
+      conditions: []
+  });
   const addSubTable = (cmdId: string, current: SubTableConfig[]) => {
-      updateCommand(cmdId, 'config.subTables', [...(current || []), { id: `sub_${Date.now()}`, table: '', on: 'main.id = sub.uid', label: 'New Sub-Table' }]);
+      updateCommand(cmdId, 'config.subTables', [
+          ...(current || []),
+          {
+              id: `sub_${Date.now()}`,
+              table: '',
+              on: '',
+              label: 'New Sub-Table',
+              onConditionGroup: createDefaultSubTableConditionGroup()
+          }
+      ]);
   };
   const removeSubTable = (cmdId: string, current: SubTableConfig[], idx: number) => {
       const newList = [...(current || [])]; newList.splice(idx, 1); updateCommand(cmdId, 'config.subTables', newList);
   };
-  const updateSubTable = (cmdId: string, current: SubTableConfig[], idx: number, key: keyof SubTableConfig, val: string) => {
+  const updateSubTable = <K extends keyof SubTableConfig>(cmdId: string, current: SubTableConfig[], idx: number, key: K, val: SubTableConfig[K]) => {
       const newList = [...(current || [])]; newList[idx] = { ...newList[idx], [key]: val };
       updateCommand(cmdId, 'config.subTables', newList);
   };
@@ -811,6 +889,33 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
   const updateViewSort = (cmdId: string, current: any[], idx: number, key: string, val: any) => {
       const newList = [...(current || [])]; newList[idx] = { ...newList[idx], [key]: val };
       updateCommand(cmdId, 'config.viewSorts', newList);
+  };
+  const updateJoinConditionFromBuilder = (
+      cmdId: string,
+      leftField: string,
+      operator: string,
+      rightField: string,
+      leftAlias: string,
+      rightAlias: string
+  ) => {
+      const safeOp = ['=', '!=', '>', '>=', '<', '<='].includes(operator) ? operator : '=';
+      const leftExpr = leftField ? `${leftAlias}.${leftField}` : '';
+      const rightExpr = rightField ? `${rightAlias}.${rightField}` : '';
+      const onExpr = leftExpr && rightExpr ? `${leftExpr} ${safeOp} ${rightExpr}` : '';
+      const updated = commands.map(c => {
+          if (c.id !== cmdId) return c;
+          return {
+              ...c,
+              config: {
+                  ...c.config,
+                  joinLeftField: leftField,
+                  joinOperator: safeOp,
+                  joinRightField: rightField,
+                  on: onExpr
+              }
+          };
+      });
+      onUpdateCommands(operationId, updated);
   };
 
   const getFieldStyle = (value: string, availableFields: string[]) => {
@@ -963,28 +1068,8 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                 const joinLeftField = cmd.config.joinLeftField || '';
                 const joinRightField = cmd.config.joinRightField || '';
                 const joinOperator = cmd.config.joinOperator || '=';
-                const leftExpr = joinLeftField ? (sourceLabel ? `${sourceLabel}.${joinLeftField}` : joinLeftField) : '';
-                const rightExpr = joinRightField ? (joinTargetLabel ? `${joinTargetLabel}.${joinRightField}` : joinRightField) : '';
-                const canApplyJoinBuilder = !!leftExpr && !!rightExpr;
-                const joinSuggestionId = `join-suggest-${cmd.id}`;
-                const joinSuggestions = (() => {
-                    const leftAlias = sourceLabel || 'left';
-                    const rightAlias = joinTargetLabel || 'right';
-                    const suggestions: string[] = [];
-                    const leftFields = fieldNames.slice(0, 8);
-                    const rightFields = joinTargetFields.slice(0, 8);
-                    leftFields.forEach(lf => {
-                        if (rightFields.includes(lf)) {
-                            suggestions.push(`${leftAlias}.${lf} = ${rightAlias}.${lf}`);
-                        }
-                    });
-                    if (leftFields[0] && rightFields[0]) {
-                        suggestions.push(`${leftAlias}.${leftFields[0]} = ${rightAlias}.${rightFields[0]}`);
-                    }
-                    leftFields.forEach(lf => suggestions.push(`${leftAlias}.${lf}`));
-                    rightFields.forEach(rf => suggestions.push(`${rightAlias}.${rf}`));
-                    return Array.from(new Set(suggestions)).slice(0, 12);
-                })();
+                const joinLeftAliasDisplay = sourceLabel || 'main';
+                const joinRightAliasDisplay = joinTargetLabel || 'sub';
 
                 const summaryParts: string[] = [];
                 if (sourceLabel) summaryParts.push(`Source: ${sourceLabel}`);
@@ -1342,53 +1427,86 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                         <label className="text-xs font-bold text-gray-500 uppercase mb-2 flex items-center">Sub-Tables (Linked Data)</label>
                                         <div className="space-y-3">
                                             {(cmd.config.subTables || []).map((sub, i) => {
+                                                const sourceAlias = availableSourceAliases.find(sa =>
+                                                    sa.linkId === sub.table ||
+                                                    sa.alias === sub.table ||
+                                                    sa.sourceTable === sub.table
+                                                );
                                                 const normalizedSubTable = sub.table
-                                                    ? (availableSourceAliases.find(sa =>
-                                                        sa.linkId === sub.table ||
-                                                        sa.alias === sub.table ||
-                                                        sa.sourceTable === sub.table
-                                                    )?.linkId || sub.table)
+                                                    ? (sourceAlias?.linkId || sub.table)
                                                     : '';
                                                 const isInvalidSubTable = !!normalizedSubTable
                                                     && !isKnownSourceValue(normalizedSubTable, availableGeneratedTablesForCmd);
                                                 const unresolvedSubTableLabel = isInvalidSubTable && !resolveSourceAlias(normalizedSubTable)
                                                     ? normalizedSubTable
                                                     : '';
+                                                const resolvedSubTableName = sourceAlias?.sourceTable || normalizedSubTable;
+                                                const subTableFields = getDatasetFieldNames(datasets, resolvedSubTableName);
+                                                const mainFieldCandidates = Array.from(new Set([
+                                                    ...fieldNames,
+                                                    ...Object.keys(inputSchema || {})
+                                                ]));
+                                                const mainAliasLabel = sourceLabel || 'main';
+                                                const subAliasLabel = sourceAlias?.alias || sourceAlias?.sourceTable || 'sub';
+                                                const onConditionGroup: SubTableConditionGroup = sub.onConditionGroup || sub.conditionGroup || {
+                                                    id: `sub_group_${sub.id}`,
+                                                    type: 'group',
+                                                    logicalOperator: 'AND',
+                                                    conditions: []
+                                                };
+                                                const onRuleCount = countSubTableOnRules(onConditionGroup);
                                                 return (
-                                                <div key={sub.id} className="grid grid-cols-12 gap-2 items-center bg-gray-50 p-2 rounded border border-gray-100">
-                                                    <div className="col-span-3">
-                                                        <select className={isInvalidSubTable ? errorInputStyles : baseInputStyles} value={normalizedSubTable} onChange={(e) => updateSubTable(cmd.id, cmd.config.subTables || [], i, 'table', e.target.value)}>
-                                                            <option value="">Select Source...</option>
-                                                            {availableSourceAliases.map(sa => (
-                                                                <option
-                                                                    key={sa.linkId}
-                                                                    value={sa.linkId}
-                                                                    style={!getKnownSourceTable(sa.sourceTable) ? unresolvedSourceOptionStyle : undefined}
-                                                                >
-                                                                    {formatSourceOptionLabel(sa.alias, getKnownSourceTable(sa.sourceTable), sa.linkId)}
-                                                                </option>
-                                                            ))}
-                                                            {availableGeneratedTablesForCmd.map(name => (
-                                                                <option key={name} value={name}>{name}</option>
-                                                            ))}
-                                                            {unresolvedSubTableLabel && (
-                                                                <option value={unresolvedSubTableLabel} disabled>
-                                                                    {unresolvedSubTableLabel}
-                                                                </option>
-                                                            )}
-                                                        </select>
-                                                    </div>
-                                                    <div className="col-span-3">
-                                                        <input className={baseInputStyles} placeholder="Tab Name" value={sub.label} onChange={(e) => updateSubTable(cmd.id, cmd.config.subTables || [], i, 'label', e.target.value)} />
-                                                    </div>
-                                                    <div className="col-span-5 relative">
-                                                        <div className="relative">
-                                                            <input className={`${baseInputStyles} pr-8`} placeholder="main.id = sub.user_id" value={sub.on} onChange={(e) => updateSubTable(cmd.id, cmd.config.subTables || [], i, 'on', e.target.value)} />
-                                                            <VariableInserter variables={currentScopeVariables} onInsert={(v) => updateSubTable(cmd.id, cmd.config.subTables || [], i, 'on', sub.on ? `${sub.on} ${v}` : v)} />
+                                                <div key={sub.id} className="bg-gray-50 p-2 rounded border border-gray-100 space-y-2">
+                                                    <div className="grid grid-cols-12 gap-2 items-center">
+                                                        <div className="col-span-5">
+                                                            <select className={isInvalidSubTable ? errorInputStyles : baseInputStyles} value={normalizedSubTable} onChange={(e) => updateSubTable(cmd.id, cmd.config.subTables || [], i, 'table', e.target.value)}>
+                                                                <option value="">Select Source...</option>
+                                                                {availableSourceAliases.map(sa => (
+                                                                    <option
+                                                                        key={sa.linkId}
+                                                                        value={sa.linkId}
+                                                                        style={!getKnownSourceTable(sa.sourceTable) ? unresolvedSourceOptionStyle : undefined}
+                                                                    >
+                                                                        {formatSourceOptionLabel(sa.alias, getKnownSourceTable(sa.sourceTable), sa.linkId)}
+                                                                    </option>
+                                                                ))}
+                                                                {availableGeneratedTablesForCmd.map(name => (
+                                                                    <option key={name} value={name}>{name}</option>
+                                                                ))}
+                                                                {unresolvedSubTableLabel && (
+                                                                    <option value={unresolvedSubTableLabel} disabled>
+                                                                        {unresolvedSubTableLabel}
+                                                                    </option>
+                                                                )}
+                                                            </select>
+                                                        </div>
+                                                        <div className="col-span-6">
+                                                            <input className={baseInputStyles} placeholder="Tab Name" value={sub.label} onChange={(e) => updateSubTable(cmd.id, cmd.config.subTables || [], i, 'label', e.target.value)} />
+                                                        </div>
+                                                        <div className="col-span-1 flex items-end justify-center pb-1">
+                                                            <button onClick={() => removeSubTable(cmd.id, cmd.config.subTables || [], i)} className="text-red-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
                                                         </div>
                                                     </div>
-                                                    <div className="col-span-1 flex items-end justify-center pb-1">
-                                                        <button onClick={() => removeSubTable(cmd.id, cmd.config.subTables || [], i)} className="text-red-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
+
+                                                    <div className="rounded-md border border-gray-200 bg-white p-3">
+                                                        <div className="flex items-center justify-between mb-2">
+                                                            <div className="text-[10px] font-bold text-gray-500 uppercase">ON Condition Builder</div>
+                                                            <div className="text-[10px] font-medium text-gray-400">{onRuleCount} rule{onRuleCount === 1 ? '' : 's'}</div>
+                                                        </div>
+                                                        <div className="mb-2 flex items-center gap-2 text-[10px]">
+                                                            <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100">Sub: {subAliasLabel}</span>
+                                                            <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-100">Main: {mainAliasLabel}</span>
+                                                        </div>
+                                                        <SubTableConditionGroupEditor
+                                                            group={onConditionGroup}
+                                                            subFields={subTableFields}
+                                                            mainFields={mainFieldCandidates}
+                                                            subAliasLabel={subAliasLabel}
+                                                            mainAliasLabel={mainAliasLabel}
+                                                            onUpdate={(group) => updateSubTableOnConditionGroup(cmd.id, cmd.config.subTables || [], i, group)}
+                                                            onRemove={() => {}}
+                                                            isRoot={true}
+                                                        />
                                                     </div>
                                                 </div>
                                             )})}
@@ -1511,27 +1629,15 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                         )}
                                     </div>
                                     <div className="col-span-12">
-                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">ON Condition</label>
-                                        <input
-                                            className={baseInputStyles}
-                                            value={cmd.config.on || ''}
-                                            onChange={(e) => updateCommand(cmd.id, 'config.on', e.target.value)}
-                                            placeholder="ON Condition (e.g. id = user_id)"
-                                            list={joinSuggestionId}
-                                        />
-                                        <datalist id={joinSuggestionId}>
-                                            {joinSuggestions.map((s) => (
-                                                <option key={s} value={s} />
-                                            ))}
-                                        </datalist>
-                                        <div className="mt-1 text-[11px] text-gray-500">
-                                            {sourceLabel ? `Left alias: ${sourceLabel}` : 'Left alias: Select source'}
-                                            {joinTargetLabel ? ` • Right alias: ${joinTargetLabel}` : ' • Right alias: Select join target'}
-                                        </div>
-                                    </div>
-                                    <div className="col-span-12">
                                         <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                                            <div className="text-[10px] font-bold text-gray-500 uppercase mb-2">Condition Builder</div>
+                                            <div className="flex items-center justify-between mb-2">
+                                                <div className="text-[10px] font-bold text-gray-500 uppercase">ON Condition Builder</div>
+                                                <div className="text-[10px] font-mono text-gray-500">{cmd.config.on || 'No condition'}</div>
+                                            </div>
+                                            <div className="mb-2 flex items-center gap-2 text-[10px]">
+                                                <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100">Left: {joinLeftAliasDisplay}</span>
+                                                <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-100">Right: {joinRightAliasDisplay}</span>
+                                            </div>
                                             {cmd.config.joinTargetType === 'node' && (
                                                 <div className="text-xs text-gray-500">
                                                     Select a table join target to use the builder.
@@ -1549,17 +1655,31 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                                         <select
                                                             className={getFieldStyle(joinLeftField, fieldNames)}
                                                             value={joinLeftField}
-                                                            onChange={(e) => updateCommand(cmd.id, 'config.joinLeftField', e.target.value)}
+                                                            onChange={(e) => updateJoinConditionFromBuilder(
+                                                                cmd.id,
+                                                                e.target.value,
+                                                                joinOperator,
+                                                                joinRightField,
+                                                                joinLeftAliasDisplay,
+                                                                joinRightAliasDisplay
+                                                            )}
                                                         >
                                                             <option value="">Left Field...</option>
-                                                            {withCurrentOption(fieldNames, joinLeftField).map(f => <option key={f} value={f}>{f}</option>)}
+                                                            {withCurrentOption(fieldNames, joinLeftField).map(f => <option key={f} value={f}>{joinLeftAliasDisplay}.{f}</option>)}
                                                         </select>
                                                     </div>
                                                     <div className="col-span-2">
                                                         <select
                                                             className={baseInputStyles}
                                                             value={joinOperator}
-                                                            onChange={(e) => updateCommand(cmd.id, 'config.joinOperator', e.target.value)}
+                                                            onChange={(e) => updateJoinConditionFromBuilder(
+                                                                cmd.id,
+                                                                joinLeftField,
+                                                                e.target.value,
+                                                                joinRightField,
+                                                                joinLeftAliasDisplay,
+                                                                joinRightAliasDisplay
+                                                            )}
                                                         >
                                                             <option value="=">=</option>
                                                             <option value="!=">!=</option>
@@ -1573,22 +1693,19 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                                         <select
                                                             className={getFieldStyle(joinRightField, joinTargetFields)}
                                                             value={joinRightField}
-                                                            onChange={(e) => updateCommand(cmd.id, 'config.joinRightField', e.target.value)}
+                                                            onChange={(e) => updateJoinConditionFromBuilder(
+                                                                cmd.id,
+                                                                joinLeftField,
+                                                                joinOperator,
+                                                                e.target.value,
+                                                                joinLeftAliasDisplay,
+                                                                joinRightAliasDisplay
+                                                            )}
                                                         >
                                                             <option value="">Right Field...</option>
-                                                            {withCurrentOption(joinTargetFields, joinRightField).map(f => <option key={f} value={f}>{f}</option>)}
+                                                            {withCurrentOption(joinTargetFields, joinRightField).map(f => <option key={f} value={f}>{joinRightAliasDisplay}.{f}</option>)}
                                                         </select>
                                                     </div>
-                                                </div>
-                                                <div className="mt-2 flex justify-end">
-                                                    <Button
-                                                        variant="secondary"
-                                                        size="sm"
-                                                        onClick={() => updateCommand(cmd.id, 'config.on', `${leftExpr} ${joinOperator} ${rightExpr}`)}
-                                                        disabled={!canApplyJoinBuilder}
-                                                    >
-                                                        Apply to ON
-                                                    </Button>
                                                 </div>
                                                 </>
                                             )}

@@ -18,6 +18,111 @@ interface SubTableViewState {
     loading: boolean;
 }
 
+const normalizeFieldName = (value: any): string => {
+  if (value === null || value === undefined) return '';
+  const raw = String(value).trim();
+  if (!raw) return '';
+  const dotIdx = raw.lastIndexOf('.');
+  return dotIdx >= 0 ? raw.slice(dotIdx + 1) : raw;
+};
+
+const evaluateSubTableOnCondition = (mainRow: any, subRow: any, subConfig: SubTableConfig): boolean => {
+  const onCondition = String(subConfig?.on || '').trim();
+  if (!onCondition || !onCondition.includes('=')) return true;
+  const [leftRaw, rightRaw] = onCondition.split('=').map((s) => s.trim());
+  const tokens = [leftRaw || '', rightRaw || ''];
+
+  let mainField = '';
+  let subField = '';
+  const unresolved: string[] = [];
+  tokens.forEach((token) => {
+    if (token.startsWith('main.')) {
+      mainField = normalizeFieldName(token);
+      return;
+    }
+    if (token.startsWith('sub.')) {
+      subField = normalizeFieldName(token);
+      return;
+    }
+    if (subConfig?.table && token.startsWith(`${subConfig.table}.`)) {
+      subField = normalizeFieldName(token);
+      return;
+    }
+    unresolved.push(token);
+  });
+
+  unresolved.forEach((token) => {
+    const field = normalizeFieldName(token);
+    const inMain = field in (mainRow || {});
+    const inSub = field in (subRow || {});
+    if (!mainField && inMain && !inSub) {
+      mainField = field;
+      return;
+    }
+    if (!subField && inSub && !inMain) {
+      subField = field;
+      return;
+    }
+    if (!mainField && inMain) {
+      mainField = field;
+      return;
+    }
+    if (!subField && inSub) {
+      subField = field;
+    }
+  });
+
+  if (!mainField || !subField) return true;
+  const mainVal = mainRow?.[mainField];
+  const subVal = subRow?.[subField];
+  if (mainVal === undefined || subVal === undefined) return false;
+  return String(mainVal) === String(subVal);
+};
+
+const evaluateSubTableLinkCondition = (mainRow: any, subRow: any, cond: any): boolean => {
+  const op = String(cond?.operator || '=').toLowerCase();
+  const leftField = normalizeFieldName(cond?.field);
+  const leftVal = leftField ? subRow?.[leftField] : undefined;
+
+  if (op === 'is_null') return leftVal === null || leftVal === undefined;
+  if (op === 'is_not_null') return leftVal !== null && leftVal !== undefined;
+  if (op === 'is_empty') return leftVal === '' || leftVal === null || leftVal === undefined;
+  if (op === 'is_not_empty') return leftVal !== '' && leftVal !== null && leftVal !== undefined;
+
+  if (!leftField) return true;
+  const rightField = normalizeFieldName(cond?.mainField ?? cond?.value);
+  if (!rightField) return true;
+  const rightVal = mainRow?.[rightField];
+
+  switch (op) {
+    case '=': return String(leftVal) === String(rightVal);
+    case '!=': return String(leftVal) !== String(rightVal);
+    case '>': return Number(leftVal) > Number(rightVal);
+    case '>=': return Number(leftVal) >= Number(rightVal);
+    case '<': return Number(leftVal) < Number(rightVal);
+    case '<=': return Number(leftVal) <= Number(rightVal);
+    case 'contains': return String(leftVal ?? '').toLowerCase().includes(String(rightVal ?? '').toLowerCase());
+    case 'not_contains': return !String(leftVal ?? '').toLowerCase().includes(String(rightVal ?? '').toLowerCase());
+    case 'starts_with': return String(leftVal ?? '').startsWith(String(rightVal ?? ''));
+    case 'ends_with': return String(leftVal ?? '').endsWith(String(rightVal ?? ''));
+    default: return String(leftVal) === String(rightVal);
+  }
+};
+
+const evaluateSubTableConditionGroup = (mainRow: any, subRow: any, group: any): boolean => {
+  if (!group || !Array.isArray(group.conditions) || group.conditions.length === 0) return true;
+  if (group.logicalOperator === 'OR') {
+    return group.conditions.some((item: any) => {
+      if (item?.type === 'group') return evaluateSubTableConditionGroup(mainRow, subRow, item);
+      return evaluateSubTableLinkCondition(mainRow, subRow, item);
+    });
+  }
+  return group.conditions.every((item: any) => {
+    if (item?.type === 'group') return evaluateSubTableConditionGroup(mainRow, subRow, item);
+    return evaluateSubTableLinkCondition(mainRow, subRow, item);
+  });
+};
+
 export const ComplexDataPreview: React.FC<ComplexDataPreviewProps> = ({
   initialResult,
   selectedNode,
@@ -86,40 +191,14 @@ export const ComplexDataPreview: React.FC<ComplexDataPreviewProps> = ({
       const subState = subTableStates[subConfig.id];
       if (!subState || !subState.data || !subState.data.rows) return { rows: [], info: "No data loaded" };
 
-      // Parse Join Condition (Simple equality support for preview: main.id = sub.uid)
-      const condition = subConfig.on || "";
-      if (!condition.includes('=')) return { rows: subState.data.rows, info: "No condition" }; // Return all if no condition (fallback)
-
-      const parts = condition.split('=').map(s => s.trim());
-      // Attempt to identify keys. Heuristic: parts starting with 'main.' vs 'sub.'
-      let mainKey = 'id';
-      let subKey = 'uid';
-      
-      parts.forEach(p => {
-          if (p.startsWith('main.')) mainKey = p.replace('main.', '');
-          else if (p.startsWith('sub.')) subKey = p.replace('sub.', '');
-          else if (p.includes('.')) {
-               // Fallback for named tables e.g. "employees.id"
-               if(p.startsWith(selectedNode.name)) mainKey = p.split('.')[1];
-               else subKey = p.split('.')[1]; 
-          } else {
-              // Blind guess if no prefixes
-              if (mainRow[p] !== undefined) mainKey = p;
-              else subKey = p;
-          }
-      });
-
-      const mainVal = mainRow[mainKey];
-      
-      // Filter sub rows
       const filtered = subState.data.rows.filter((subRow: any) => {
-          // Loose comparison for string vs number issues
-          return String(subRow[subKey]) === String(mainVal);
+          return evaluateSubTableOnCondition(mainRow, subRow, subConfig)
+            && evaluateSubTableConditionGroup(mainRow, subRow, subConfig.onConditionGroup || subConfig.conditionGroup || null);
       });
 
       return { 
           rows: filtered, 
-          info: `Match: main.${mainKey}[${mainVal}] == sub.${subKey}`,
+          info: "Matched by ON + group conditions",
           matchCount: filtered.length
       };
   };

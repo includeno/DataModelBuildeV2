@@ -1,5 +1,5 @@
 
-import { ApiConfig, Dataset, SessionMetadata, OperationNode, Command, DataType, FilterGroup, FilterCondition, FieldInfo } from "../types";
+import { ApiConfig, Dataset, SessionMetadata, OperationNode, Command, DataType, FilterGroup, FilterCondition, FieldInfo, SubTableConfig, SubTableConditionGroup } from "../types";
 
 // --- MOCK DATA GENERATORS ---
 
@@ -298,6 +298,117 @@ const evaluateFilterGroup = (row: any, group: FilterGroup, variables: Record<str
             return evaluateCondition(row, item, variables);
         });
     }
+};
+
+const normalizeFieldName = (value: any): string => {
+    if (value === null || value === undefined) return '';
+    const raw = String(value).trim();
+    if (!raw) return '';
+    const dotIdx = raw.lastIndexOf('.');
+    return dotIdx >= 0 ? raw.slice(dotIdx + 1) : raw;
+};
+
+const evaluateSubTableLinkCondition = (mainRow: any, subRow: any, cond: any): boolean => {
+    const op = String(cond?.operator || '=').toLowerCase();
+    const leftField = normalizeFieldName(cond?.field);
+    const leftVal = leftField ? subRow?.[leftField] : undefined;
+
+    if (op === 'is_null') return leftVal === null || leftVal === undefined;
+    if (op === 'is_not_null') return leftVal !== null && leftVal !== undefined;
+    if (op === 'is_empty') return leftVal === '' || leftVal === null || leftVal === undefined;
+    if (op === 'is_not_empty') return leftVal !== '' && leftVal !== null && leftVal !== undefined;
+
+    if (!leftField) return true;
+    const rightField = normalizeFieldName(cond?.mainField ?? cond?.value);
+    if (!rightField) return true;
+    const rightVal = mainRow?.[rightField];
+
+    switch (op) {
+        case '=': return String(leftVal) === String(rightVal);
+        case '!=': return String(leftVal) !== String(rightVal);
+        case '>': return Number(leftVal) > Number(rightVal);
+        case '>=': return Number(leftVal) >= Number(rightVal);
+        case '<': return Number(leftVal) < Number(rightVal);
+        case '<=': return Number(leftVal) <= Number(rightVal);
+        case 'contains': return String(leftVal ?? '').toLowerCase().includes(String(rightVal ?? '').toLowerCase());
+        case 'not_contains': return !String(leftVal ?? '').toLowerCase().includes(String(rightVal ?? '').toLowerCase());
+        case 'starts_with': return String(leftVal ?? '').startsWith(String(rightVal ?? ''));
+        case 'ends_with': return String(leftVal ?? '').endsWith(String(rightVal ?? ''));
+        default: return String(leftVal) === String(rightVal);
+    }
+};
+
+const evaluateSubTableConditionGroup = (mainRow: any, subRow: any, group?: SubTableConditionGroup | null): boolean => {
+    if (!group || !Array.isArray(group.conditions) || group.conditions.length === 0) return true;
+    if (group.logicalOperator === 'OR') {
+        return group.conditions.some((item: any) => {
+            if (item?.type === 'group') return evaluateSubTableConditionGroup(mainRow, subRow, item as SubTableConditionGroup);
+            return evaluateSubTableLinkCondition(mainRow, subRow, item);
+        });
+    }
+    return group.conditions.every((item: any) => {
+        if (item?.type === 'group') return evaluateSubTableConditionGroup(mainRow, subRow, item as SubTableConditionGroup);
+        return evaluateSubTableLinkCondition(mainRow, subRow, item);
+    });
+};
+
+const evaluateSubTableOnCondition = (mainRow: any, subRow: any, subConfig: SubTableConfig): boolean => {
+    const onCondition = String(subConfig?.on || '').trim();
+    if (!onCondition || !onCondition.includes('=')) return true;
+
+    const [leftRaw, rightRaw] = onCondition.split('=').map((s) => s.trim());
+    const leftToken = leftRaw || '';
+    const rightToken = rightRaw || '';
+
+    let mainField = '';
+    let subField = '';
+    const unresolvedTokens: string[] = [];
+
+    const assignSide = (token: string) => {
+        if (token.startsWith('main.')) {
+            mainField = normalizeFieldName(token);
+            return;
+        }
+        if (token.startsWith('sub.')) {
+            subField = normalizeFieldName(token);
+            return;
+        }
+        if (subConfig?.table && token.startsWith(`${subConfig.table}.`)) {
+            subField = normalizeFieldName(token);
+            return;
+        }
+        unresolvedTokens.push(token);
+    };
+
+    assignSide(leftToken);
+    assignSide(rightToken);
+
+    unresolvedTokens.forEach((token) => {
+        const field = normalizeFieldName(token);
+        const inMain = field in (mainRow || {});
+        const inSub = field in (subRow || {});
+        if (!mainField && inMain && !inSub) {
+            mainField = field;
+            return;
+        }
+        if (!subField && inSub && !inMain) {
+            subField = field;
+            return;
+        }
+        if (!mainField && inMain) {
+            mainField = field;
+            return;
+        }
+        if (!subField && inSub) {
+            subField = field;
+        }
+    });
+
+    if (!mainField || !subField) return true;
+    const mainVal = mainRow?.[mainField];
+    const subVal = subRow?.[subField];
+    if (mainVal === undefined || subVal === undefined) return false;
+    return String(mainVal) === String(subVal);
 };
 
 const executeMockLogic = (tree: OperationNode, targetNodeId: string): any => {
@@ -681,38 +792,18 @@ export const api = {
                         if (subConfig) {
                             const subDs = MOCK_DATASETS.find(d => d.name === subConfig.table);
                             if (subDs) {
-                                // MOCK JOIN LOGIC
                                 const subRows = subDs.rows;
-                                const onCondition = subConfig.on; 
-                                
-                                if (onCondition && onCondition.includes('=')) {
-                                    const parts = onCondition.split('=').map((s: string) => s.trim());
-                                    let mainCol = '', subCol = '';
-                                    
-                                    parts.forEach((p: string) => {
-                                        if (p.startsWith('main.')) mainCol = p.replace('main.', '');
-                                        else if (p.startsWith('sub.')) subCol = p.replace('sub.', '');
-                                        // Fallback logic for aliases
-                                        else if (p.startsWith(subConfig.table + '.')) subCol = p.replace(subConfig.table + '.', '');
-                                    });
-
-                                    // Fallback defaults for mock ease-of-use
-                                    if (!mainCol) mainCol = 'id';
-                                    if (!subCol) subCol = 'uid';
-
-                                    if (mainCol && subCol) {
-                                        const mainValues = new Set(mainResult.rows.map((r: any) => String(r[mainCol])));
-                                        finalData = subRows.filter((r: any) => mainValues.has(String(r[subCol])));
-                                        columns = subDs.fields;
-                                    } else {
-                                        // Condition exists but couldn't parse columns, return nothing to avoid confusion
-                                        finalData = [];
-                                    }
-                                } else {
-                                    // No valid condition: return full sub table
-                                    finalData = subRows;
-                                    columns = subDs.fields;
-                                }
+                                finalData = subRows.filter((subRow: any) =>
+                                    mainResult.rows.some((mainRow: any) =>
+                                        evaluateSubTableOnCondition(mainRow, subRow, subConfig as SubTableConfig)
+                                        && evaluateSubTableConditionGroup(
+                                            mainRow,
+                                            subRow,
+                                            (subConfig as SubTableConfig).onConditionGroup || (subConfig as SubTableConfig).conditionGroup || null
+                                        )
+                                    )
+                                );
+                                columns = subDs.fields;
                             }
                         }
                     }

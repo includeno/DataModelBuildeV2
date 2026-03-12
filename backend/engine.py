@@ -256,6 +256,14 @@ class ExecutionEngine:
             condition = sub_config.on
             if condition:
                 condition = self._rewrite_sub_table_on(condition, resolved_sub_table, table_to_ids)
+            on_group = getattr(sub_config, "onConditionGroup", None) or getattr(sub_config, "conditionGroup", None)
+            group_condition = self._build_sub_table_condition_group_sql(on_group)
+            where_parts = []
+            if condition and str(condition).strip():
+                where_parts.append(f"({condition})")
+            if group_condition:
+                where_parts.append(f"({group_condition})")
+            where_clause = " AND ".join(where_parts) if where_parts else "1=1"
             
             query = f"""
                 SELECT sub.* 
@@ -263,7 +271,7 @@ class ExecutionEngine:
                 WHERE EXISTS (
                     SELECT 1 
                     FROM main_table main 
-                    WHERE {condition}
+                    WHERE {where_clause}
                 )
             """
             result = con.execute(query).df()
@@ -288,6 +296,91 @@ class ExecutionEngine:
             for ident in sorted(idents, key=len, reverse=True):
                 rewritten = self._replace_ident_prefix(rewritten, ident, "main.")
         return rewritten
+
+    def _normalize_field_name(self, field: Any) -> str:
+        if field is None:
+            return ""
+        name = str(field).strip()
+        if not name:
+            return ""
+        if "." in name:
+            name = name.split(".")[-1]
+        return name
+
+    def _build_sub_table_condition_group_sql(self, group: Optional[Dict[str, Any]]) -> str:
+        if not group or not isinstance(group, dict):
+            return ""
+        conditions = group.get("conditions") or []
+        if not isinstance(conditions, list) or not conditions:
+            return ""
+
+        parts: List[str] = []
+        for item in conditions:
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") == "group":
+                sub_sql = self._build_sub_table_condition_group_sql(item)
+            else:
+                sub_sql = self._build_sub_table_link_condition_sql(item)
+            if sub_sql:
+                parts.append(f"({sub_sql})")
+
+        if not parts:
+            return ""
+
+        logical_op = str(group.get("logicalOperator", "AND")).upper()
+        if logical_op not in ("AND", "OR"):
+            logical_op = "AND"
+        return f" {logical_op} ".join(parts)
+
+    def _build_sub_table_link_condition_sql(self, cond: Dict[str, Any]) -> str:
+        op = str(cond.get("operator") or "=").strip().lower()
+        if op == "always_true":
+            return "1=1"
+        if op == "always_false":
+            return "1=0"
+
+        left_field = self._normalize_field_name(cond.get("field"))
+        if not left_field:
+            return ""
+        left_expr = f"sub.{quote_identifier(left_field)}"
+
+        if op == "is_null":
+            return f"({left_expr} IS NULL)"
+        if op == "is_not_null":
+            return f"({left_expr} IS NOT NULL)"
+        if op == "is_empty":
+            return f"({left_expr} IS NULL OR CAST({left_expr} AS VARCHAR) = '')"
+        if op == "is_not_empty":
+            return f"({left_expr} IS NOT NULL AND CAST({left_expr} AS VARCHAR) != '')"
+
+        right_field = self._normalize_field_name(cond.get("mainField") or cond.get("value"))
+        if not right_field:
+            return ""
+        right_expr = f"main.{quote_identifier(right_field)}"
+
+        if op == "=":
+            return f"{left_expr} = {right_expr}"
+        if op == "!=":
+            return f"{left_expr} != {right_expr}"
+        if op == ">":
+            return f"{left_expr} > {right_expr}"
+        if op == ">=":
+            return f"{left_expr} >= {right_expr}"
+        if op == "<":
+            return f"{left_expr} < {right_expr}"
+        if op == "<=":
+            return f"{left_expr} <= {right_expr}"
+        if op == "contains":
+            return f"CAST({left_expr} AS VARCHAR) ILIKE '%' || CAST({right_expr} AS VARCHAR) || '%'"
+        if op == "not_contains":
+            return f"CAST({left_expr} AS VARCHAR) NOT ILIKE '%' || CAST({right_expr} AS VARCHAR) || '%'"
+        if op == "starts_with":
+            return f"CAST({left_expr} AS VARCHAR) ILIKE CAST({right_expr} AS VARCHAR) || '%'"
+        if op == "ends_with":
+            return f"CAST({left_expr} AS VARCHAR) ILIKE '%' || CAST({right_expr} AS VARCHAR)"
+
+        return f"{left_expr} = {right_expr}"
 
     def calculate_overlap(self, session_id: str, tree: OperationNode, parent_node_id: str) -> List[str]:
         parent_node = self._find_node_recursive(tree, parent_node_id)

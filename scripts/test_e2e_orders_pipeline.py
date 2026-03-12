@@ -71,9 +71,8 @@ def build_pipeline(page: Page) -> None:
 
     # Join config
     page.locator("select").filter(has_text="-- Select Source --").first.select_option("orders to orders")
-    page.get_by_placeholder("ON Condition (e.g. id = user_id)").fill(
-        "orders.customer_id = customers.customer_id"
-    )
+    page.locator("select").filter(has_text="Left Field...").first.select_option("customer_id")
+    page.locator("select").filter(has_text="Right Field...").first.select_option("customer_id")
 
     # Force all dataset selects to orders for stable field pickers
     for sel in page.locator("select").filter(has_text="Inherit (Use Incoming Data)").all():
@@ -106,9 +105,9 @@ def build_pipeline(page: Page) -> None:
     complex_block.get_by_role("button", name="Add Sub-Table").click()
     complex_block.locator("select").first.select_option("customers to customers")
     complex_block.get_by_placeholder("Tab Name").fill("Customers")
-    complex_block.get_by_placeholder("main.id = sub.user_id").fill(
-        "main.customer_id = sub.customer_id"
-    )
+    complex_block.get_by_role("button", name="Add Rule").click()
+    complex_block.locator("select").filter(has_text="Sub Field...").first.select_option("customer_id")
+    complex_block.locator("select").filter(has_text="Main Field...").first.select_option("customer_id")
 
 
 def run_and_verify(page: Page) -> None:

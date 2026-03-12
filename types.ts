@@ -49,11 +49,30 @@ export interface FilterGroup {
   conditions: (FilterCondition | FilterGroup)[];
 }
 
+export interface SubTableLinkCondition {
+  id: string;
+  type: 'condition';
+  field: string;
+  operator: string;
+  mainField: string;
+}
+
+export interface SubTableConditionGroup {
+  id: string;
+  type: 'group';
+  logicalOperator: 'AND' | 'OR';
+  conditions: (SubTableLinkCondition | SubTableConditionGroup)[];
+}
+
 export interface SubTableConfig {
   id: string;
   table: string;
   on: string; // Join condition e.g. main.id = sub.user_id
   label: string;
+  // ON multiple conditions builder (preferred)
+  onConditionGroup?: SubTableConditionGroup;
+  // Backward compatibility for older saved sessions
+  conditionGroup?: SubTableConditionGroup;
 }
 
 export interface ViewFieldConfig {

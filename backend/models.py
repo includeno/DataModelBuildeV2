@@ -18,6 +18,8 @@ class SubTableConfig(BaseModel):
     table: str
     on: str
     label: str
+    onConditionGroup: Optional[Dict[str, Any]] = None
+    conditionGroup: Optional[Dict[str, Any]] = None
 
 class ViewFieldConfig(BaseModel):
     field: str
