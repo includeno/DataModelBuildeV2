@@ -92,4 +92,48 @@ To use the real Python backend engine:
    ```bash
    npm run backend
    ```
+   Test environment (isolated sessions/config):
+   ```bash
+   npm run backend:test
+   ```
 3. In the Web App, open **Settings**, enter `http://localhost:8000`, and add the server.
+
+### 🐳 Docker / Compose
+
+Build backend image:
+
+```bash
+npm run docker:build
+```
+
+Run backend container directly:
+
+```bash
+npm run docker:run
+```
+
+Use Docker Compose:
+
+```bash
+npm run docker:compose:up
+npm run docker:compose:logs
+npm run docker:compose:down
+```
+
+Package backend Docker image as a tar.gz artifact:
+
+```bash
+npm run docker:package
+```
+
+Build release artifacts (web bundle + optional Docker package):
+
+```bash
+npm run package:release
+```
+
+### ✅ CI (main branch)
+
+GitHub Actions workflow is provided at `.github/workflows/main-tests.yml` and will run frontend and backend tests on:
+- push to `main`
+- pull requests targeting `main`

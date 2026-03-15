@@ -119,6 +119,110 @@ def test_upload_mock_retail_dataset_and_query():
     east = next(r for r in rows if r["region"] == "East")
     assert east["cnt"] == 4
 
+
+def test_update_dataset_schema_field_types():
+    session_id = client.post("/sessions").json()["sessionId"]
+
+    csv_content = "id,created_at\n1,2024-01-01\n2,2024-01-02"
+    upload_res = client.post(
+        "/upload",
+        files={"file": ("events.csv", csv_content, "text/csv")},
+        data={"sessionId": session_id, "name": "events"},
+    )
+    assert upload_res.status_code == 200
+
+    update_res = client.post(
+        f"/sessions/{session_id}/datasets/update",
+        json={
+            "datasetId": "events",
+            "fieldTypes": {
+                "id": {"type": "number"},
+                "created_at": {"type": "date", "format": "YYYY-MM-DD"},
+            },
+        },
+    )
+    assert update_res.status_code == 200
+
+    datasets_res = client.get(f"/sessions/{session_id}/datasets")
+    assert datasets_res.status_code == 200
+    events = next(d for d in datasets_res.json() if d["name"] == "events")
+    assert events["fieldTypes"]["created_at"]["type"] == "date"
+    assert events["fieldTypes"]["created_at"]["format"] == "YYYY-MM-DD"
+
+
+def test_parquet_upload_and_import_history(tmp_path: Path):
+    session_id = client.post("/sessions").json()["sessionId"]
+
+    # Create parquet via duckdb
+    import duckdb
+    parquet_path = tmp_path / "people.parquet"
+    con = duckdb.connect(":memory:")
+    try:
+        con.execute("CREATE TABLE people AS SELECT * FROM (VALUES (1, 'Alice'), (2, 'Bob')) t(id, name)")
+        con.execute(f"COPY people TO '{parquet_path.as_posix()}' (FORMAT PARQUET)")
+    finally:
+        con.close()
+
+    content = parquet_path.read_bytes()
+    upload_res = client.post(
+        "/upload",
+        files={"file": ("people.parquet", content, "application/octet-stream")},
+        data={"sessionId": session_id, "name": "people"},
+    )
+    assert upload_res.status_code == 200
+    assert upload_res.json()["id"] == "people"
+
+    imports_res = client.get(f"/sessions/{session_id}/imports")
+    assert imports_res.status_code == 200
+    history = imports_res.json()
+    assert len(history) == 1
+    assert history[0]["originalFileName"] == "people.parquet"
+    assert history[0]["datasetName"] == "people"
+
+
+def test_reupload_same_dataset_replaces_table():
+    session_id = client.post("/sessions").json()["sessionId"]
+
+    csv_v1 = "id,name\n1,Alice\n2,Bob"
+    upload_res_1 = client.post(
+        "/upload",
+        files={"file": ("people.csv", csv_v1, "text/csv")},
+        data={"sessionId": session_id, "name": "people"},
+    )
+    assert upload_res_1.status_code == 200
+
+    query_res_1 = client.post(
+        "/query",
+        json={
+            "sessionId": session_id,
+            "query": "SELECT COUNT(*) AS cnt FROM people",
+            "page": 1,
+            "pageSize": 10
+        },
+    )
+    assert query_res_1.status_code == 200
+    assert query_res_1.json()["rows"][0]["cnt"] == 2
+
+    csv_v2 = "id,name\n1,Alice\n2,Bob\n3,Carol"
+    upload_res_2 = client.post(
+        "/upload",
+        files={"file": ("people.csv", csv_v2, "text/csv")},
+        data={"sessionId": session_id, "name": "people"},
+    )
+    assert upload_res_2.status_code == 200
+
+    query_res_2 = client.post(
+        "/query",
+        json={
+            "sessionId": session_id,
+            "query": "SELECT COUNT(*) AS cnt FROM people",
+            "page": 1,
+            "pageSize": 10
+        },
+    )
+    assert query_res_2.status_code == 200
+    assert query_res_2.json()["rows"][0]["cnt"] == 3
+
 # --- Engine Execution Tests ---
 
 def test_execution_flow_with_variables():

@@ -1,0 +1,16 @@
+[
+  {
+    "timestamp": 1772735570305,
+    "originalFileName": "customers.csv",
+    "datasetName": "customers",
+    "tableName": "customers",
+    "rows": 5
+  },
+  {
+    "timestamp": 1772735603775,
+    "originalFileName": "orders.csv",
+    "datasetName": "orders",
+    "tableName": "orders",
+    "rows": 6
+  }
+]

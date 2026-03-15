@@ -1,5 +1,5 @@
 
-import { ApiConfig, Dataset, SessionMetadata, OperationNode, Command, DataType, FilterGroup, FilterCondition, FieldInfo } from "../types";
+import { ApiConfig, Dataset, SessionMetadata, OperationNode, Command, DataType, FilterGroup, FilterCondition, FieldInfo, SubTableConfig, SubTableConditionGroup } from "../types";
 
 // --- MOCK DATA GENERATORS ---
 
@@ -81,8 +81,110 @@ const MOCK_SESSIONS: SessionMetadata[] = [
     { sessionId: "mock-session-demo", displayName: "Mock Demo Session", createdAt: Date.now() },
 ];
 
+const MOCK_IMPORT_HISTORY = [
+    {
+        timestamp: Date.now() - 1000 * 60 * 60 * 2,
+        originalFileName: "employees.csv",
+        datasetName: "employees.csv",
+        tableName: "employees.csv",
+        rows: 50
+    },
+    {
+        timestamp: Date.now() - 1000 * 60 * 30,
+        originalFileName: "sales_data.csv",
+        datasetName: "sales_data.csv",
+        tableName: "sales_data.csv",
+        rows: 200
+    }
+];
+
 const MOCK_SESSION_STATES: Record<string, any> = {};
 const MOCK_SESSION_METADATA: Record<string, any> = {};
+
+const buildMockDiagnostics = (sessionId: string) => {
+    const state = MOCK_SESSION_STATES[sessionId] || {};
+    const tree = state.tree;
+    const sources: any[] = [];
+    const operations: any[] = [];
+    const warnings: string[] = [];
+
+    const walkSources = (node: any) => {
+        if (!node) return;
+        (node.commands || []).forEach((cmd: any) => {
+            if (cmd.type === 'source') sources.push(cmd);
+        });
+        (node.children || []).forEach(walkSources);
+    };
+
+    const walkOperations = (node: any) => {
+        if (!node) return;
+        if (node.type === 'operation') {
+            operations.push({
+                id: node.id,
+                name: node.name,
+                operationType: node.operationType,
+                commands: (node.commands || []).map((cmd: any) => ({
+                    id: cmd.id,
+                    type: cmd.type,
+                    order: cmd.order ?? 0,
+                    dataSource: cmd.config?.dataSource
+                }))
+            });
+        }
+        (node.children || []).forEach(walkOperations);
+    };
+
+    if (tree) {
+        walkSources(tree);
+        walkOperations(tree);
+    } else {
+        warnings.push("No tree found in mock session state.");
+    }
+
+    const missingSources: Array<{ id: string; type: string; opName: string }> = [];
+    operations.forEach(op => {
+        const opName = op.name || op.id || 'unknown-operation';
+        (op.commands || []).forEach(cmd => {
+            const cmdType = cmd.type || 'unknown';
+            if (cmdType === 'source' || cmdType === 'multi_table') return;
+            const raw = cmd.dataSource;
+            if (raw === null || raw === undefined) {
+                missingSources.push({ id: cmd.id, type: cmdType, opName });
+                return;
+            }
+            if (typeof raw === 'string' && raw.trim() === '') {
+                missingSources.push({ id: cmd.id, type: cmdType, opName });
+                return;
+            }
+            if (raw === 'stream') return;
+        });
+    });
+
+    missingSources.forEach(m => {
+        warnings.push(`Missing data source: command ${m.id} (${m.type}) in operation ${m.opName}.`);
+    });
+
+    return {
+        sessionId,
+        generatedAt: new Date().toISOString(),
+        sources: sources.map(s => ({
+            id: s.id,
+            mainTable: s.config?.mainTable,
+            alias: s.config?.alias,
+            linkId: s.config?.linkId
+        })),
+        sourceMap: [],
+        datasets: MOCK_DATASETS.map(d => ({
+            id: d.id,
+            name: d.name,
+            totalCount: d.totalCount,
+            fieldCount: d.fields?.length || 0
+        })),
+        operations,
+        dataSourceResolution: [],
+        warnings
+    };
+};
 
 // --- MOCK ENGINE LOGIC ---
 
@@ -151,7 +253,9 @@ const evaluateCondition = (row: any, cond: FilterCondition, variables: Record<st
         case 'not_contains': return !String(val).toLowerCase().includes(String(target).toLowerCase());
         case 'starts_with': return String(val).startsWith(String(target));
         case 'ends_with': return String(val).endsWith(String(target));
-        case 'is_empty': return val === '' || val === null || val === undefined;
+        case 'is_null': return val === null || val === undefined;
+        case 'is_not_null': return val !== null && val !== undefined;
+        case 'is_empty': return val === '';
         case 'is_not_empty': return val !== '' && val !== null && val !== undefined;
         case 'is_true': return val === true;
         case 'is_false': return val === false;
@@ -194,6 +298,117 @@ const evaluateFilterGroup = (row: any, group: FilterGroup, variables: Record<str
             return evaluateCondition(row, item, variables);
         });
     }
+};
+
+const normalizeFieldName = (value: any): string => {
+    if (value === null || value === undefined) return '';
+    const raw = String(value).trim();
+    if (!raw) return '';
+    const dotIdx = raw.lastIndexOf('.');
+    return dotIdx >= 0 ? raw.slice(dotIdx + 1) : raw;
+};
+
+const evaluateSubTableLinkCondition = (mainRow: any, subRow: any, cond: any): boolean => {
+    const op = String(cond?.operator || '=').toLowerCase();
+    const leftField = normalizeFieldName(cond?.field);
+    const leftVal = leftField ? subRow?.[leftField] : undefined;
+
+    if (op === 'is_null') return leftVal === null || leftVal === undefined;
+    if (op === 'is_not_null') return leftVal !== null && leftVal !== undefined;
+    if (op === 'is_empty') return leftVal === '' || leftVal === null || leftVal === undefined;
+    if (op === 'is_not_empty') return leftVal !== '' && leftVal !== null && leftVal !== undefined;
+
+    if (!leftField) return true;
+    const rightField = normalizeFieldName(cond?.mainField ?? cond?.value);
+    if (!rightField) return true;
+    const rightVal = mainRow?.[rightField];
+
+    switch (op) {
+        case '=': return String(leftVal) === String(rightVal);
+        case '!=': return String(leftVal) !== String(rightVal);
+        case '>': return Number(leftVal) > Number(rightVal);
+        case '>=': return Number(leftVal) >= Number(rightVal);
+        case '<': return Number(leftVal) < Number(rightVal);
+        case '<=': return Number(leftVal) <= Number(rightVal);
+        case 'contains': return String(leftVal ?? '').toLowerCase().includes(String(rightVal ?? '').toLowerCase());
+        case 'not_contains': return !String(leftVal ?? '').toLowerCase().includes(String(rightVal ?? '').toLowerCase());
+        case 'starts_with': return String(leftVal ?? '').startsWith(String(rightVal ?? ''));
+        case 'ends_with': return String(leftVal ?? '').endsWith(String(rightVal ?? ''));
+        default: return String(leftVal) === String(rightVal);
+    }
+};
+
+const evaluateSubTableConditionGroup = (mainRow: any, subRow: any, group?: SubTableConditionGroup | null): boolean => {
+    if (!group || !Array.isArray(group.conditions) || group.conditions.length === 0) return true;
+    if (group.logicalOperator === 'OR') {
+        return group.conditions.some((item: any) => {
+            if (item?.type === 'group') return evaluateSubTableConditionGroup(mainRow, subRow, item as SubTableConditionGroup);
+            return evaluateSubTableLinkCondition(mainRow, subRow, item);
+        });
+    }
+    return group.conditions.every((item: any) => {
+        if (item?.type === 'group') return evaluateSubTableConditionGroup(mainRow, subRow, item as SubTableConditionGroup);
+        return evaluateSubTableLinkCondition(mainRow, subRow, item);
+    });
+};
+
+const evaluateSubTableOnCondition = (mainRow: any, subRow: any, subConfig: SubTableConfig): boolean => {
+    const onCondition = String(subConfig?.on || '').trim();
+    if (!onCondition || !onCondition.includes('=')) return true;
+
+    const [leftRaw, rightRaw] = onCondition.split('=').map((s) => s.trim());
+    const leftToken = leftRaw || '';
+    const rightToken = rightRaw || '';
+
+    let mainField = '';
+    let subField = '';
+    const unresolvedTokens: string[] = [];
+
+    const assignSide = (token: string) => {
+        if (token.startsWith('main.')) {
+            mainField = normalizeFieldName(token);
+            return;
+        }
+        if (token.startsWith('sub.')) {
+            subField = normalizeFieldName(token);
+            return;
+        }
+        if (subConfig?.table && token.startsWith(`${subConfig.table}.`)) {
+            subField = normalizeFieldName(token);
+            return;
+        }
+        unresolvedTokens.push(token);
+    };
+
+    assignSide(leftToken);
+    assignSide(rightToken);
+
+    unresolvedTokens.forEach((token) => {
+        const field = normalizeFieldName(token);
+        const inMain = field in (mainRow || {});
+        const inSub = field in (subRow || {});
+        if (!mainField && inMain && !inSub) {
+            mainField = field;
+            return;
+        }
+        if (!subField && inSub && !inMain) {
+            subField = field;
+            return;
+        }
+        if (!mainField && inMain) {
+            mainField = field;
+            return;
+        }
+        if (!subField && inSub) {
+            subField = field;
+        }
+    });
+
+    if (!mainField || !subField) return true;
+    const mainVal = mainRow?.[mainField];
+    const subVal = subRow?.[subField];
+    if (mainVal === undefined || subVal === undefined) return false;
+    return String(mainVal) === String(subVal);
 };
 
 const executeMockLogic = (tree: OperationNode, targetNodeId: string): any => {
@@ -275,6 +490,73 @@ const applyMockCommand = (data: any[], cmd: Command, variables: Record<string, a
     if (cmd.type === 'filter') {
         if (!config.filterRoot) return data;
         return data.filter(row => evaluateFilterGroup(row, config.filterRoot!, variables));
+    }
+
+    if (cmd.type === 'view') {
+        let result = [...data];
+        const viewFields = config.viewFields || [];
+        const fieldsRaw = viewFields.map((vf: any) => vf.field).filter(Boolean);
+        const distinctRaw = viewFields.filter((vf: any) => vf.distinct && vf.field).map((vf: any) => vf.field);
+        const dedupe = (arr: string[]) => {
+            const seen = new Set<string>();
+            return arr.filter(f => {
+                if (seen.has(f)) return false;
+                seen.add(f);
+                return true;
+            });
+        };
+        const fields = dedupe(fieldsRaw);
+        const distinctFields = dedupe(distinctRaw);
+        const selectFields = distinctFields.length > 0 ? distinctFields : fields;
+
+        if (selectFields.length > 0) {
+            result = result.map(r => {
+                const out: any = {};
+                selectFields.forEach(f => { out[f] = r[f]; });
+                return out;
+            });
+        }
+
+        if (distinctFields.length > 0) {
+            const seen = new Set<string>();
+            result = result.filter(r => {
+                const key = distinctFields.map(f => String(r[f])).join('|');
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
+        }
+
+        const sorters = (config.viewSorts && config.viewSorts.length > 0)
+            ? config.viewSorts
+            : (config.viewSortField ? [{ field: config.viewSortField, ascending: config.viewSortAscending !== false }] : []);
+
+        if (sorters.length > 0) {
+            const seen = new Set<string>();
+            const deduped = sorters.filter(s => {
+                if (!s.field) return false;
+                if (seen.has(s.field)) return false;
+                seen.add(s.field);
+                return true;
+            });
+            result = [...result].sort((a, b) => {
+                for (const s of deduped) {
+                    const field = s.field;
+                    const asc = s.ascending !== false;
+                    const valA = a[field];
+                    const valB = b[field];
+                    if (valA < valB) return asc ? -1 : 1;
+                    if (valA > valB) return asc ? 1 : -1;
+                }
+                return 0;
+            });
+        }
+
+        if (config.viewLimit && config.viewLimit > 0) {
+            result = result.slice(0, config.viewLimit);
+        }
+
+        return result;
     }
 
     if (cmd.type === 'sort') {
@@ -437,13 +719,38 @@ const applyMockCommand = (data: any[], cmd: Command, variables: Record<string, a
 // --- API EXPORT ---
 
 export const api = {
+    async ping(config: ApiConfig, timeoutMs = 2000) {
+        if (config.isMock) return true;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+            const res = await fetch(`${config.baseUrl}/sessions`, { signal: controller.signal });
+            return res.ok;
+        } catch {
+            return false;
+        } finally {
+            clearTimeout(timeoutId);
+        }
+    },
     async get(config: ApiConfig, endpoint: string) {
         if (config.isMock) {
             await new Promise(r => setTimeout(r, 400));
             if (endpoint === '/sessions') return MOCK_SESSIONS;
-            if (endpoint.includes('/datasets')) return [...MOCK_DATASETS];
+            if (endpoint === '/datasets') return [...MOCK_DATASETS];
+            if (endpoint.match(/\/sessions\/.*\/datasets\/.*\/preview/)) {
+                const parts = endpoint.split('/');
+                const datasetName = decodeURIComponent((parts[4] || '').split('?')[0]);
+                const ds = MOCK_DATASETS.find(d => d.name === datasetName || d.id === datasetName);
+                return { rows: ds?.rows || [], totalCount: ds?.totalCount || 0 };
+            }
+            if (endpoint.match(/\/sessions\/.*\/imports/)) return [...MOCK_IMPORT_HISTORY];
+            if (endpoint.match(/\/sessions\/.*\/datasets$/)) return [...MOCK_DATASETS];
             if (endpoint.match(/\/sessions\/.*\/state/)) return MOCK_SESSION_STATES[endpoint.split('/')[2]] || {};
             if (endpoint.match(/\/sessions\/.*\/metadata/)) return MOCK_SESSION_METADATA[endpoint.split('/')[2]] || { displayName: "", settings: { cascadeDisable: false, panelPosition: 'right' }};
+            if (endpoint.match(/\/sessions\/.*\/diagnostics/)) {
+                const sessionId = endpoint.split('/')[2];
+                return buildMockDiagnostics(sessionId);
+            }
             return {};
         }
         const res = await fetch(`${config.baseUrl}${endpoint}`);
@@ -485,38 +792,18 @@ export const api = {
                         if (subConfig) {
                             const subDs = MOCK_DATASETS.find(d => d.name === subConfig.table);
                             if (subDs) {
-                                // MOCK JOIN LOGIC
                                 const subRows = subDs.rows;
-                                const onCondition = subConfig.on; 
-                                
-                                if (onCondition && onCondition.includes('=')) {
-                                    const parts = onCondition.split('=').map((s: string) => s.trim());
-                                    let mainCol = '', subCol = '';
-                                    
-                                    parts.forEach((p: string) => {
-                                        if (p.startsWith('main.')) mainCol = p.replace('main.', '');
-                                        else if (p.startsWith('sub.')) subCol = p.replace('sub.', '');
-                                        // Fallback logic for aliases
-                                        else if (p.startsWith(subConfig.table + '.')) subCol = p.replace(subConfig.table + '.', '');
-                                    });
-
-                                    // Fallback defaults for mock ease-of-use
-                                    if (!mainCol) mainCol = 'id';
-                                    if (!subCol) subCol = 'uid';
-
-                                    if (mainCol && subCol) {
-                                        const mainValues = new Set(mainResult.rows.map((r: any) => String(r[mainCol])));
-                                        finalData = subRows.filter((r: any) => mainValues.has(String(r[subCol])));
-                                        columns = subDs.fields;
-                                    } else {
-                                        // Condition exists but couldn't parse columns, return nothing to avoid confusion
-                                        finalData = [];
-                                    }
-                                } else {
-                                    // No valid condition: return full sub table
-                                    finalData = subRows;
-                                    columns = subDs.fields;
-                                }
+                                finalData = subRows.filter((subRow: any) =>
+                                    mainResult.rows.some((mainRow: any) =>
+                                        evaluateSubTableOnCondition(mainRow, subRow, subConfig as SubTableConfig)
+                                        && evaluateSubTableConditionGroup(
+                                            mainRow,
+                                            subRow,
+                                            (subConfig as SubTableConfig).onConditionGroup || (subConfig as SubTableConfig).conditionGroup || null
+                                        )
+                                    )
+                                );
+                                columns = subDs.fields;
                             }
                         }
                     }
@@ -587,7 +874,16 @@ export const api = {
     },
 
     async delete(config: ApiConfig, endpoint: string) {
-        if (config.isMock) return { status: "ok" };
+        if (config.isMock) {
+            const match = endpoint.match(/\/sessions\/.*\/datasets\/(.*)/);
+            if (match) {
+                const datasetName = decodeURIComponent(match[1]);
+                const idx = MOCK_DATASETS.findIndex(d => d.name === datasetName || d.id === datasetName);
+                if (idx >= 0) MOCK_DATASETS.splice(idx, 1);
+                return { status: "ok" };
+            }
+            return { status: "ok" };
+        }
         const res = await fetch(`${config.baseUrl}${endpoint}`, { method: 'DELETE' });
         if (!res.ok) throw new Error(`API Error: ${res.statusText}`);
         return res.json();

@@ -31,6 +31,13 @@ const createFilterCommand = (filterRoot: FilterGroup, order = 1): Command => ({
 
 describe('Mock DataFlow Engine', () => {
     
+    it('should return mock datasets via /datasets endpoint', async () => {
+        const datasets = await api.get(MOCK_CONFIG, '/datasets');
+        expect(Array.isArray(datasets)).toBe(true);
+        expect(datasets.length).toBeGreaterThan(0);
+        expect(datasets[0]).toHaveProperty('name');
+    });
+
     it('should load mock data source', async () => {
         const tree = createTree([], 'employees.csv');
         const res: ExecutionResult = await api.post(MOCK_CONFIG, '/execute', {
@@ -300,12 +307,12 @@ describe('Mock Engine - String Operators', () => {
     });
 
     it('should filter with is_empty operator', async () => {
-        // Note: Mock data doesn't have empty values, so this tests the operator logic
+        // Note: Mock data doesn't have empty string values, so expect none to pass
         const commands: Command[] = [
             createFilterCommand({
                 id: 'g1', type: 'group', logicalOperator: 'AND',
                 conditions: [
-                    { id: 'c1', type: 'condition', field: 'name', operator: 'is_not_empty', value: null }
+                    { id: 'c1', type: 'condition', field: 'name', operator: 'is_empty', value: '' }
                 ]
             })
         ];
@@ -314,8 +321,8 @@ describe('Mock Engine - String Operators', () => {
             sessionId: 'test', tree, targetNodeId: 'root'
         });
 
-        // All employees have names, so all should pass
-        expect(res.totalCount).toBe(50);
+        // No empty names in mock data
+        expect(res.totalCount).toBe(0);
     });
 });
 

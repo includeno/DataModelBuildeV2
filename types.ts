@@ -49,11 +49,40 @@ export interface FilterGroup {
   conditions: (FilterCondition | FilterGroup)[];
 }
 
+export interface SubTableLinkCondition {
+  id: string;
+  type: 'condition';
+  field: string;
+  operator: string;
+  mainField: string;
+}
+
+export interface SubTableConditionGroup {
+  id: string;
+  type: 'group';
+  logicalOperator: 'AND' | 'OR';
+  conditions: (SubTableLinkCondition | SubTableConditionGroup)[];
+}
+
 export interface SubTableConfig {
   id: string;
   table: string;
   on: string; // Join condition e.g. main.id = sub.user_id
   label: string;
+  // ON multiple conditions builder (preferred)
+  onConditionGroup?: SubTableConditionGroup;
+  // Backward compatibility for older saved sessions
+  conditionGroup?: SubTableConditionGroup;
+}
+
+export interface ViewFieldConfig {
+  field: string;
+  distinct?: boolean;
+}
+
+export interface ViewSortConfig {
+  field: string;
+  ascending?: boolean;
 }
 
 export interface CommandConfig {
@@ -75,6 +104,8 @@ export interface CommandConfig {
   variableName?: string;
   variableType?: 'text' | 'list';
   variableValue?: string | string[];
+  // Shared note for setup source / define_variable commands
+  note?: string;
 
   // Join configs
   joinTargetType?: 'table' | 'node'; 
@@ -96,6 +127,13 @@ export interface CommandConfig {
 
   // Multi Table Display
   subTables?: SubTableConfig[];
+
+  // View Command
+  viewFields?: ViewFieldConfig[];
+  viewSortField?: string;
+  viewSortAscending?: boolean;
+  viewSorts?: ViewSortConfig[];
+  viewLimit?: number;
 
   groupBy?: string[];
   aggFunc?: string;
@@ -131,6 +169,14 @@ export interface Dataset {
   totalCount?: number;
 }
 
+export interface ImportHistoryItem {
+  timestamp: number;
+  originalFileName: string;
+  datasetName: string;
+  tableName: string;
+  rows: number;
+}
+
 export interface SqlHistoryItem {
   id: string;
   timestamp: number;
@@ -164,6 +210,17 @@ export interface SessionMetadataDetail {
     settings: SessionConfig;
 }
 
+export interface SessionDiagnosticsReport {
+  sessionId: string;
+  generatedAt: string;
+  sources: Array<{ id: string; mainTable?: string; alias?: string; linkId?: string; note?: string }>;
+  sourceMap: Array<{ identifier: string; table: string }>;
+  datasets: Array<{ id?: string; name?: string; totalCount?: number; fieldCount?: number }>;
+  operations: Array<{ id: string; name?: string; operationType?: string; commands: Array<{ id: string; type: string; order: number; dataSource?: string | null }> }>;
+  dataSourceResolution: Array<{ commandId: string; dataSource: string; resolved: string; status: 'ok' | 'missing' }>;
+  warnings: string[];
+}
+
 export interface ExecutionResult {
   rows: any[];
   totalCount: number;
@@ -185,4 +242,8 @@ export interface AppearanceConfig {
   textColor: string;
   guideLineColor: string;
   showGuideLines: boolean;
+  showNodeIds?: boolean;
+  showOperationIds?: boolean;
+  showCommandIds?: boolean;
+  showDatasetIds?: boolean;
 }

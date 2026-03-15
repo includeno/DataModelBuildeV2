@@ -1,0 +1,6 @@
+customer_id,name,email,signup_date,segment,is_active
+C001,Alice Chen,alice@example.com,2023-01-15,SMB,true
+C002,Bob Li,bob@example.com,2023-02-03,Enterprise,false
+C003,Carla Diaz,carla@example.com,2023-03-22,SMB,true
+C004,Dan Park,dan@example.com,2023-04-10,MidMarket,true
+C005,Emma Wu,emma@example.com,2023-05-08,Enterprise,true

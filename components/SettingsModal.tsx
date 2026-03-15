@@ -14,6 +14,17 @@ interface SettingsModalProps {
   onRemoveServer: (url: string) => void;
   appearance: AppearanceConfig;
   onUpdateAppearance: (config: AppearanceConfig) => void;
+  sessionStorageInfo?: {
+    dataRoot: string;
+    sessionsDir: string;
+    relative: string;
+  } | null;
+  sessionStorageFolders?: { name: string; path: string }[];
+  sessionStorageDisabled?: boolean;
+  sessionStorageError?: string | null;
+  onRefreshSessionStorage?: () => void;
+  onSelectSessionStorage?: (path: string) => void;
+  onCreateSessionStorage?: (path: string) => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -25,10 +36,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onAddServer,
   onRemoveServer,
   appearance,
-  onUpdateAppearance
+  onUpdateAppearance,
+  sessionStorageInfo,
+  sessionStorageFolders = [],
+  sessionStorageDisabled,
+  sessionStorageError,
+  onRefreshSessionStorage,
+  onSelectSessionStorage,
+  onCreateSessionStorage
 }) => {
   const [activeTab, setActiveTab] = useState<'server' | 'appearance'>('server');
   const [newUrl, setNewUrl] = useState('');
+  const [newFolder, setNewFolder] = useState('');
 
   if (!isOpen) return null;
 
@@ -130,6 +149,85 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             <Plus className="w-4 h-4" />
                         </Button>
                     </div>
+
+                    <div className="mt-6 pt-4 border-t border-gray-100">
+                        <div className="flex items-center justify-between mb-2">
+                            <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Session Storage</h4>
+                            {onRefreshSessionStorage && (
+                                <button
+                                    className="text-xs text-blue-600 hover:underline"
+                                    onClick={onRefreshSessionStorage}
+                                    disabled={sessionStorageDisabled}
+                                >
+                                    Refresh
+                                </button>
+                            )}
+                        </div>
+                        <p className="text-sm text-gray-600 mb-3">
+                            Choose where session data is stored (under the project data directory).
+                        </p>
+
+                        {sessionStorageDisabled && (
+                            <div className="text-xs text-gray-400 mb-3">
+                                Switch to a real backend server to manage session storage.
+                            </div>
+                        )}
+
+                        {sessionStorageError && (
+                            <div className="text-xs text-red-500 mb-3">
+                                {sessionStorageError}
+                            </div>
+                        )}
+
+                        <div className="text-xs text-gray-500 mb-2">
+                            Current: <span className="font-mono text-gray-700">{sessionStorageInfo?.relative || 'sessions'}</span>
+                        </div>
+
+                        <div className="space-y-2 max-h-40 overflow-y-auto border border-gray-100 rounded-md p-2 bg-gray-50">
+                            {sessionStorageFolders.length === 0 ? (
+                                <div className="text-xs text-gray-400">No folders found.</div>
+                            ) : (
+                                sessionStorageFolders.map(folder => {
+                                    const isSelected = folder.path === (sessionStorageInfo?.relative || 'sessions');
+                                    return (
+                                        <div
+                                            key={folder.path}
+                                            onClick={() => !sessionStorageDisabled && onSelectSessionStorage && onSelectSessionStorage(folder.path)}
+                                            className={`flex items-center justify-between p-2 rounded-md cursor-pointer transition-colors ${
+                                                isSelected ? 'bg-blue-100 border border-blue-300' : 'bg-white border border-gray-100 hover:bg-blue-50'
+                                            }`}
+                                        >
+                                            <span className="text-xs font-mono text-gray-700">{folder.path}</span>
+                                            {isSelected && <span className="text-[10px] text-blue-600 font-semibold">Selected</span>}
+                                        </div>
+                                    );
+                                })
+                            )}
+                        </div>
+
+                        <div className="flex space-x-2 mt-3">
+                            <input
+                                type="text"
+                                value={newFolder}
+                                onChange={(e) => setNewFolder(e.target.value)}
+                                placeholder="sessions_test"
+                                className="flex-1 text-sm border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 bg-white"
+                                disabled={sessionStorageDisabled}
+                            />
+                            <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => {
+                                    if (!newFolder.trim() || !onCreateSessionStorage) return;
+                                    onCreateSessionStorage(newFolder.trim());
+                                    setNewFolder('');
+                                }}
+                                disabled={sessionStorageDisabled || !newFolder.trim()}
+                            >
+                                Create
+                            </Button>
+                        </div>
+                    </div>
                 </div>
             )}
 
@@ -206,6 +304,61 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                     </div>
                                 </div>
                             )}
+                        </div>
+
+                        {/* ID Display */}
+                        <div className="mb-2 border-t border-gray-100 pt-4">
+                            <label className="block text-sm font-medium text-gray-700 mb-2">ID Display</label>
+                            <div className="space-y-2">
+                                <div className="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
+                                    <span className="text-sm text-gray-600">Show Node IDs (Tree)</span>
+                                    <button
+                                        onClick={() => onUpdateAppearance({ ...appearance, showNodeIds: !appearance.showNodeIds })}
+                                        className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 ${appearance.showNodeIds ? 'bg-blue-600' : 'bg-gray-200'}`}
+                                    >
+                                        <span
+                                            aria-hidden="true"
+                                            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${appearance.showNodeIds ? 'translate-x-4' : 'translate-x-0'}`}
+                                        />
+                                    </button>
+                                </div>
+                                <div className="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
+                                    <span className="text-sm text-gray-600">Show Operation IDs (Editor)</span>
+                                    <button
+                                        onClick={() => onUpdateAppearance({ ...appearance, showOperationIds: !appearance.showOperationIds })}
+                                        className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 ${appearance.showOperationIds ? 'bg-blue-600' : 'bg-gray-200'}`}
+                                    >
+                                        <span
+                                            aria-hidden="true"
+                                            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${appearance.showOperationIds ? 'translate-x-4' : 'translate-x-0'}`}
+                                        />
+                                    </button>
+                                </div>
+                                <div className="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
+                                    <span className="text-sm text-gray-600">Show Command IDs (Steps)</span>
+                                    <button
+                                        onClick={() => onUpdateAppearance({ ...appearance, showCommandIds: !appearance.showCommandIds })}
+                                        className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 ${appearance.showCommandIds ? 'bg-blue-600' : 'bg-gray-200'}`}
+                                    >
+                                        <span
+                                            aria-hidden="true"
+                                            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${appearance.showCommandIds ? 'translate-x-4' : 'translate-x-0'}`}
+                                        />
+                                    </button>
+                                </div>
+                                <div className="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
+                                    <span className="text-sm text-gray-600">Show Dataset IDs (Sidebar)</span>
+                                    <button
+                                        onClick={() => onUpdateAppearance({ ...appearance, showDatasetIds: !appearance.showDatasetIds })}
+                                        className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 ${appearance.showDatasetIds ? 'bg-blue-600' : 'bg-gray-200'}`}
+                                    >
+                                        <span
+                                            aria-hidden="true"
+                                            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${appearance.showDatasetIds ? 'translate-x-4' : 'translate-x-0'}`}
+                                        />
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>

@@ -1,0 +1,172 @@
+{
+  "tree": {
+    "id": "root",
+    "type": "operation",
+    "operationType": "root",
+    "name": "Project",
+    "enabled": true,
+    "commands": [],
+    "children": [
+      {
+        "id": "setup_1",
+        "type": "operation",
+        "operationType": "setup",
+        "name": "Data Setup",
+        "enabled": true,
+        "commands": [
+          {
+            "id": "cmd_src_1772735613033_184",
+            "type": "source",
+            "config": {
+              "mainTable": "customers",
+              "alias": "customers",
+              "linkId": "link_1772735613033_a6pmx"
+            },
+            "order": 1
+          },
+          {
+            "id": "cmd_src_1772735632715_889",
+            "type": "source",
+            "config": {
+              "mainTable": "orders",
+              "alias": "orders",
+              "linkId": "link_1772735632715_v1vws"
+            },
+            "order": 2
+          }
+        ],
+        "children": [
+          {
+            "id": "op_1772735654432",
+            "type": "operation",
+            "operationType": "process",
+            "name": "No backend response",
+            "enabled": true,
+            "commands": [
+              {
+                "id": "cmd_1772735669215",
+                "type": "filter",
+                "config": {
+                  "filterRoot": {
+                    "id": "root_1772735669215",
+                    "type": "group",
+                    "logicalOperator": "AND",
+                    "conditions": []
+                  },
+                  "dataSource": "link_1772735613033_a6pmx"
+                },
+                "order": 1
+              },
+              {
+                "id": "cmd_1772735683649",
+                "type": "filter",
+                "config": {
+                  "filterRoot": {
+                    "id": "root_1772735683649",
+                    "type": "group",
+                    "logicalOperator": "AND",
+                    "conditions": []
+                  },
+                  "dataSource": "link_1772735632715_v1vws"
+                },
+                "order": 2
+              }
+            ],
+            "children": [
+              {
+                "id": "op_1772735801458",
+                "type": "operation",
+                "operationType": "process",
+                "name": "New Operation",
+                "enabled": true,
+                "commands": [
+                  {
+                    "id": "cmd_1772735802825",
+                    "type": "filter",
+                    "config": {
+                      "filterRoot": {
+                        "id": "root_1772735802825",
+                        "type": "group",
+                        "logicalOperator": "AND",
+                        "conditions": [
+                          {
+                            "id": "cond_1772735807007_b55vu",
+                            "type": "condition",
+                            "field": "order_id",
+                            "operator": "!=",
+                            "value": "O1001"
+                          }
+                        ]
+                      },
+                      "dataSource": "link_1772735632715_v1vws"
+                    },
+                    "order": 1
+                  }
+                ],
+                "children": [
+                  {
+                    "id": "op_1772735819903",
+                    "type": "operation",
+                    "operationType": "process",
+                    "name": "New Operation",
+                    "enabled": true,
+                    "commands": [
+                      {
+                        "id": "cmd_1772735824787",
+                        "type": "filter",
+                        "config": {
+                          "filterRoot": {
+                            "id": "root_1772735824787",
+                            "type": "group",
+                            "logicalOperator": "AND",
+                            "conditions": [
+                              {
+                                "id": "cond_1772735828434_a0pel",
+                                "type": "condition",
+                                "field": "customer_id",
+                                "operator": "!=",
+                                "value": "C003"
+                              }
+                            ]
+                          },
+                          "dataSource": "link_1772735632715_v1vws"
+                        },
+                        "order": 1
+                      }
+                    ],
+                    "children": [
+                      {
+                        "id": "op_1772735821103",
+                        "type": "operation",
+                        "operationType": "process",
+                        "name": "New Operation",
+                        "enabled": true,
+                        "commands": [
+                          {
+                            "id": "cmd_1772735821703",
+                            "type": "filter",
+                            "config": {
+                              "filterRoot": {
+                                "id": "root_1772735821703",
+                                "type": "group",
+                                "logicalOperator": "AND",
+                                "conditions": []
+                              },
+                              "dataSource": ""
+                            },
+                            "order": 1
+                          }
+                        ],
+                        "children": []
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

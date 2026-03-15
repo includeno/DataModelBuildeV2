@@ -1,0 +1,1560 @@
+{
+  "generatedAt": "2026-03-15T10:26:51.782653+00:00",
+  "generatedBy": "scripts/generate_ui_sql_export_cases.py",
+  "appUrl": "http://localhost:1420",
+  "backendUrl": "http://localhost:8000",
+  "targetCaseCount": 50,
+  "actualCaseCount": 50,
+  "cases": [
+    {
+      "caseId": "ui_filter_amount_gt_1",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 1",
+      "command": {
+        "id": "cmd_filter_1773570387911_h1js7",
+        "type": "filter",
+        "order": 1,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570387911_fnhmr",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570387911_6tkm8",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 1
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 1"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE amount > 1"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_2",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 2",
+      "command": {
+        "id": "cmd_filter_1773570388146_u5fcw",
+        "type": "filter",
+        "order": 2,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570388146_d2vvg",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570388146_26qs8",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 2
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 2"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE (amount > 1) AND (amount > 2)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_3",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 3",
+      "command": {
+        "id": "cmd_filter_1773570388366_b55lu",
+        "type": "filter",
+        "order": 3,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570388366_rgx82",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570388366_rmd2q",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 3
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 3"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE ((amount > 1) AND (amount > 2)) AND (amount > 3)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_4",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 4",
+      "command": {
+        "id": "cmd_filter_1773570388622_t111g",
+        "type": "filter",
+        "order": 4,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570388622_7inr5",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570388622_xwcmd",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 4
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 4"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE (((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_5",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 5",
+      "command": {
+        "id": "cmd_filter_1773570388954_euvsj",
+        "type": "filter",
+        "order": 5,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570388954_pcnt0",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570388954_slq91",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 5
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 5"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE ((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_6",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 6",
+      "command": {
+        "id": "cmd_filter_1773570389157_kwabq",
+        "type": "filter",
+        "order": 6,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570389157_2iriz",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570389157_0iuqw",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 6
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 6"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE (((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_7",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 7",
+      "command": {
+        "id": "cmd_filter_1773570389400_6i520",
+        "type": "filter",
+        "order": 7,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570389400_s4mf9",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570389400_t84la",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 7
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 7"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE ((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_8",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 8",
+      "command": {
+        "id": "cmd_filter_1773570389707_wmjef",
+        "type": "filter",
+        "order": 8,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570389707_s5929",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570389707_93m1u",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 8
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 8"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE (((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_9",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 9",
+      "command": {
+        "id": "cmd_filter_1773570390012_wmvvp",
+        "type": "filter",
+        "order": 9,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570390012_85cnd",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570390012_08oo4",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 9
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 9"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE ((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_10",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 10",
+      "command": {
+        "id": "cmd_filter_1773570390339_51pki",
+        "type": "filter",
+        "order": 10,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570390339_9mktw",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570390339_nn0ob",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 10
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 10"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE (((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_11",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 11",
+      "command": {
+        "id": "cmd_filter_1773570390640_fm6g7",
+        "type": "filter",
+        "order": 11,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570390640_rhl84",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570390640_19lvl",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 11
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 11"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE ((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_12",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 12",
+      "command": {
+        "id": "cmd_filter_1773570390992_kaqcg",
+        "type": "filter",
+        "order": 12,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570390992_7to2b",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570390992_lxzcb",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 12
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 12"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE (((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)) AND (amount > 12)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_13",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 13",
+      "command": {
+        "id": "cmd_filter_1773570391310_ikrw7",
+        "type": "filter",
+        "order": 13,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570391310_tqwtm",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570391310_ldifr",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 13
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 13"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE ((((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)) AND (amount > 12)) AND (amount > 13)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_14",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 14",
+      "command": {
+        "id": "cmd_filter_1773570391605_n6o12",
+        "type": "filter",
+        "order": 14,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570391605_shn20",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570391605_5987b",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 14
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 14"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE (((((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)) AND (amount > 12)) AND (amount > 13)) AND (amount > 14)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_15",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 15",
+      "command": {
+        "id": "cmd_filter_1773570391896_3ml59",
+        "type": "filter",
+        "order": 15,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570391896_w6x64",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570391896_uogkm",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 15
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 15"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE ((((((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)) AND (amount > 12)) AND (amount > 13)) AND (amount > 14)) AND (amount > 15)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_16",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 16",
+      "command": {
+        "id": "cmd_filter_1773570392250_bdqxz",
+        "type": "filter",
+        "order": 16,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570392250_2rfk4",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570392250_4l7bh",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 16
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 16"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE (((((((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)) AND (amount > 12)) AND (amount > 13)) AND (amount > 14)) AND (amount > 15)) AND (amount > 16)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_17",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 17",
+      "command": {
+        "id": "cmd_filter_1773570392589_kb0kd",
+        "type": "filter",
+        "order": 17,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570392589_j6v6x",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570392589_2fzsn",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 17
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 17"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE ((((((((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)) AND (amount > 12)) AND (amount > 13)) AND (amount > 14)) AND (amount > 15)) AND (amount > 16)) AND (amount > 17)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_18",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 18",
+      "command": {
+        "id": "cmd_filter_1773570392931_sxbcg",
+        "type": "filter",
+        "order": 18,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570392931_gfuz5",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570392931_wraz1",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 18
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 18"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE (((((((((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)) AND (amount > 12)) AND (amount > 13)) AND (amount > 14)) AND (amount > 15)) AND (amount > 16)) AND (amount > 17)) AND (amount > 18)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_19",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 19",
+      "command": {
+        "id": "cmd_filter_1773570393243_7vtq3",
+        "type": "filter",
+        "order": 19,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570393243_u4roa",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570393243_lyh1b",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 19
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 19"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE ((((((((((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)) AND (amount > 12)) AND (amount > 13)) AND (amount > 14)) AND (amount > 15)) AND (amount > 16)) AND (amount > 17)) AND (amount > 18)) AND (amount > 19)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_20",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 20",
+      "command": {
+        "id": "cmd_filter_1773570393621_f05ar",
+        "type": "filter",
+        "order": 20,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570393621_j9bz1",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570393621_n8lrt",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 20
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 20"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE (((((((((((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)) AND (amount > 12)) AND (amount > 13)) AND (amount > 14)) AND (amount > 15)) AND (amount > 16)) AND (amount > 17)) AND (amount > 18)) AND (amount > 19)) AND (amount > 20)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_21",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 21",
+      "command": {
+        "id": "cmd_filter_1773570394013_s850r",
+        "type": "filter",
+        "order": 21,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570394013_aweis",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570394013_rbwuf",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 21
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 21"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE ((((((((((((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)) AND (amount > 12)) AND (amount > 13)) AND (amount > 14)) AND (amount > 15)) AND (amount > 16)) AND (amount > 17)) AND (amount > 18)) AND (amount > 19)) AND (amount > 20)) AND (amount > 21)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_22",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 22",
+      "command": {
+        "id": "cmd_filter_1773570394405_6k94s",
+        "type": "filter",
+        "order": 22,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570394405_pyrd5",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570394405_tvdpr",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 22
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 22"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE (((((((((((((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)) AND (amount > 12)) AND (amount > 13)) AND (amount > 14)) AND (amount > 15)) AND (amount > 16)) AND (amount > 17)) AND (amount > 18)) AND (amount > 19)) AND (amount > 20)) AND (amount > 21)) AND (amount > 22)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_23",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 23",
+      "command": {
+        "id": "cmd_filter_1773570394829_xjb6k",
+        "type": "filter",
+        "order": 23,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570394829_8j2lq",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570394829_aihaz",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 23
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 23"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE ((((((((((((((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)) AND (amount > 12)) AND (amount > 13)) AND (amount > 14)) AND (amount > 15)) AND (amount > 16)) AND (amount > 17)) AND (amount > 18)) AND (amount > 19)) AND (amount > 20)) AND (amount > 21)) AND (amount > 22)) AND (amount > 23)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_24",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 24",
+      "command": {
+        "id": "cmd_filter_1773570395268_h9i7v",
+        "type": "filter",
+        "order": 24,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570395268_inpm5",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570395268_yu5rz",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 24
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 24"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE (((((((((((((((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)) AND (amount > 12)) AND (amount > 13)) AND (amount > 14)) AND (amount > 15)) AND (amount > 16)) AND (amount > 17)) AND (amount > 18)) AND (amount > 19)) AND (amount > 20)) AND (amount > 21)) AND (amount > 22)) AND (amount > 23)) AND (amount > 24)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_25",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 25",
+      "command": {
+        "id": "cmd_filter_1773570395706_tehhm",
+        "type": "filter",
+        "order": 25,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570395706_6f4m9",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570395706_9awwp",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 25
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 25"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE ((((((((((((((((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)) AND (amount > 12)) AND (amount > 13)) AND (amount > 14)) AND (amount > 15)) AND (amount > 16)) AND (amount > 17)) AND (amount > 18)) AND (amount > 19)) AND (amount > 20)) AND (amount > 21)) AND (amount > 22)) AND (amount > 23)) AND (amount > 24)) AND (amount > 25)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_26",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 26",
+      "command": {
+        "id": "cmd_filter_1773570396205_oztw4",
+        "type": "filter",
+        "order": 26,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570396205_rlcyl",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570396205_eoapz",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 26
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 26"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE (((((((((((((((((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)) AND (amount > 12)) AND (amount > 13)) AND (amount > 14)) AND (amount > 15)) AND (amount > 16)) AND (amount > 17)) AND (amount > 18)) AND (amount > 19)) AND (amount > 20)) AND (amount > 21)) AND (amount > 22)) AND (amount > 23)) AND (amount > 24)) AND (amount > 25)) AND (amount > 26)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_27",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 27",
+      "command": {
+        "id": "cmd_filter_1773570396675_dm42g",
+        "type": "filter",
+        "order": 27,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570396675_huoc1",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570396675_tkil0",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 27
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 27"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE ((((((((((((((((((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)) AND (amount > 12)) AND (amount > 13)) AND (amount > 14)) AND (amount > 15)) AND (amount > 16)) AND (amount > 17)) AND (amount > 18)) AND (amount > 19)) AND (amount > 20)) AND (amount > 21)) AND (amount > 22)) AND (amount > 23)) AND (amount > 24)) AND (amount > 25)) AND (amount > 26)) AND (amount > 27)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_28",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 28",
+      "command": {
+        "id": "cmd_filter_1773570397146_lsahm",
+        "type": "filter",
+        "order": 28,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570397146_9otni",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570397146_lfh7d",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 28
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 28"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE (((((((((((((((((((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)) AND (amount > 12)) AND (amount > 13)) AND (amount > 14)) AND (amount > 15)) AND (amount > 16)) AND (amount > 17)) AND (amount > 18)) AND (amount > 19)) AND (amount > 20)) AND (amount > 21)) AND (amount > 22)) AND (amount > 23)) AND (amount > 24)) AND (amount > 25)) AND (amount > 26)) AND (amount > 27)) AND (amount > 28)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_29",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 29",
+      "command": {
+        "id": "cmd_filter_1773570397640_84773",
+        "type": "filter",
+        "order": 29,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570397640_7kk0n",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570397640_3km6u",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 29
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 29"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE ((((((((((((((((((((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)) AND (amount > 12)) AND (amount > 13)) AND (amount > 14)) AND (amount > 15)) AND (amount > 16)) AND (amount > 17)) AND (amount > 18)) AND (amount > 19)) AND (amount > 20)) AND (amount > 21)) AND (amount > 22)) AND (amount > 23)) AND (amount > 24)) AND (amount > 25)) AND (amount > 26)) AND (amount > 27)) AND (amount > 28)) AND (amount > 29)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_30",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 30",
+      "command": {
+        "id": "cmd_filter_1773570398169_y53y4",
+        "type": "filter",
+        "order": 30,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570398169_wmpis",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570398169_i3v2j",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 30
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 30"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE (((((((((((((((((((((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)) AND (amount > 12)) AND (amount > 13)) AND (amount > 14)) AND (amount > 15)) AND (amount > 16)) AND (amount > 17)) AND (amount > 18)) AND (amount > 19)) AND (amount > 20)) AND (amount > 21)) AND (amount > 22)) AND (amount > 23)) AND (amount > 24)) AND (amount > 25)) AND (amount > 26)) AND (amount > 27)) AND (amount > 28)) AND (amount > 29)) AND (amount > 30)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_31",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 31",
+      "command": {
+        "id": "cmd_filter_1773570398709_512b1",
+        "type": "filter",
+        "order": 31,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570398709_zulcw",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570398709_1jvuv",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 31
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 31"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE ((((((((((((((((((((((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)) AND (amount > 12)) AND (amount > 13)) AND (amount > 14)) AND (amount > 15)) AND (amount > 16)) AND (amount > 17)) AND (amount > 18)) AND (amount > 19)) AND (amount > 20)) AND (amount > 21)) AND (amount > 22)) AND (amount > 23)) AND (amount > 24)) AND (amount > 25)) AND (amount > 26)) AND (amount > 27)) AND (amount > 28)) AND (amount > 29)) AND (amount > 30)) AND (amount > 31)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_32",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 32",
+      "command": {
+        "id": "cmd_filter_1773570399215_dqp30",
+        "type": "filter",
+        "order": 32,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570399215_yl9u9",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570399215_20zvh",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 32
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 32"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE (((((((((((((((((((((((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)) AND (amount > 12)) AND (amount > 13)) AND (amount > 14)) AND (amount > 15)) AND (amount > 16)) AND (amount > 17)) AND (amount > 18)) AND (amount > 19)) AND (amount > 20)) AND (amount > 21)) AND (amount > 22)) AND (amount > 23)) AND (amount > 24)) AND (amount > 25)) AND (amount > 26)) AND (amount > 27)) AND (amount > 28)) AND (amount > 29)) AND (amount > 30)) AND (amount > 31)) AND (amount > 32)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_33",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 33",
+      "command": {
+        "id": "cmd_filter_1773570399738_q1mbl",
+        "type": "filter",
+        "order": 33,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570399738_scsvi",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570399738_altja",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 33
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 33"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE ((((((((((((((((((((((((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)) AND (amount > 12)) AND (amount > 13)) AND (amount > 14)) AND (amount > 15)) AND (amount > 16)) AND (amount > 17)) AND (amount > 18)) AND (amount > 19)) AND (amount > 20)) AND (amount > 21)) AND (amount > 22)) AND (amount > 23)) AND (amount > 24)) AND (amount > 25)) AND (amount > 26)) AND (amount > 27)) AND (amount > 28)) AND (amount > 29)) AND (amount > 30)) AND (amount > 31)) AND (amount > 32)) AND (amount > 33)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_34",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 34",
+      "command": {
+        "id": "cmd_filter_1773570400319_c509w",
+        "type": "filter",
+        "order": 34,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570400319_4oedh",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570400319_bzf6x",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 34
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 34"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE (((((((((((((((((((((((((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)) AND (amount > 12)) AND (amount > 13)) AND (amount > 14)) AND (amount > 15)) AND (amount > 16)) AND (amount > 17)) AND (amount > 18)) AND (amount > 19)) AND (amount > 20)) AND (amount > 21)) AND (amount > 22)) AND (amount > 23)) AND (amount > 24)) AND (amount > 25)) AND (amount > 26)) AND (amount > 27)) AND (amount > 28)) AND (amount > 29)) AND (amount > 30)) AND (amount > 31)) AND (amount > 32)) AND (amount > 33)) AND (amount > 34)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_35",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 35",
+      "command": {
+        "id": "cmd_filter_1773570400904_cl1fv",
+        "type": "filter",
+        "order": 35,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570400904_lgvn1",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570400904_i3y4n",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 35
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 35"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE ((((((((((((((((((((((((((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)) AND (amount > 12)) AND (amount > 13)) AND (amount > 14)) AND (amount > 15)) AND (amount > 16)) AND (amount > 17)) AND (amount > 18)) AND (amount > 19)) AND (amount > 20)) AND (amount > 21)) AND (amount > 22)) AND (amount > 23)) AND (amount > 24)) AND (amount > 25)) AND (amount > 26)) AND (amount > 27)) AND (amount > 28)) AND (amount > 29)) AND (amount > 30)) AND (amount > 31)) AND (amount > 32)) AND (amount > 33)) AND (amount > 34)) AND (amount > 35)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_36",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 36",
+      "command": {
+        "id": "cmd_filter_1773570401515_g9bd6",
+        "type": "filter",
+        "order": 36,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570401515_9rx7v",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570401515_ud782",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 36
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 36"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE (((((((((((((((((((((((((((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)) AND (amount > 12)) AND (amount > 13)) AND (amount > 14)) AND (amount > 15)) AND (amount > 16)) AND (amount > 17)) AND (amount > 18)) AND (amount > 19)) AND (amount > 20)) AND (amount > 21)) AND (amount > 22)) AND (amount > 23)) AND (amount > 24)) AND (amount > 25)) AND (amount > 26)) AND (amount > 27)) AND (amount > 28)) AND (amount > 29)) AND (amount > 30)) AND (amount > 31)) AND (amount > 32)) AND (amount > 33)) AND (amount > 34)) AND (amount > 35)) AND (amount > 36)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_37",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 37",
+      "command": {
+        "id": "cmd_filter_1773570402112_7y1fs",
+        "type": "filter",
+        "order": 37,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570402112_18deu",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570402112_bood5",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 37
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 37"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE ((((((((((((((((((((((((((((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)) AND (amount > 12)) AND (amount > 13)) AND (amount > 14)) AND (amount > 15)) AND (amount > 16)) AND (amount > 17)) AND (amount > 18)) AND (amount > 19)) AND (amount > 20)) AND (amount > 21)) AND (amount > 22)) AND (amount > 23)) AND (amount > 24)) AND (amount > 25)) AND (amount > 26)) AND (amount > 27)) AND (amount > 28)) AND (amount > 29)) AND (amount > 30)) AND (amount > 31)) AND (amount > 32)) AND (amount > 33)) AND (amount > 34)) AND (amount > 35)) AND (amount > 36)) AND (amount > 37)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_38",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 38",
+      "command": {
+        "id": "cmd_filter_1773570402689_svle0",
+        "type": "filter",
+        "order": 38,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570402689_2ogfz",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570402689_50enp",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 38
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 38"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE (((((((((((((((((((((((((((((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)) AND (amount > 12)) AND (amount > 13)) AND (amount > 14)) AND (amount > 15)) AND (amount > 16)) AND (amount > 17)) AND (amount > 18)) AND (amount > 19)) AND (amount > 20)) AND (amount > 21)) AND (amount > 22)) AND (amount > 23)) AND (amount > 24)) AND (amount > 25)) AND (amount > 26)) AND (amount > 27)) AND (amount > 28)) AND (amount > 29)) AND (amount > 30)) AND (amount > 31)) AND (amount > 32)) AND (amount > 33)) AND (amount > 34)) AND (amount > 35)) AND (amount > 36)) AND (amount > 37)) AND (amount > 38)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_39",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 39",
+      "command": {
+        "id": "cmd_filter_1773570403299_j3586",
+        "type": "filter",
+        "order": 39,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570403299_5pgg8",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570403299_f5ufn",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 39
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 39"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE ((((((((((((((((((((((((((((((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)) AND (amount > 12)) AND (amount > 13)) AND (amount > 14)) AND (amount > 15)) AND (amount > 16)) AND (amount > 17)) AND (amount > 18)) AND (amount > 19)) AND (amount > 20)) AND (amount > 21)) AND (amount > 22)) AND (amount > 23)) AND (amount > 24)) AND (amount > 25)) AND (amount > 26)) AND (amount > 27)) AND (amount > 28)) AND (amount > 29)) AND (amount > 30)) AND (amount > 31)) AND (amount > 32)) AND (amount > 33)) AND (amount > 34)) AND (amount > 35)) AND (amount > 36)) AND (amount > 37)) AND (amount > 38)) AND (amount > 39)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_40",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 40",
+      "command": {
+        "id": "cmd_filter_1773570403943_oa0fy",
+        "type": "filter",
+        "order": 40,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570403943_qfxie",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570403943_5bzx3",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 40
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 40"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE (((((((((((((((((((((((((((((((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)) AND (amount > 12)) AND (amount > 13)) AND (amount > 14)) AND (amount > 15)) AND (amount > 16)) AND (amount > 17)) AND (amount > 18)) AND (amount > 19)) AND (amount > 20)) AND (amount > 21)) AND (amount > 22)) AND (amount > 23)) AND (amount > 24)) AND (amount > 25)) AND (amount > 26)) AND (amount > 27)) AND (amount > 28)) AND (amount > 29)) AND (amount > 30)) AND (amount > 31)) AND (amount > 32)) AND (amount > 33)) AND (amount > 34)) AND (amount > 35)) AND (amount > 36)) AND (amount > 37)) AND (amount > 38)) AND (amount > 39)) AND (amount > 40)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_41",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 41",
+      "command": {
+        "id": "cmd_filter_1773570404607_hsa9u",
+        "type": "filter",
+        "order": 41,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570404607_k0r1e",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570404607_6hxdx",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 41
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 41"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE ((((((((((((((((((((((((((((((((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)) AND (amount > 12)) AND (amount > 13)) AND (amount > 14)) AND (amount > 15)) AND (amount > 16)) AND (amount > 17)) AND (amount > 18)) AND (amount > 19)) AND (amount > 20)) AND (amount > 21)) AND (amount > 22)) AND (amount > 23)) AND (amount > 24)) AND (amount > 25)) AND (amount > 26)) AND (amount > 27)) AND (amount > 28)) AND (amount > 29)) AND (amount > 30)) AND (amount > 31)) AND (amount > 32)) AND (amount > 33)) AND (amount > 34)) AND (amount > 35)) AND (amount > 36)) AND (amount > 37)) AND (amount > 38)) AND (amount > 39)) AND (amount > 40)) AND (amount > 41)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_42",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 42",
+      "command": {
+        "id": "cmd_filter_1773570405270_r79xh",
+        "type": "filter",
+        "order": 42,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570405270_niepx",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570405270_bg2cu",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 42
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 42"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE (((((((((((((((((((((((((((((((((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)) AND (amount > 12)) AND (amount > 13)) AND (amount > 14)) AND (amount > 15)) AND (amount > 16)) AND (amount > 17)) AND (amount > 18)) AND (amount > 19)) AND (amount > 20)) AND (amount > 21)) AND (amount > 22)) AND (amount > 23)) AND (amount > 24)) AND (amount > 25)) AND (amount > 26)) AND (amount > 27)) AND (amount > 28)) AND (amount > 29)) AND (amount > 30)) AND (amount > 31)) AND (amount > 32)) AND (amount > 33)) AND (amount > 34)) AND (amount > 35)) AND (amount > 36)) AND (amount > 37)) AND (amount > 38)) AND (amount > 39)) AND (amount > 40)) AND (amount > 41)) AND (amount > 42)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_43",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 43",
+      "command": {
+        "id": "cmd_filter_1773570405910_emrjb",
+        "type": "filter",
+        "order": 43,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570405910_8erc8",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570405910_jsdqb",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 43
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 43"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE ((((((((((((((((((((((((((((((((((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)) AND (amount > 12)) AND (amount > 13)) AND (amount > 14)) AND (amount > 15)) AND (amount > 16)) AND (amount > 17)) AND (amount > 18)) AND (amount > 19)) AND (amount > 20)) AND (amount > 21)) AND (amount > 22)) AND (amount > 23)) AND (amount > 24)) AND (amount > 25)) AND (amount > 26)) AND (amount > 27)) AND (amount > 28)) AND (amount > 29)) AND (amount > 30)) AND (amount > 31)) AND (amount > 32)) AND (amount > 33)) AND (amount > 34)) AND (amount > 35)) AND (amount > 36)) AND (amount > 37)) AND (amount > 38)) AND (amount > 39)) AND (amount > 40)) AND (amount > 41)) AND (amount > 42)) AND (amount > 43)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_44",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 44",
+      "command": {
+        "id": "cmd_filter_1773570406623_jbzgz",
+        "type": "filter",
+        "order": 44,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570406623_u8wqq",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570406623_jwxc2",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 44
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 44"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE (((((((((((((((((((((((((((((((((((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)) AND (amount > 12)) AND (amount > 13)) AND (amount > 14)) AND (amount > 15)) AND (amount > 16)) AND (amount > 17)) AND (amount > 18)) AND (amount > 19)) AND (amount > 20)) AND (amount > 21)) AND (amount > 22)) AND (amount > 23)) AND (amount > 24)) AND (amount > 25)) AND (amount > 26)) AND (amount > 27)) AND (amount > 28)) AND (amount > 29)) AND (amount > 30)) AND (amount > 31)) AND (amount > 32)) AND (amount > 33)) AND (amount > 34)) AND (amount > 35)) AND (amount > 36)) AND (amount > 37)) AND (amount > 38)) AND (amount > 39)) AND (amount > 40)) AND (amount > 41)) AND (amount > 42)) AND (amount > 43)) AND (amount > 44)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_45",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 45",
+      "command": {
+        "id": "cmd_filter_1773570407325_33e2p",
+        "type": "filter",
+        "order": 45,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570407325_croka",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570407325_st5he",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 45
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 45"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE ((((((((((((((((((((((((((((((((((((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)) AND (amount > 12)) AND (amount > 13)) AND (amount > 14)) AND (amount > 15)) AND (amount > 16)) AND (amount > 17)) AND (amount > 18)) AND (amount > 19)) AND (amount > 20)) AND (amount > 21)) AND (amount > 22)) AND (amount > 23)) AND (amount > 24)) AND (amount > 25)) AND (amount > 26)) AND (amount > 27)) AND (amount > 28)) AND (amount > 29)) AND (amount > 30)) AND (amount > 31)) AND (amount > 32)) AND (amount > 33)) AND (amount > 34)) AND (amount > 35)) AND (amount > 36)) AND (amount > 37)) AND (amount > 38)) AND (amount > 39)) AND (amount > 40)) AND (amount > 41)) AND (amount > 42)) AND (amount > 43)) AND (amount > 44)) AND (amount > 45)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_46",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 46",
+      "command": {
+        "id": "cmd_filter_1773570408074_8toaw",
+        "type": "filter",
+        "order": 46,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570408074_d3z4t",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570408074_u7sxa",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 46
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 46"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE (((((((((((((((((((((((((((((((((((((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)) AND (amount > 12)) AND (amount > 13)) AND (amount > 14)) AND (amount > 15)) AND (amount > 16)) AND (amount > 17)) AND (amount > 18)) AND (amount > 19)) AND (amount > 20)) AND (amount > 21)) AND (amount > 22)) AND (amount > 23)) AND (amount > 24)) AND (amount > 25)) AND (amount > 26)) AND (amount > 27)) AND (amount > 28)) AND (amount > 29)) AND (amount > 30)) AND (amount > 31)) AND (amount > 32)) AND (amount > 33)) AND (amount > 34)) AND (amount > 35)) AND (amount > 36)) AND (amount > 37)) AND (amount > 38)) AND (amount > 39)) AND (amount > 40)) AND (amount > 41)) AND (amount > 42)) AND (amount > 43)) AND (amount > 44)) AND (amount > 45)) AND (amount > 46)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_47",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 47",
+      "command": {
+        "id": "cmd_filter_1773570408824_jc41c",
+        "type": "filter",
+        "order": 47,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570408824_ko4cd",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570408824_wi19v",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 47
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 47"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE ((((((((((((((((((((((((((((((((((((((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)) AND (amount > 12)) AND (amount > 13)) AND (amount > 14)) AND (amount > 15)) AND (amount > 16)) AND (amount > 17)) AND (amount > 18)) AND (amount > 19)) AND (amount > 20)) AND (amount > 21)) AND (amount > 22)) AND (amount > 23)) AND (amount > 24)) AND (amount > 25)) AND (amount > 26)) AND (amount > 27)) AND (amount > 28)) AND (amount > 29)) AND (amount > 30)) AND (amount > 31)) AND (amount > 32)) AND (amount > 33)) AND (amount > 34)) AND (amount > 35)) AND (amount > 36)) AND (amount > 37)) AND (amount > 38)) AND (amount > 39)) AND (amount > 40)) AND (amount > 41)) AND (amount > 42)) AND (amount > 43)) AND (amount > 44)) AND (amount > 45)) AND (amount > 46)) AND (amount > 47)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_48",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 48",
+      "command": {
+        "id": "cmd_filter_1773570409578_01jnd",
+        "type": "filter",
+        "order": 48,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570409578_lccqr",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570409578_s5w9p",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 48
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 48"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE (((((((((((((((((((((((((((((((((((((((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)) AND (amount > 12)) AND (amount > 13)) AND (amount > 14)) AND (amount > 15)) AND (amount > 16)) AND (amount > 17)) AND (amount > 18)) AND (amount > 19)) AND (amount > 20)) AND (amount > 21)) AND (amount > 22)) AND (amount > 23)) AND (amount > 24)) AND (amount > 25)) AND (amount > 26)) AND (amount > 27)) AND (amount > 28)) AND (amount > 29)) AND (amount > 30)) AND (amount > 31)) AND (amount > 32)) AND (amount > 33)) AND (amount > 34)) AND (amount > 35)) AND (amount > 36)) AND (amount > 37)) AND (amount > 38)) AND (amount > 39)) AND (amount > 40)) AND (amount > 41)) AND (amount > 42)) AND (amount > 43)) AND (amount > 44)) AND (amount > 45)) AND (amount > 46)) AND (amount > 47)) AND (amount > 48)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_49",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 49",
+      "command": {
+        "id": "cmd_filter_1773570410373_ipvvp",
+        "type": "filter",
+        "order": 49,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570410373_dre6a",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570410373_b57vh",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 49
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 49"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE ((((((((((((((((((((((((((((((((((((((((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)) AND (amount > 12)) AND (amount > 13)) AND (amount > 14)) AND (amount > 15)) AND (amount > 16)) AND (amount > 17)) AND (amount > 18)) AND (amount > 19)) AND (amount > 20)) AND (amount > 21)) AND (amount > 22)) AND (amount > 23)) AND (amount > 24)) AND (amount > 25)) AND (amount > 26)) AND (amount > 27)) AND (amount > 28)) AND (amount > 29)) AND (amount > 30)) AND (amount > 31)) AND (amount > 32)) AND (amount > 33)) AND (amount > 34)) AND (amount > 35)) AND (amount > 36)) AND (amount > 37)) AND (amount > 38)) AND (amount > 39)) AND (amount > 40)) AND (amount > 41)) AND (amount > 42)) AND (amount > 43)) AND (amount > 44)) AND (amount > 45)) AND (amount > 46)) AND (amount > 47)) AND (amount > 48)) AND (amount > 49)"
+    },
+    {
+      "caseId": "ui_filter_amount_gt_50",
+      "sourceSql": "SELECT * FROM orders WHERE amount > 50",
+      "command": {
+        "id": "cmd_filter_1773570411200_lregs",
+        "type": "filter",
+        "order": 50,
+        "config": {
+          "dataSource": "link_1773570382505_x5m29",
+          "filterRoot": {
+            "id": "group_1773570411200_5rowu",
+            "type": "group",
+            "logicalOperator": "AND",
+            "conditions": [
+              {
+                "id": "cond_1773570411200_w9u4j",
+                "type": "condition",
+                "field": "amount",
+                "operator": ">",
+                "value": 50
+              }
+            ]
+          }
+        }
+      },
+      "expectedTokens": [
+        "SELECT * FROM orders",
+        "amount > 50"
+      ],
+      "uiGeneratedSql": "SELECT * FROM orders WHERE (((((((((((((((((((((((((((((((((((((((((((((((((amount > 1) AND (amount > 2)) AND (amount > 3)) AND (amount > 4)) AND (amount > 5)) AND (amount > 6)) AND (amount > 7)) AND (amount > 8)) AND (amount > 9)) AND (amount > 10)) AND (amount > 11)) AND (amount > 12)) AND (amount > 13)) AND (amount > 14)) AND (amount > 15)) AND (amount > 16)) AND (amount > 17)) AND (amount > 18)) AND (amount > 19)) AND (amount > 20)) AND (amount > 21)) AND (amount > 22)) AND (amount > 23)) AND (amount > 24)) AND (amount > 25)) AND (amount > 26)) AND (amount > 27)) AND (amount > 28)) AND (amount > 29)) AND (amount > 30)) AND (amount > 31)) AND (amount > 32)) AND (amount > 33)) AND (amount > 34)) AND (amount > 35)) AND (amount > 36)) AND (amount > 37)) AND (amount > 38)) AND (amount > 39)) AND (amount > 40)) AND (amount > 41)) AND (amount > 42)) AND (amount > 43)) AND (amount > 44)) AND (amount > 45)) AND (amount > 46)) AND (amount > 47)) AND (amount > 48)) AND (amount > 49)) AND (amount > 50)"
+    }
+  ]
+}

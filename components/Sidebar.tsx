@@ -1,11 +1,11 @@
 import React, { useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, Plus, Database, Search, Download, Upload, Settings, FoldVertical, UnfoldVertical } from 'lucide-react';
+import { ChevronDown, ChevronRight, Plus, Database, Search, Download, Upload, Settings, FoldVertical, UnfoldVertical, Trash2 } from 'lucide-react';
 import { OperationTree } from './OperationTree';
 import { OperationNode, Dataset, AppearanceConfig } from '../types';
 
 interface SidebarProps {
   width: number;
-  currentView: 'workflow' | 'sql';
+  currentView: 'workflow' | 'sql' | 'data';
   sessionId: string;
   tree: OperationNode;
   datasets: Dataset[];
@@ -14,12 +14,15 @@ interface SidebarProps {
   onToggleEnabled: (id: string) => void;
   onAddChild: (parentId: string) => void;
   onDeleteNode: (id: string) => void;
+  onMoveNode?: (id: string, direction: 'up' | 'down') => void;
   onImportClick: () => void;
   onOpenTableInSql: (tableName: string) => void;
+  onOpenTableInData?: (tableName: string) => void;
   onExportOperations?: () => void;
   onImportOperations?: (file: File) => void;
   onAnalyzeOverlap?: (nodeId: string) => void;
   onOpenSchema?: (name: string) => void;
+  onDeleteDataset?: (name: string) => void;
   appearance: AppearanceConfig;
 }
 
@@ -34,12 +37,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onToggleEnabled,
   onAddChild,
   onDeleteNode,
+  onMoveNode,
   onImportClick,
   onOpenTableInSql,
+  onOpenTableInData,
   onExportOperations,
   onImportOperations,
   onAnalyzeOverlap,
   onOpenSchema,
+  onDeleteDataset,
   appearance
 }) => {
   const [isOpsExpanded, setIsOpsExpanded] = useState(true);
@@ -48,6 +54,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [collapseAllCounter, setCollapseAllCounter] = useState(0);
   const [lastGlobalAction, setLastGlobalAction] = useState<'expand' | 'collapse' | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const canImportDataset = Boolean(sessionId);
+
+  const handleOpenDataset = (name: string) => {
+      if (currentView === 'data' && onOpenTableInData) {
+          onOpenTableInData(name);
+          return;
+      }
+      onOpenTableInSql(name);
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       if (e.target.files && e.target.files[0] && onImportOperations) {
@@ -138,7 +153,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
              {isOpsExpanded && (
                 <div className="flex-1 overflow-y-auto overflow-x-hidden py-2 pr-1 custom-scrollbar">
                     {/* Render children of the root (Setup Nodes) as top-level items */}
-                    {tree.children?.map(child => (
+                    {tree.children?.map((child, childIndex) => (
                         <OperationTree 
                             key={child.id}
                             node={child} 
@@ -147,12 +162,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             onToggleEnabled={onToggleEnabled}
                             onAddChild={onAddChild}
                             onDelete={onDeleteNode}
+                            onMoveNode={onMoveNode}
                             onAnalyzeOverlap={onAnalyzeOverlap}
                             expandTrigger={expandAllCounter}
                             collapseTrigger={collapseAllCounter}
                             globalAction={lastGlobalAction}
                             appearance={appearance}
                             level={0}
+                            parentId="root"
+                            index={childIndex}
+                            siblingCount={tree.children?.length ?? 0}
                         />
                     ))}
                     {(!tree.children || tree.children.length === 0) && (
@@ -168,7 +187,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Data Sources Section */}
       <div 
         className={`flex flex-col border-t border-gray-200 bg-white shrink-0 transition-all duration-300 ease-in-out ${
-            currentView === 'sql' ? 'flex-1' : 
+            currentView !== 'workflow' ? 'flex-1' : 
             (!isOpsExpanded ? 'flex-1' : 
             (isDataExpanded ? 'h-1/3 min-h-[150px]' : 'h-10'))
         }`}
@@ -178,7 +197,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
                  {isDataExpanded ? <ChevronDown className="w-4 h-4 text-gray-500"/> : <ChevronRight className="w-4 h-4 text-gray-500"/>}
                  <span className="text-xs font-bold text-gray-600 uppercase tracking-wider">Datasets</span>
              </div>
-             <button onClick={(e) => { e.stopPropagation(); onImportClick(); }} className="p-1 hover:bg-blue-100 rounded text-blue-600 transition-colors" title="Import Dataset"><Plus className="w-4 h-4" /></button>
+             <button
+                 onClick={(e) => {
+                     e.stopPropagation();
+                     if (!canImportDataset) return;
+                     onImportClick();
+                 }}
+                 className={`p-1 rounded transition-colors ${canImportDataset ? 'hover:bg-blue-100 text-blue-600' : 'text-gray-300 cursor-not-allowed'}`}
+                 title={canImportDataset ? "Import Dataset" : "Create a session to import datasets"}
+                 disabled={!canImportDataset}
+             >
+                 <Plus className="w-4 h-4" />
+             </button>
          </div>
          
          {isDataExpanded && (
@@ -191,13 +221,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <div className="space-y-0.5">
                         {datasets.map(ds => (
                             <div key={ds.id} className="flex items-center px-2 py-1 bg-white hover:bg-blue-50 rounded-md text-sm transition-colors group justify-between border border-transparent hover:border-blue-100">
-                                <div className="flex items-center min-w-0 cursor-pointer flex-1" onClick={() => onOpenTableInSql(ds.name)}>
+                                <div className="flex items-center min-w-0 cursor-pointer flex-1" onClick={() => handleOpenDataset(ds.name)}>
                                     <Database className="w-3 h-3 text-gray-400 mr-2 shrink-0 group-hover:text-blue-500" />
                                     <div className="font-medium text-gray-700 truncate group-hover:text-blue-700 text-xs" title={ds.name}>{ds.name}</div>
+                                    {appearance.showDatasetIds && (
+                                        <span className="ml-2 text-[9px] font-mono text-gray-400 bg-gray-50 border border-gray-200 rounded px-1.5 py-0.5 shrink-0">
+                                            {ds.id}
+                                        </span>
+                                    )}
                                 </div>
                                 <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity space-x-1">
-                                    <button onClick={(e) => { e.stopPropagation(); onOpenTableInSql(ds.name); }} className="p-1 text-gray-300 hover:text-blue-600" title="Query"><Search className="w-3 h-3" /></button>
+                                    <button onClick={(e) => { e.stopPropagation(); handleOpenDataset(ds.name); }} className="p-1 text-gray-300 hover:text-blue-600" title="Query"><Search className="w-3 h-3" /></button>
                                     <button onClick={(e) => { e.stopPropagation(); onOpenSchema && onOpenSchema(ds.name); }} className="p-1 text-gray-300 hover:text-gray-600" title="Settings"><Settings className="w-3 h-3" /></button>
+                                    {onDeleteDataset && (
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); onDeleteDataset(ds.name); }}
+                                            className="p-1 text-gray-300 hover:text-red-500"
+                                            title="Delete"
+                                        >
+                                            <Trash2 className="w-3 h-3" />
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                         ))}

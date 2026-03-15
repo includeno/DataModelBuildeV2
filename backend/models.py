@@ -18,6 +18,16 @@ class SubTableConfig(BaseModel):
     table: str
     on: str
     label: str
+    onConditionGroup: Optional[Dict[str, Any]] = None
+    conditionGroup: Optional[Dict[str, Any]] = None
+
+class ViewFieldConfig(BaseModel):
+    field: str
+    distinct: Optional[bool] = False
+
+class ViewSortConfig(BaseModel):
+    field: str
+    ascending: Optional[bool] = True
 
 class CommandConfig(BaseModel):
     # New: Context selection
@@ -39,6 +49,7 @@ class CommandConfig(BaseModel):
     variableName: Optional[str] = None
     variableType: Optional[str] = None # 'text' or 'list'
     variableValue: Optional[Union[str, List[str]]] = None
+    note: Optional[str] = None
 
     # Join configs
     joinTargetType: Optional[str] = "table" # 'table' or 'node'
@@ -74,6 +85,12 @@ class CommandConfig(BaseModel):
 
     # Multi Table
     subTables: Optional[List[SubTableConfig]] = None
+    # View command
+    viewFields: Optional[List[ViewFieldConfig]] = None
+    viewSortField: Optional[str] = None
+    viewSortAscending: Optional[bool] = True
+    viewSorts: Optional[List[ViewSortConfig]] = None
+    viewLimit: Optional[int] = None
 
 class Command(BaseModel):
     id: str
@@ -101,6 +118,7 @@ class ExecuteRequest(BaseModel):
     tree: OperationNode
     targetNodeId: str
     targetCommandId: Optional[str] = None
+    includeCommandMeta: bool = False
     page: int = 1
     pageSize: int = 50
     viewId: str = "main" # 'main' or specific subTable ID

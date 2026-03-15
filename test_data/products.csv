@@ -1,0 +1,6 @@
+product_id,product_name,category,cost,price
+P100,Analytics Starter,Software,60.00,120.50
+P200,Analytics Pro,Software,70.00,150.00
+P300,Onboarding Package,Service,20.00,40.00
+P400,Support Hours,Service,8.00,16.65
+P500,Enterprise Suite,Software,80.00,140.00

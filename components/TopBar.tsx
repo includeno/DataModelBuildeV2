@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { GitBranch, ChevronDown, Clock, Check, Trash2, Plus, Layers, Terminal, Server, Play, PanelRight, Settings, Menu, SlidersHorizontal } from 'lucide-react';
+import { GitBranch, ChevronDown, Clock, Check, Trash2, Plus, Layers, Terminal, Server, Play, PanelRight, Settings, Menu, SlidersHorizontal, Activity, Table as TableIcon } from 'lucide-react';
 import { SessionMetadata, ApiConfig } from '../types';
 import { Button } from './Button';
 
@@ -8,16 +8,18 @@ interface TopBarProps {
   sessionId: string;
   sessionName?: string; 
   sessions: SessionMetadata[];
-  currentView: 'workflow' | 'sql';
+  currentView: 'workflow' | 'sql' | 'data';
   apiConfig: ApiConfig;
   isRightPanelOpen: boolean;
+  backendStatus: 'mock' | 'checking' | 'online' | 'offline';
   onSessionSelect: (id: string) => void;
   onSessionCreate: () => void;
   onSessionDelete: (e: React.MouseEvent, id: string) => void;
-  onViewChange: (view: 'workflow' | 'sql') => void;
+  onViewChange: (view: 'workflow' | 'sql' | 'data') => void;
   onSettingsOpen: () => void;
   onSessionSettingsOpen: () => void;
-  onExecute: () => void;
+  onSessionDiagnostics: () => void;
+  onRunSql: () => void;
   onToggleRightPanel: () => void;
   onToggleMobileSidebar: () => void;
   canExecute?: boolean;
@@ -30,18 +32,28 @@ export const TopBar: React.FC<TopBarProps> = ({
   currentView,
   apiConfig,
   isRightPanelOpen,
+  backendStatus,
   onSessionSelect,
   onSessionCreate,
   onSessionDelete,
   onViewChange,
   onSettingsOpen,
   onSessionSettingsOpen,
-  onExecute,
+  onSessionDiagnostics,
+  onRunSql,
   onToggleRightPanel,
   onToggleMobileSidebar,
   canExecute = true
 }) => {
   const [isSessionMenuOpen, setIsSessionMenuOpen] = useState(false);
+  const isBackendOnline = backendStatus === 'online' || backendStatus === 'mock';
+  const backendLabel = backendStatus === 'mock'
+      ? 'Mock Server'
+      : backendStatus === 'online'
+          ? (apiConfig.baseUrl.includes('localhost') ? 'Localhost' : 'Backend')
+          : backendStatus === 'offline'
+              ? 'Offline'
+              : 'Checking';
 
   return (
     <>
@@ -130,6 +142,20 @@ export const TopBar: React.FC<TopBarProps> = ({
                                           </button>
                                       )}
 
+                                      {s.sessionId === sessionId && (
+                                          <button
+                                              onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  onSessionDiagnostics();
+                                                  setIsSessionMenuOpen(false);
+                                              }}
+                                              className="p-1.5 rounded-md text-gray-400 hover:text-emerald-600 hover:bg-emerald-100 transition-all mr-1"
+                                              title="Session Diagnostics"
+                                          >
+                                              <Activity className="w-4 h-4" />
+                                          </button>
+                                      )}
+
                                       {/* Only allow deleting if NOT mock mode */}
                                       {!apiConfig.isMock && (
                                           <button 
@@ -182,6 +208,12 @@ export const TopBar: React.FC<TopBarProps> = ({
              >
                 <Terminal className="w-4 h-4 mr-2" /> SQL Studio
              </button>
+             <button 
+                onClick={() => onViewChange('data')}
+                className={`flex items-center px-3 py-1.5 text-sm font-medium rounded-md transition-all ${currentView === 'data' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+             >
+                <TableIcon className="w-4 h-4 mr-2" /> Data Viewer
+             </button>
         </div>
         
         {/* Mobile View Switcher */}
@@ -198,35 +230,35 @@ export const TopBar: React.FC<TopBarProps> = ({
              >
                 <Terminal className="w-4 h-4" />
              </button>
+             <button 
+                onClick={() => onViewChange('data')}
+                className={`p-1.5 rounded-md ${currentView === 'data' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500'}`}
+             >
+                <TableIcon className="w-4 h-4" />
+             </button>
         </div>
 
         <div className="flex items-center space-x-2">
              {/* Server Status Badge */}
              <div 
                 className={`flex items-center px-2 md:px-3 py-1.5 text-xs font-medium rounded-full border cursor-default select-none ${
-                    apiConfig.isMock 
-                    ? 'bg-yellow-50 text-yellow-700 border-yellow-200' 
-                    : 'bg-green-50 text-green-700 border-green-200'
+                    backendStatus === 'mock'
+                    ? 'bg-yellow-50 text-yellow-700 border-yellow-200'
+                    : backendStatus === 'online'
+                        ? 'bg-green-50 text-green-700 border-green-200'
+                        : backendStatus === 'offline'
+                            ? 'bg-red-50 text-red-700 border-red-200'
+                            : 'bg-gray-50 text-gray-600 border-gray-200'
                 }`}
-                title="Backend Status"
+                title={`Backend Status: ${backendLabel}${apiConfig.baseUrl ? ` (${apiConfig.baseUrl})` : ''}`}
              >
-                <Server className="w-3 h-3 md:mr-1.5" />
-                <span className="hidden md:inline">{apiConfig.isMock ? 'Mock Server' : 'Localhost'}</span>
+                <Server className={`w-3 h-3 md:mr-1.5 ${isBackendOnline ? '' : 'opacity-70'}`} />
+                <span className="hidden md:inline">{backendLabel}</span>
              </div>
 
             {currentView === 'workflow' && (
                 <>
                     <div className="h-6 w-px bg-gray-300 mx-1 hidden sm:block" />
-                    <Button 
-                        variant="primary" 
-                        size="sm" 
-                        icon={<Play className="w-4 h-4" />} 
-                        onClick={onExecute} 
-                        disabled={!sessionId || !canExecute} 
-                        className={`px-2 md:px-4 ${!canExecute ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    >
-                        <span className="hidden md:inline">Run</span>
-                    </Button>
                     <button
                         onClick={onToggleRightPanel}
                         className={`p-2 rounded-md transition-colors ${isRightPanelOpen ? 'bg-blue-100 text-blue-700' : 'text-gray-500 hover:bg-gray-100'}`}
@@ -234,6 +266,22 @@ export const TopBar: React.FC<TopBarProps> = ({
                     >
                         <PanelRight className="w-5 h-5" />
                     </button>
+                </>
+            )}
+
+            {currentView === 'sql' && (
+                <>
+                    <div className="h-6 w-px bg-gray-300 mx-1 hidden sm:block" />
+                    <Button 
+                        variant="primary" 
+                        size="sm" 
+                        icon={<Play className="w-4 h-4" />} 
+                        onClick={onRunSql} 
+                        disabled={!sessionId || !canExecute} 
+                        className={`px-2 md:px-4 ${!sessionId || !canExecute ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                        <span className="hidden md:inline">Run</span>
+                    </Button>
                 </>
             )}
 

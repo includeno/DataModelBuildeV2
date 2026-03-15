@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Upload, CheckCircle, X, AlertTriangle, FileSpreadsheet } from 'lucide-react';
 import { ApiConfig, Dataset } from '../types';
 import { api } from '../utils/api';
@@ -21,7 +21,16 @@ export const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClos
   
   const inputRef = useRef<HTMLInputElement>(null);
 
-  if (!isOpen) return null;
+  const RESERVED_WORDS = new Set([
+    'select', 'from', 'where', 'order', 'group', 'by', 'join', 'left', 'right',
+    'inner', 'outer', 'full', 'on', 'limit', 'offset', 'union', 'distinct',
+    'having', 'as', 'and', 'or', 'not', 'null', 'is', 'like', 'in', 'table', 'view'
+  ]);
+
+  const trimmedName = customName.trim();
+  const nameError = trimmedName && RESERVED_WORDS.has(trimmedName.toLowerCase())
+    ? `Dataset name '${trimmedName}' is a reserved keyword. Please choose another name.`
+    : null;
 
   const resetState = () => {
     setSelectedFile(null);
@@ -34,6 +43,17 @@ export const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClos
       resetState();
       onClose();
   };
+
+  useEffect(() => {
+      if (!isOpen) return;
+      const handleKeyDown = (e: KeyboardEvent) => {
+          if (e.key === 'Escape') handleClose();
+      };
+      document.addEventListener('keydown', handleKeyDown);
+      return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen]);
+
+  if (!isOpen) return null;
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
@@ -71,6 +91,10 @@ export const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClos
 
   const handleUpload = async () => {
     if (!selectedFile) return;
+    if (nameError) {
+        setError(nameError);
+        return;
+    }
 
     setUploading(true);
     setError(null);
@@ -112,7 +136,12 @@ export const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClos
             <h3 className="text-lg font-semibold text-gray-900 flex items-center">
                 <Upload className="w-5 h-5 mr-2 text-blue-600" /> Import Data Source
             </h3>
-            <button onClick={handleClose} className="text-gray-400 hover:text-gray-600 transition-colors">
+            <button
+                onClick={handleClose}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+                aria-label="Close Import Data Source"
+                title="Close"
+            >
                 <X className="w-5 h-5" />
             </button>
         </div>
@@ -140,7 +169,7 @@ export const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClos
                         type="file" 
                         className="hidden"
                         onChange={handleChange}
-                        accept=".csv,.xlsx,.xls"
+                        accept=".csv,.xlsx,.xls,.parquet,.pq"
                     />
                     
                     <div className="flex flex-col items-center text-gray-500">
@@ -148,7 +177,7 @@ export const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClos
                             <FileSpreadsheet className="w-8 h-8 text-blue-600" />
                         </div>
                         <span className="text-sm font-medium text-gray-900">Click to upload</span>
-                        <span className="text-sm text-gray-500 mt-1">Supports CSV and Excel (.xlsx)</span>
+                        <span className="text-sm text-gray-500 mt-1">Supports CSV, Excel (.xlsx), and Parquet (.parquet)</span>
                     </div>
                 </div>
             ) : (
@@ -181,6 +210,9 @@ export const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClos
                             disabled={uploading}
                         />
                         <p className="mt-1 text-xs text-gray-500">This name will be used in SQL queries and operations.</p>
+                        {nameError && (
+                            <p className="mt-1 text-xs text-red-600">{nameError}</p>
+                        )}
                     </div>
                 </div>
             )}
@@ -200,7 +232,7 @@ export const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClos
                     <Button 
                         variant="primary" 
                         onClick={handleUpload} 
-                        disabled={uploading || !customName.trim()}
+                        disabled={uploading || !customName.trim() || !!nameError}
                         icon={uploading ? <Upload className="w-4 h-4 animate-bounce" /> : <CheckCircle className="w-4 h-4" />}
                     >
                         {uploading ? 'Importing...' : 'Import Dataset'}

@@ -5,17 +5,23 @@ import { CommandEditor } from './CommandEditor';
 import { SqlEditor } from './SqlEditor';
 import { DataPreview } from './DataPreview';
 import { ComplexDataPreview } from './ComplexDataPreview';
-import { OperationNode, Dataset, Command, ExecutionResult, ApiConfig, OperationType, DataType, SqlHistoryItem } from '../types';
+import { DataBrowser } from './DataBrowser';
+import { OperationNode, Dataset, Command, ExecutionResult, ApiConfig, OperationType, DataType, SqlHistoryItem, AppearanceConfig } from '../types';
 import { api } from '../utils/api';
 
 interface WorkspaceProps {
-  currentView: 'workflow' | 'sql';
+  currentView: 'workflow' | 'sql' | 'data';
   sessionId: string;
   apiConfig: ApiConfig;
   targetSqlTable: string | null;
+  targetDataTable?: string | null;
+  onSelectDataTable?: (name: string) => void;
   onClearTargetSqlTable: () => void;
+  sqlRunRequestId?: number;
+  onSqlRunStateChange?: (state: { canRun: boolean; running: boolean }) => void;
   selectedNode: OperationNode | null;
   datasets: Dataset[];
+  appearance?: AppearanceConfig;
   inputFields: string[]; // Deprecated, kept for compat if needed but unused in new logic
   inputSchema: Record<string, DataType>; // New Schema
   onUpdateCommands: (opId: string, newCommands: Command[]) => void;
@@ -30,6 +36,7 @@ interface WorkspaceProps {
   onClearPreview?: () => void;
   loading: boolean;
   onRefreshPreview: (page?: number, commandId?: string) => void;
+  canRunOperation?: boolean;
   onUpdatePageSize: (size: number) => void;
   onExportFull: () => void;
   isMobile: boolean;
@@ -44,9 +51,14 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   sessionId,
   apiConfig,
   targetSqlTable,
+  targetDataTable,
+  onSelectDataTable,
   onClearTargetSqlTable,
+  sqlRunRequestId,
+  onSqlRunStateChange,
   selectedNode,
   datasets,
+  appearance,
   // inputFields,
   inputSchema,
   onUpdateCommands,
@@ -61,6 +73,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   onClearPreview,
   loading,
   onRefreshPreview,
+  canRunOperation = true,
   onUpdatePageSize,
   onExportFull,
   isMobile,
@@ -70,6 +83,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   onUpdateSqlHistory
 }) => {
   const [activeTab, setActiveTab] = useState<string>('');
+  const [lastRunCommandId, setLastRunCommandId] = useState<string | undefined>(undefined);
 
   // --- Tab Management Effects ---
 
@@ -87,6 +101,41 @@ export const Workspace: React.FC<WorkspaceProps> = ({
 
   const showExecutionTab = !!previewData;
   const isMultiTableMode = selectedNode?.commands.some(c => c.type === 'multi_table') ?? false;
+  const firstComplexIndex = selectedNode?.commands.findIndex(c => c.type === 'multi_table') ?? -1;
+  const lastRunIndex = lastRunCommandId && selectedNode
+      ? selectedNode.commands.findIndex(c => c.id === lastRunCommandId)
+      : -1;
+  const shouldUseComplexResult = isMultiTableMode && (
+      lastRunCommandId === undefined || firstComplexIndex < 0 || lastRunIndex >= firstComplexIndex
+  );
+  const allowResultPanel = selectedNode?.operationType !== 'setup';
+  const showRightPanel = isRightPanelOpen && allowResultPanel;
+
+  useEffect(() => {
+      // Reset run-step context when switching operation.
+      setLastRunCommandId(undefined);
+  }, [selectedNode?.id]);
+
+  useEffect(() => {
+      if (!previewData) {
+          setLastRunCommandId(undefined);
+      }
+  }, [previewData]);
+
+  const runPreview = (
+      page: number = 1,
+      commandId?: string,
+      options: { preserveLastCommandId?: boolean } = {}
+  ) => {
+      const shouldReuseLast = page > 1 || options.preserveLastCommandId === true;
+      const effectiveCommandId = commandId === undefined
+          ? (shouldReuseLast ? lastRunCommandId : undefined)
+          : commandId;
+      if (page === 1) {
+          setLastRunCommandId(effectiveCommandId);
+      }
+      onRefreshPreview(page, effectiveCommandId);
+  };
 
   const handleRefreshView = async (viewId: string, page: number, pageSize: number): Promise<ExecutionResult> => {
       if (!selectedNode || !tree) throw new Error("No context");
@@ -160,12 +209,14 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                 operationType={selectedNode.operationType}
                 commands={selectedNode.commands} 
                 datasets={datasets}
+                appearance={appearance}
                 inputSchema={inputSchema}
                 onUpdateCommands={onUpdateCommands}
                 onUpdateName={onUpdateName}
                 onUpdateType={onUpdateType}
                 onViewPath={onViewPath}
-                onRun={(cmdId) => onRefreshPreview(1, cmdId)}
+                onRun={(cmdId) => runPreview(1, cmdId)}
+                canRun={canRunOperation}
                 onGenerateSql={handleGenerateSql}
                 tree={tree} 
             />
@@ -211,7 +262,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                           }`}
                       >
                           <Play className="w-3 h-3 mr-2" />
-                          <span>{isMultiTableMode ? 'Complex Result' : 'Execution Result'}</span>
+                          <span>{shouldUseComplexResult ? 'Complex Result' : 'Execution Result'}</span>
                           <button 
                               onClick={(e) => {
                                   e.stopPropagation();
@@ -241,7 +292,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
 
           <div className="flex-1 overflow-hidden relative">
               {activeTab === 'output' && showExecutionTab ? (
-                  isMultiTableMode && selectedNode ? (
+                  shouldUseComplexResult && selectedNode ? (
                       <ComplexDataPreview 
                           initialResult={previewData}
                           selectedNode={selectedNode}
@@ -255,8 +306,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                           data={previewData} 
                           loading={loading}
                           pageSize={selectedNode?.pageSize}
-                          onRefresh={() => onRefreshPreview(previewData?.page || 1)}
-                          onPageChange={(page) => onRefreshPreview(page)}
+                          onRefresh={() => runPreview(previewData?.page || 1, undefined, { preserveLastCommandId: true })}
+                          onPageChange={(page) => runPreview(page)}
                           onUpdatePageSize={onUpdatePageSize}
                           onExportFull={onExportFull}
                           sourceId={selectedNode?.id}
@@ -273,7 +324,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
       </div>
   );
 
-  const resizer = !isMobile && isRightPanelOpen && (
+  const resizer = !isMobile && showRightPanel && (
       <div 
          className={`z-20 flex justify-center items-center transition-all ${
              isVertical 
@@ -293,17 +344,30 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                 <SqlEditor 
                     sessionId={sessionId} 
                     apiConfig={apiConfig} 
+                    datasets={datasets}
                     targetTable={targetSqlTable}
                     onClearTarget={onClearTargetSqlTable}
+                    runRequestId={sqlRunRequestId}
+                    onRunStateChange={onSqlRunStateChange}
                     history={sqlHistory}
                     onUpdateHistory={onUpdateSqlHistory}
+                />
+            </div>
+        ) : currentView === 'data' ? (
+            <div className="flex-1 h-full overflow-hidden">
+                <DataBrowser
+                    sessionId={sessionId}
+                    apiConfig={apiConfig}
+                    datasets={datasets}
+                    selectedTable={targetDataTable}
+                    onSelectTable={onSelectDataTable}
                 />
             </div>
         ) : (
             <div className={`flex flex-1 min-w-0 h-full w-full ${isVertical ? 'flex-col' : 'flex-row'}`}>
                 
                 {/* Panel First (Left or Top) */}
-                {isRightPanelOpen && isPanelFirst && (
+                {showRightPanel && isPanelFirst && (
                     <>
                         {panelContent}
                         {resizer}
@@ -314,7 +378,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                 {mainContent}
 
                 {/* Panel Last (Right or Bottom) */}
-                {isRightPanelOpen && !isPanelFirst && (
+                {showRightPanel && !isPanelFirst && (
                     <>
                         {resizer}
                         {panelContent}

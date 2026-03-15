@@ -43,7 +43,12 @@ def test_source_basic(variables):
 def test_source_with_variable_in_name_not_supported_by_generator_logic_but_good_to_know(variables):
     # Current logic doesn't substitute in mainTable, but let's verify behavior
     cmd = create_cmd("source", {"mainTable": "users_{table_suffix}"})
-    assert gen(cmd, variables) == "SELECT * FROM users_{table_suffix}"
+    assert gen(cmd, variables) == 'SELECT * FROM "users_{table_suffix}"'
+
+def test_source_with_alias(variables):
+    cmd = create_cmd("source", {"mainTable": "users", "alias": "u"})
+    assert gen(cmd, variables) == "SELECT * FROM users AS u"
+
 
 # --- 2. Filter Command - Operators (40 cases) ---
 
@@ -101,11 +106,21 @@ def test_filter_not_in_variable(variables):
 
 def test_filter_is_empty(variables):
     cmd = create_cmd("filter", {"field": "col", "operator": "is_empty"})
-    assert "(col IS NULL OR col = '')" in gen(cmd, variables)
+    sql = gen(cmd, variables)
+    assert "(col IS NULL OR col = '')" in sql
 
 def test_filter_is_not_empty(variables):
     cmd = create_cmd("filter", {"field": "col", "operator": "is_not_empty"})
-    assert "(col IS NOT NULL AND col != '')" in gen(cmd, variables)
+    sql = gen(cmd, variables)
+    assert "(col IS NOT NULL AND col != '')" in sql
+
+def test_filter_is_null(variables):
+    cmd = create_cmd("filter", {"field": "col", "operator": "is_null"})
+    assert "(col IS NULL)" in gen(cmd, variables)
+
+def test_filter_is_not_null(variables):
+    cmd = create_cmd("filter", {"field": "col", "operator": "is_not_null"})
+    assert "(col IS NOT NULL)" in gen(cmd, variables)
 
 def test_filter_complex_string_quote(variables):
     # Test handling of single quotes in values
@@ -115,6 +130,14 @@ def test_filter_complex_string_quote(variables):
 def test_filter_variable_complex_string(variables):
     cmd = create_cmd("filter", {"field": "col", "operator": "=", "value": "{complex_str}", "valueType": "variable"})
     assert "col = 'O'Connor'" in gen(cmd, variables)
+
+def test_filter_reserved_field_quotes(variables):
+    cmd = create_cmd("filter", {"field": "order", "operator": "=", "value": 1, "valueType": "raw"})
+    assert '"order" = 1' in gen(cmd, variables)
+
+def test_filter_hyphen_field_quotes(variables):
+    cmd = create_cmd("filter", {"field": "line-item", "operator": "=", "value": 1, "valueType": "raw"})
+    assert '"line-item" = 1' in gen(cmd, variables)
 
 # --- 3. Filter Groups (10 cases) ---
 
@@ -191,7 +214,9 @@ def test_filter_deep_nested_group(variables):
 
 def test_filter_group_empty(variables):
     cmd = create_cmd("filter", {"filterRoot": {"logicalOperator": "AND", "conditions": []}})
-    assert "WHERE 1=1" in gen(cmd, variables)
+    sql = gen(cmd, variables)
+    assert "WHERE" not in sql
+    assert sql == "SELECT * FROM t"
 
 # --- 4. Join Command (10 cases) ---
 
@@ -199,6 +224,10 @@ def test_filter_group_empty(variables):
 def test_join_types(join_type, variables):
     cmd = create_cmd("join", {"joinType": join_type, "joinTable": "other", "on": "t1.id=t2.id"})
     assert f"{join_type} JOIN other" in gen(cmd, variables)
+
+def test_join_reserved_table_quotes(variables):
+    cmd = create_cmd("join", {"joinType": "LEFT", "joinTable": "order-items", "on": "t1.id=t2.id"})
+    assert 'JOIN "order-items"' in gen(cmd, variables)
 
 def test_join_default_left(variables):
     cmd = create_cmd("join", {"joinTable": "other", "on": "t1.id=t2.id"})
@@ -327,6 +356,24 @@ def test_save_all(variables):
 def test_save_invalid(variables):
     cmd = create_cmd("save", {})
     assert "-- Invalid Save Command" in gen(cmd, variables)
+
+# --- 9. View Command (3 cases) ---
+
+def test_view_limit_zero(variables):
+    cmd = create_cmd("view", {"viewFields": [{"field": "a"}], "viewLimit": 0})
+    sql = gen(cmd, variables)
+    assert "SELECT a FROM t LIMIT 0" in sql
+
+def test_view_limit_positive(variables):
+    cmd = create_cmd("view", {"viewFields": [{"field": "a"}], "viewLimit": 5})
+    sql = gen(cmd, variables)
+    assert "SELECT a FROM t LIMIT 5" in sql
+
+def test_view_limit_undefined(variables):
+    cmd = create_cmd("view", {"viewFields": [{"field": "a"}]})
+    sql = gen(cmd, variables)
+    assert "SELECT a FROM t" in sql
+    assert "LIMIT" not in sql
 
 # --- 9. Variable Boundary Cases (10 cases) ---
 

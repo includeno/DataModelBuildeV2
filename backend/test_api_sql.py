@@ -28,6 +28,31 @@ def setup_session_with_data():
     
     return session_id
 
+def add_setup_node(tree: dict, tables: list[str]):
+    setup_cmds = []
+    for idx, table in enumerate(tables):
+        setup_cmds.append({
+            "id": f"setup_src_{idx}",
+            "type": "source",
+            "config": {
+                "mainTable": table,
+                "alias": table,
+                "linkId": f"link_{table}"
+            }
+        })
+    setup_node = {
+        "id": "setup",
+        "type": "operation",
+        "operationType": "setup",
+        "name": "Data Setup",
+        "enabled": True,
+        "commands": setup_cmds,
+        "children": []
+    }
+    children = tree.get("children") or []
+    tree["children"] = children + [setup_node]
+    return tree
+
 # --- Tests ---
 
 def test_generate_sql_source():
@@ -49,6 +74,8 @@ def test_generate_sql_source():
         "children": []
     }
 
+    tree = add_setup_node(tree, ["users"])
+
     res = client.post("/generate_sql", json={
         "sessionId": session_id,
         "tree": tree,
@@ -58,6 +85,36 @@ def test_generate_sql_source():
     
     assert res.status_code == 200
     assert res.json()["sql"] == "SELECT * FROM users"
+
+def test_generate_sql_with_command_meta_flag_ignored():
+    session_id = setup_session_with_data()
+
+    tree = {
+        "id": "root",
+        "type": "operation",
+        "name": "Root",
+        "enabled": True,
+        "commands": [
+            {"id": "c1", "type": "source", "config": {"mainTable": "users"}},
+            {"id": "c2", "type": "sort", "config": {"field": "age", "ascending": False}}
+        ],
+        "children": []
+    }
+
+    tree = add_setup_node(tree, ["users"])
+
+    res = client.post("/generate_sql", json={
+        "sessionId": session_id,
+        "tree": tree,
+        "targetNodeId": "root",
+        "targetCommandId": "c2",
+        "includeCommandMeta": True
+    })
+
+    assert res.status_code == 200
+    sql = res.json()["sql"]
+    assert "-- DMB_COMMAND:" not in sql
+    assert "ORDER BY age DESC" in sql
 
 def test_generate_sql_filter_chain():
     session_id = setup_session_with_data()
@@ -74,6 +131,8 @@ def test_generate_sql_filter_chain():
         "children": []
     }
 
+    tree = add_setup_node(tree, ["users"])
+
     # Generate for the filter command
     res = client.post("/generate_sql", json={
         "sessionId": session_id,
@@ -88,6 +147,39 @@ def test_generate_sql_filter_chain():
     assert "WHERE age > 20" in sql
     # It should infer input table from source command
     assert "FROM users" in sql
+
+def test_generate_sql_single_main_table_filter_chain_minimizes_nesting():
+    session_id = setup_session_with_data()
+
+    tree = {
+        "id": "root",
+        "type": "operation",
+        "name": "Root",
+        "enabled": True,
+        "commands": [
+            {"id": "c1", "type": "filter", "config": {"field": "age", "operator": ">", "value": 20, "valueType": "raw", "dataSource": "link_users"}},
+            {"id": "c2", "type": "filter", "config": {"field": "age", "operator": "<", "value": 40, "valueType": "raw", "dataSource": "link_users"}},
+        ],
+        "children": []
+    }
+
+    tree = add_setup_node(tree, ["users"])
+
+    # Pin setup linkId to a stable value referenced by commands
+    setup_commands = tree["children"][0]["commands"]
+    setup_commands[0]["config"]["linkId"] = "link_users"
+
+    res = client.post("/generate_sql", json={
+        "sessionId": session_id,
+        "tree": tree,
+        "targetNodeId": "root",
+        "targetCommandId": "c2"
+    })
+
+    assert res.status_code == 200
+    sql = res.json()["sql"]
+    assert "SELECT * FROM users WHERE (age > 20) AND (age < 40)" == sql
+    assert "input_subq" not in sql
 
 def test_generate_sql_with_variable_substitution():
     session_id = setup_session_with_data()
@@ -109,6 +201,8 @@ def test_generate_sql_with_variable_substitution():
         ],
         "children": []
     }
+
+    tree = add_setup_node(tree, ["users"])
 
     res = client.post("/generate_sql", json={
         "sessionId": session_id,
@@ -147,6 +241,8 @@ def test_generate_sql_unsupported_python():
         "children": []
     }
 
+    tree = add_setup_node(tree, ["users"])
+
     res = client.post("/generate_sql", json={
         "sessionId": session_id,
         "tree": tree,
@@ -155,7 +251,7 @@ def test_generate_sql_unsupported_python():
     })
     
     assert res.status_code == 200
-    assert "-- SQL generation not supported for Python transformations" in res.json()["sql"]
+    assert res.json()["sql"].startswith("-- SQL generation not supported for Python transformations")
 
 def test_generate_sql_unsupported_node_join():
     session_id = setup_session_with_data()
@@ -179,6 +275,8 @@ def test_generate_sql_unsupported_node_join():
         "children": []
     }
 
+    tree = add_setup_node(tree, ["users"])
+
     res = client.post("/generate_sql", json={
         "sessionId": session_id,
         "tree": tree,
@@ -187,7 +285,7 @@ def test_generate_sql_unsupported_node_join():
     })
     
     assert res.status_code == 200
-    assert "-- SQL generation not supported for dynamic Node joins" in res.json()["sql"]
+    assert res.json()["sql"].startswith("-- SQL generation not supported for dynamic Node joins")
 
 def test_generate_sql_missing_target_id():
     session_id = setup_session_with_data()
@@ -210,6 +308,8 @@ def test_generate_sql_command_not_found():
         "commands": [{"id": "c1", "type": "source", "config": {"mainTable": "users"}}], 
         "children": []
     }
+
+    tree = add_setup_node(tree, ["users"])
     
     res = client.post("/generate_sql", json={
         "sessionId": session_id,
@@ -254,6 +354,8 @@ def test_generate_sql_complex_filter_group():
         "children": []
     }
 
+    tree = add_setup_node(tree, ["users"])
+
     res = client.post("/generate_sql", json={
         "sessionId": session_id,
         "tree": tree,
@@ -294,6 +396,8 @@ def test_generate_sql_group_by_aggregation():
         ],
         "children": []
     }
+
+    tree = add_setup_node(tree, ["users"])
 
     res = client.post("/generate_sql", json={
         "sessionId": session_id,
@@ -337,6 +441,8 @@ def test_generate_sql_input_table_inference():
         "children": []
     }
 
+    tree = add_setup_node(tree, ["users"])
+
     res = client.post("/generate_sql", json={
         "sessionId": session_id,
         "tree": tree,
@@ -346,9 +452,9 @@ def test_generate_sql_input_table_inference():
     
     assert res.status_code == 200
     sql = res.json()["sql"]
-    # The filter should apply to 'role_stats' because c2 defined it as output
-    assert "FROM role_stats" in sql
+    assert "GROUP BY role" in sql
     assert "WHERE role = 'admin'" in sql
+    assert "role_stats" not in sql
 
 def test_generate_sql_sort_command():
     session_id = setup_session_with_data()
@@ -364,6 +470,8 @@ def test_generate_sql_sort_command():
         "children": []
     }
 
+    tree = add_setup_node(tree, ["users"])
+
     res = client.post("/generate_sql", json={
         "sessionId": session_id,
         "tree": tree,
@@ -374,6 +482,33 @@ def test_generate_sql_sort_command():
     assert res.status_code == 200
     sql = res.json()["sql"]
     assert "ORDER BY age DESC" in sql
+
+def test_generate_sql_view_limit_zero():
+    session_id = setup_session_with_data()
+    tree = {
+        "id": "root",
+        "type": "operation",
+        "name": "Root",
+        "enabled": True,
+        "commands": [
+            {"id": "c1", "type": "source", "config": {"mainTable": "users"}},
+            {"id": "c2", "type": "view", "config": {"viewFields": [{"field": "id"}], "viewLimit": 0}}
+        ],
+        "children": []
+    }
+
+    tree = add_setup_node(tree, ["users"])
+
+    res = client.post("/generate_sql", json={
+        "sessionId": session_id,
+        "tree": tree,
+        "targetNodeId": "root",
+        "targetCommandId": "c2"
+    })
+
+    assert res.status_code == 200
+    sql = res.json()["sql"]
+    assert "SELECT id FROM users LIMIT 0" in sql
 
 def test_generate_sql_save_distinct():
     session_id = setup_session_with_data()
@@ -388,6 +523,8 @@ def test_generate_sql_save_distinct():
         ],
         "children": []
     }
+
+    tree = add_setup_node(tree, ["users"])
 
     res = client.post("/generate_sql", json={
         "sessionId": session_id,
@@ -422,6 +559,8 @@ def test_generate_sql_transform_chain():
         "children": []
     }
 
+    tree = add_setup_node(tree, ["users"])
+
     res = client.post("/generate_sql", json={
         "sessionId": session_id,
         "tree": tree,
@@ -450,6 +589,8 @@ def test_generate_sql_list_variable_substitution():
         "children": []
     }
 
+    tree = add_setup_node(tree, ["users"])
+
     res = client.post("/generate_sql", json={
         "sessionId": session_id,
         "tree": tree,
@@ -461,4 +602,3 @@ def test_generate_sql_list_variable_substitution():
     sql = res.json()["sql"]
     # Should be IN ('admin', 'user')
     assert "role IN ('admin', 'user')" in sql
-
