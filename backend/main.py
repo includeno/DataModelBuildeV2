@@ -489,7 +489,7 @@ async def generate_sql(req: ExecuteRequest):
             req.tree,
             req.targetNodeId,
             req.targetCommandId,
-            req.includeCommandMeta,
+            False,
         )
         return {"sql": sql}
     except HTTPException as e:

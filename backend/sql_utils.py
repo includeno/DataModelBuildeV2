@@ -11,9 +11,16 @@ IDENT_SAFE_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 IDENT_PART_RE = r'(?:\"(?:[^\"]|\"\")+\")|(?:`[^`]+`)|(?:\[[^\]]+\])|(?:[A-Za-z_][A-Za-z0-9_-]*)'
 IDENT_RE = rf'{IDENT_PART_RE}(?:\s*\.\s*{IDENT_PART_RE})*'
+ALIAS_RE = rf'(?:{IDENT_PART_RE})'
 
-SIMPLE_SELECT_RE = re.compile(rf"^\s*SELECT\s+\*\s+FROM\s+({IDENT_RE})\s*$", re.IGNORECASE)
-SIMPLE_SELECT_WHERE_RE = re.compile(rf"^\s*SELECT\s+\*\s+FROM\s+({IDENT_RE})\s+WHERE\s+(.+)\s*$", re.IGNORECASE)
+SIMPLE_SELECT_RE = re.compile(
+    rf"^\s*SELECT\s+\*\s+FROM\s+({IDENT_RE})(?:\s+(?:AS\s+)?{ALIAS_RE})?\s*$",
+    re.IGNORECASE,
+)
+SIMPLE_SELECT_WHERE_RE = re.compile(
+    rf"^\s*SELECT\s+\*\s+FROM\s+({IDENT_RE})(?:\s+(?:AS\s+)?{ALIAS_RE})?\s+WHERE\s+(.+)\s*$",
+    re.IGNORECASE,
+)
 WHERE_EXTRACT_RE = re.compile(r"^\s*SELECT\s+\*\s+FROM\s+.+?\s+WHERE\s+(.+)\s*$", re.IGNORECASE)
 
 

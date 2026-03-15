@@ -1,5 +1,4 @@
 
-import json
 import pytest
 from fastapi.testclient import TestClient
 from main import app
@@ -87,7 +86,7 @@ def test_generate_sql_source():
     assert res.status_code == 200
     assert res.json()["sql"] == "SELECT * FROM users"
 
-def test_generate_sql_with_command_meta():
+def test_generate_sql_with_command_meta_flag_ignored():
     session_id = setup_session_with_data()
 
     tree = {
@@ -114,11 +113,7 @@ def test_generate_sql_with_command_meta():
 
     assert res.status_code == 200
     sql = res.json()["sql"]
-    first_line = sql.splitlines()[0]
-    assert first_line.startswith("-- DMB_COMMAND: ")
-    payload = json.loads(first_line.replace("-- DMB_COMMAND: ", "", 1))
-    assert payload["type"] == "sort"
-    assert payload["config"]["field"] == "age"
+    assert "-- DMB_COMMAND:" not in sql
     assert "ORDER BY age DESC" in sql
 
 def test_generate_sql_filter_chain():
@@ -152,6 +147,39 @@ def test_generate_sql_filter_chain():
     assert "WHERE age > 20" in sql
     # It should infer input table from source command
     assert "FROM users" in sql
+
+def test_generate_sql_single_main_table_filter_chain_minimizes_nesting():
+    session_id = setup_session_with_data()
+
+    tree = {
+        "id": "root",
+        "type": "operation",
+        "name": "Root",
+        "enabled": True,
+        "commands": [
+            {"id": "c1", "type": "filter", "config": {"field": "age", "operator": ">", "value": 20, "valueType": "raw", "dataSource": "link_users"}},
+            {"id": "c2", "type": "filter", "config": {"field": "age", "operator": "<", "value": 40, "valueType": "raw", "dataSource": "link_users"}},
+        ],
+        "children": []
+    }
+
+    tree = add_setup_node(tree, ["users"])
+
+    # Pin setup linkId to a stable value referenced by commands
+    setup_commands = tree["children"][0]["commands"]
+    setup_commands[0]["config"]["linkId"] = "link_users"
+
+    res = client.post("/generate_sql", json={
+        "sessionId": session_id,
+        "tree": tree,
+        "targetNodeId": "root",
+        "targetCommandId": "c2"
+    })
+
+    assert res.status_code == 200
+    sql = res.json()["sql"]
+    assert "SELECT * FROM users WHERE (age > 20) AND (age < 40)" == sql
+    assert "input_subq" not in sql
 
 def test_generate_sql_with_variable_substitution():
     session_id = setup_session_with_data()

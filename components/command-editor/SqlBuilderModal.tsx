@@ -1182,7 +1182,7 @@ export const SqlBuilderModal: React.FC<SqlBuilderModalProps> = ({
                     <div>
                         <label className="block text-xs font-bold text-gray-500 uppercase mb-2">SQL</label>
                         <p className="text-[11px] text-gray-500 mb-2">
-                            Supports plain SQL and command metadata lines like <code>-- DMB_COMMAND: {"{...}"}</code>.
+                            Supports plain SQL input.
                         </p>
                         <textarea
                             data-testid="sql-builder-input"
