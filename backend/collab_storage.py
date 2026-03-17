@@ -18,6 +18,7 @@ COLLAB_DB_PATH = os.environ.get("COLLAB_DB_PATH", os.path.join(DATA_ROOT, DEFAUL
 
 ACCESS_TOKEN_TTL_SECONDS = 60 * 60
 REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60
+STATE_SNAPSHOT_INTERVAL = 50
 VALID_PROJECT_ROLES = ("owner", "admin", "editor", "viewer")
 WRITE_PROJECT_ROLES = ("owner", "admin", "editor")
 MANAGE_PROJECT_MEMBER_ROLES = ("owner", "admin")
@@ -1016,6 +1017,31 @@ class CollabStorage:
                 "updatedAt": row["updated_at"],
             }
 
+    def get_project_state_since(self, project_id: str, user_id: str, since_version: int = 0) -> Dict[str, Any]:
+        state = self.get_project_state(project_id, user_id)
+        current_version = int(state["version"])
+        base_version = max(int(since_version or 0), 0)
+        if base_version >= current_version:
+            return {
+                "projectId": project_id,
+                "sinceVersion": base_version,
+                "version": current_version,
+                "changed": False,
+                "events": [],
+                "state": None,
+            }
+        events = self.list_project_events(project_id, user_id, from_version=base_version, limit=500)
+        return {
+            "projectId": project_id,
+            "sinceVersion": base_version,
+            "version": current_version,
+            "changed": True,
+            "events": events["events"],
+            "state": state["state"],
+            "updatedBy": state.get("updatedBy"),
+            "updatedAt": state.get("updatedAt"),
+        }
+
     def _apply_patches(self, base_state: Dict[str, Any], patches: List[Dict[str, Any]]) -> Dict[str, Any]:
         state = json.loads(json.dumps(base_state))
         for patch in patches:
@@ -1126,6 +1152,21 @@ class CollabStorage:
                     """,
                     (project_id, next_version, client_op_id, payload_json, user_id, now),
                 )
+                if next_version % STATE_SNAPSHOT_INTERVAL == 0:
+                    snapshot_payload = json.dumps(
+                        {
+                            "version": next_version,
+                            "state": next_state,
+                        },
+                        ensure_ascii=False,
+                    )
+                    conn.execute(
+                        """
+                        INSERT INTO project_events (project_id, version, client_op_id, event_type, payload_json, created_by, created_at)
+                        VALUES (?, ?, ?, 'state_snapshot', ?, ?, ?)
+                        """,
+                        (project_id, next_version, None, snapshot_payload, user_id, now),
+                    )
                 conn.execute(
                     "UPDATE projects SET updated_at = ? WHERE id = ?",
                     (now, project_id),

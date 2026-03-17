@@ -8,6 +8,7 @@ import { SessionSettingsModal } from './components/SessionSettingsModal';
 import { SessionDiagnosticsModal } from './components/SessionDiagnosticsModal';
 import { PathConditionsModal } from './components/PathConditionsModal';
 import { DatasetSchemaModal } from './components/DatasetSchemaModal';
+import { LoginPage } from './components/LoginPage';
 import { 
   OperationNode, Dataset, Command, ExecutionResult, ApiConfig, 
   SessionMetadata, AppearanceConfig, SessionConfig, DataType, FieldInfo, OperationType,
@@ -83,6 +84,10 @@ function App() {
   const [backendStatus, setBackendStatus] = useState<'mock' | 'checking' | 'online' | 'offline'>('checking');
   const [sqlRunRequestId, setSqlRunRequestId] = useState(0);
   const [sqlRunState, setSqlRunState] = useState({ canRun: false, running: false });
+  const [authChecking, setAuthChecking] = useState(false);
+  const [authRequired, setAuthRequired] = useState(false);
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
   
   // Configuration State
   const [apiConfig, setApiConfig] = useState<ApiConfig>({ baseUrl: 'mockServer', isMock: true });
@@ -186,6 +191,35 @@ function App() {
     if (!configReady) return;
     fetchSessions();
   }, [apiConfig, configReady]);
+
+  useEffect(() => {
+    if (!configReady) return;
+    if (apiConfig.isMock) {
+      setAuthChecking(false);
+      setAuthRequired(false);
+      setAuthLoading(false);
+      setAuthError(null);
+      return;
+    }
+
+    let cancelled = false;
+    const verifyAuth = async () => {
+      setAuthChecking(true);
+      setAuthError(null);
+      try {
+        await api.authMe(apiConfig);
+        if (!cancelled) setAuthRequired(false);
+      } catch {
+        if (!cancelled) setAuthRequired(true);
+      } finally {
+        if (!cancelled) setAuthChecking(false);
+      }
+    };
+    verifyAuth();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiConfig.baseUrl, apiConfig.isMock, configReady]);
 
   useEffect(() => {
       if (!isSettingsOpen) return;
@@ -304,7 +338,7 @@ function App() {
 
   const fetchSessions = async () => {
       try {
-          const list = await api.get(apiConfig, '/sessions');
+          const list = await api.get(apiConfig, '/sessions') as SessionMetadata[];
           setSessions(list);
 
           if (sessionId && !list.some(s => s.sessionId === sessionId)) {
@@ -317,6 +351,22 @@ function App() {
           }
       } catch (e) {
           console.error("Failed to fetch sessions", e);
+      }
+  };
+
+  const handleLogin = async (email: string, password: string) => {
+      setAuthLoading(true);
+      setAuthError(null);
+      try {
+          await api.authLogin(apiConfig, { email, password });
+          await api.authMe(apiConfig);
+          setAuthRequired(false);
+          await fetchSessions();
+      } catch (e: any) {
+          setAuthRequired(true);
+          setAuthError(e?.message || '登录失败');
+      } finally {
+          setAuthLoading(false);
       }
   };
 
@@ -908,6 +958,25 @@ function App() {
       }
   };
 
+  if (!apiConfig.isMock && authChecking) {
+    return (
+      <div className="h-screen w-screen flex items-center justify-center bg-slate-100 text-slate-700">
+        验证登录状态中...
+      </div>
+    );
+  }
+
+  if (!apiConfig.isMock && authRequired) {
+    return (
+      <LoginPage
+        backendLabel={apiConfig.baseUrl}
+        loading={authLoading}
+        error={authError}
+        onLogin={handleLogin}
+      />
+    );
+  }
+
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-white text-slate-900">
       <TopBar 
@@ -1049,7 +1118,6 @@ function App() {
                     panelPosition={sessionSettings.panelPosition}
                     sqlHistory={sqlHistory}
                     onUpdateSqlHistory={handleUpdateSqlHistory}
-                    datasets={datasets}
                  />
              </>
          )}

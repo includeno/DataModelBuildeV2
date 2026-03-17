@@ -51,9 +51,27 @@ logger = logging.getLogger("backend")
 
 app = FastAPI()
 
+
+def _load_cors_origins() -> List[str]:
+    raw = (os.environ.get("BACKEND_CORS_ORIGINS") or "").strip()
+    if raw:
+        origins = [item.strip() for item in raw.split(",") if item.strip()]
+        if origins:
+            return origins
+    # Safe defaults for local development with credentials.
+    return [
+        "http://127.0.0.1:5173",
+        "http://localhost:5173",
+        "http://127.0.0.1:4173",
+        "http://localhost:4173",
+    ]
+
+
+_cors_origins = _load_cors_origins()
+logger.info("CORS allow_origins=%s", _cors_origins)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -161,6 +179,11 @@ def _require_project_access(project_id: str, user_id: str, need_write: bool = Fa
     if need_write and role not in ("owner", "admin", "editor"):
         raise HTTPException(status_code=403, detail={"code": "PERM_PROJECT_WRITE", "message": "Insufficient project permission"})
     return project
+
+
+def _ensure_project_runtime_session(project_id: str) -> None:
+    # Keep runtime engine compatibility by mapping project_id to session storage namespace.
+    storage.create_session(project_id)
 
 
 # ---- Phase 1: local SQLite collaboration/auth APIs ----
@@ -275,12 +298,14 @@ async def update_organization_member(
 @app.post("/projects")
 async def create_project(payload: CreateProjectRequest, current_user: Dict[str, Any] = Depends(get_current_user)):
     try:
-        return collab_storage.create_project(
+        project = collab_storage.create_project(
             current_user["id"],
             payload.name,
             payload.description or "",
             payload.orgId,
         )
+        _ensure_project_runtime_session(project["id"])
+        return project
     except PermissionError:
         raise HTTPException(status_code=403, detail={"code": "PERM_ORG_WRITE", "message": "Insufficient organization permission"})
     except ValueError as e:
@@ -332,6 +357,7 @@ async def archive_project(project_id: str, payload: dict = Body(...), current_us
 async def delete_project(project_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
     try:
         collab_storage.soft_delete_project(project_id, current_user["id"])
+        storage.delete_session(project_id)
         return {"status": "ok"}
     except PermissionError:
         raise HTTPException(status_code=403, detail={"code": "PERM_PROJECT_MANAGE", "message": "Insufficient project permission"})
@@ -376,9 +402,15 @@ async def update_project_member(
 
 
 @app.get("/projects/{project_id}/state")
-async def get_project_state(project_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+async def get_project_state(
+    project_id: str,
+    since_version: Optional[int] = Query(None, alias="sinceVersion"),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
     _require_project_access(project_id, current_user["id"])
     try:
+        if since_version is not None:
+            return collab_storage.get_project_state_since(project_id, current_user["id"], since_version)
         return collab_storage.get_project_state(project_id, current_user["id"])
     except PermissionError:
         raise HTTPException(status_code=403, detail={"code": "PERM_PROJECT_READ", "message": "Insufficient project permission"})
@@ -434,6 +466,173 @@ async def list_project_events(
         return collab_storage.list_project_events(project_id, current_user["id"], from_version=from_version, limit=limit)
     except PermissionError:
         raise HTTPException(status_code=403, detail={"code": "PERM_PROJECT_READ", "message": "Insufficient project permission"})
+
+
+# ---- Project-scoped runtime endpoints (replacement for /sessions/*) ----
+
+@app.get("/projects/{project_id}/datasets")
+async def project_list_datasets(project_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    _require_project_access(project_id, current_user["id"])
+    _ensure_project_runtime_session(project_id)
+    return storage.list_datasets(project_id)
+
+
+@app.get("/projects/{project_id}/imports")
+async def project_list_imports(project_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    _require_project_access(project_id, current_user["id"])
+    _ensure_project_runtime_session(project_id)
+    return storage.get_import_history(project_id)
+
+
+@app.get("/projects/{project_id}/datasets/{dataset_id}/preview")
+async def project_dataset_preview(
+    project_id: str,
+    dataset_id: str,
+    limit: int = 50,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    _require_project_access(project_id, current_user["id"])
+    _ensure_project_runtime_session(project_id)
+    df = storage.get_dataset_preview(project_id, dataset_id, limit=limit)
+    if df is None:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    return {"rows": clean_df_for_json(df), "totalCount": len(df)}
+
+
+@app.delete("/projects/{project_id}/datasets/{dataset_id}")
+async def project_delete_dataset(project_id: str, dataset_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    _require_project_access(project_id, current_user["id"], need_write=True)
+    _ensure_project_runtime_session(project_id)
+    removed = storage.delete_dataset(project_id, dataset_id)
+    if not removed:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    return {"status": "ok"}
+
+
+@app.post("/projects/{project_id}/datasets/update")
+async def project_update_dataset_schema(
+    project_id: str,
+    payload: dict = Body(...),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    _require_project_access(project_id, current_user["id"], need_write=True)
+    _ensure_project_runtime_session(project_id)
+    dataset_id = payload.get("datasetId")
+    field_types = payload.get("fieldTypes")
+    if not dataset_id:
+        raise HTTPException(status_code=400, detail="datasetId is required")
+    if field_types is None:
+        raise HTTPException(status_code=400, detail="fieldTypes is required")
+    storage.save_dataset_field_types(project_id, dataset_id, field_types)
+    return {"status": "ok"}
+
+
+@app.get("/projects/{project_id}/metadata")
+async def project_get_metadata(project_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    _require_project_access(project_id, current_user["id"])
+    _ensure_project_runtime_session(project_id)
+    return storage.get_session_metadata(project_id)
+
+
+@app.post("/projects/{project_id}/metadata")
+async def project_update_metadata(
+    project_id: str,
+    metadata: dict = Body(...),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    _require_project_access(project_id, current_user["id"], need_write=True)
+    _ensure_project_runtime_session(project_id)
+    storage.save_session_metadata(project_id, metadata)
+    return {"status": "ok"}
+
+
+@app.get("/projects/{project_id}/diagnostics")
+async def project_diagnostics(project_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    _require_project_access(project_id, current_user["id"])
+    _ensure_project_runtime_session(project_id)
+    return await get_session_diagnostics(project_id)
+
+
+@app.post("/projects/{project_id}/upload")
+async def project_upload_file(
+    project_id: str,
+    file: UploadFile = File(...),
+    name: Optional[str] = Form(None),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    _require_project_access(project_id, current_user["id"], need_write=True)
+    _ensure_project_runtime_session(project_id)
+    return await upload_file(file=file, sessionId=project_id, name=name)
+
+
+@app.post("/projects/{project_id}/execute")
+async def project_execute(
+    project_id: str,
+    payload: dict = Body(...),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    _require_project_access(project_id, current_user["id"])
+    _ensure_project_runtime_session(project_id)
+    body = dict(payload or {})
+    body["sessionId"] = project_id
+    req = ExecuteRequest(**body)
+    return await execute(req)
+
+
+@app.post("/projects/{project_id}/export")
+async def project_export(
+    project_id: str,
+    payload: dict = Body(...),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    _require_project_access(project_id, current_user["id"])
+    _ensure_project_runtime_session(project_id)
+    body = dict(payload or {})
+    body["sessionId"] = project_id
+    req = ExecuteRequest(**body)
+    return await export_data(req)
+
+
+@app.post("/projects/{project_id}/generate_sql")
+async def project_generate_sql(
+    project_id: str,
+    payload: dict = Body(...),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    _require_project_access(project_id, current_user["id"])
+    _ensure_project_runtime_session(project_id)
+    body = dict(payload or {})
+    body["sessionId"] = project_id
+    req = ExecuteRequest(**body)
+    return await generate_sql(req)
+
+
+@app.post("/projects/{project_id}/analyze")
+async def project_analyze(
+    project_id: str,
+    payload: dict = Body(...),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    _require_project_access(project_id, current_user["id"])
+    _ensure_project_runtime_session(project_id)
+    body = dict(payload or {})
+    body["sessionId"] = project_id
+    req = AnalyzeRequest(**body)
+    return await analyze_overlap(req)
+
+
+@app.post("/projects/{project_id}/query")
+async def project_query(
+    project_id: str,
+    payload: dict = Body(...),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    _require_project_access(project_id, current_user["id"])
+    _ensure_project_runtime_session(project_id)
+    body = dict(payload or {})
+    body["sessionId"] = project_id
+    req = ExecuteSqlRequest(**body)
+    return await execute_sql(req)
 
 @app.get("/sessions")
 async def list_sessions():

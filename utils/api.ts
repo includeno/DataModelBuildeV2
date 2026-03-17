@@ -718,13 +718,179 @@ const applyMockCommand = (data: any[], cmd: Command, variables: Record<string, a
 
 // --- API EXPORT ---
 
+type AuthTokens = {
+    accessToken: string;
+    refreshToken?: string;
+    expiresAt?: number;
+};
+
+type AuthStorageMode = 'cookie_preferred' | 'local_storage';
+
+const AUTH_STORAGE_KEY = 'dmb_auth_tokens_v1';
+let AUTH_STORAGE_MODE: AuthStorageMode = 'cookie_preferred';
+let RUNTIME_AUTH: AuthTokens | null = null;
+
+const loadStoredAuth = (): AuthTokens | null => {
+    try {
+        if (typeof window === 'undefined' || !window.localStorage) return null;
+        const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (!parsed?.accessToken) return null;
+        return parsed as AuthTokens;
+    } catch {
+        return null;
+    }
+};
+
+const saveStoredAuth = (tokens: AuthTokens | null) => {
+    try {
+        if (typeof window === 'undefined' || !window.localStorage) return;
+        if (!tokens) {
+            window.localStorage.removeItem(AUTH_STORAGE_KEY);
+            return;
+        }
+        window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(tokens));
+    } catch {
+        // Ignore storage errors in restricted environments.
+    }
+};
+
+const getAuth = (): AuthTokens | null => {
+    if (RUNTIME_AUTH) return RUNTIME_AUTH;
+    RUNTIME_AUTH = loadStoredAuth();
+    return RUNTIME_AUTH;
+};
+
+const setAuth = (tokens: AuthTokens | null) => {
+    RUNTIME_AUTH = tokens;
+    // Prefer HttpOnly/Secure cookie session when available, while keeping
+    // localStorage as a fallback for token-based backends.
+    if (AUTH_STORAGE_MODE === 'local_storage' || tokens) {
+        saveStoredAuth(tokens);
+    } else if (!tokens) {
+        saveStoredAuth(null);
+    }
+};
+
+const headersWithAuth = (headers?: HeadersInit): HeadersInit => {
+    const auth = getAuth();
+    const next: Record<string, string> = {};
+    if (headers && typeof headers === 'object') {
+        Object.assign(next, headers as Record<string, string>);
+    }
+    if (auth?.accessToken) {
+        next.Authorization = `Bearer ${auth.accessToken}`;
+    }
+    return next;
+};
+
+const requestJson = async (config: ApiConfig, endpoint: string, init?: RequestInit, allowRefresh = true): Promise<Response> => {
+    const res = await fetch(`${config.baseUrl}${endpoint}`, {
+        ...init,
+        credentials: 'include',
+        headers: headersWithAuth(init?.headers)
+    });
+
+    if (res.status !== 401 || !allowRefresh || config.isMock) return res;
+    const auth = getAuth();
+    if (!auth?.refreshToken) return res;
+
+    try {
+        const refreshRes = await fetch(`${config.baseUrl}/auth/refresh`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ refreshToken: auth.refreshToken })
+        });
+        if (!refreshRes.ok) {
+            setAuth(null);
+            return res;
+        }
+        const payload = await refreshRes.json();
+        if (!payload?.accessToken) {
+            setAuth(null);
+            return res;
+        }
+        setAuth({
+            accessToken: payload.accessToken,
+            refreshToken: payload.refreshToken || auth.refreshToken,
+            expiresAt: payload.expiresAt
+        });
+    } catch {
+        setAuth(null);
+        return res;
+    }
+
+    return fetch(`${config.baseUrl}${endpoint}`, {
+        ...init,
+        credentials: 'include',
+        headers: headersWithAuth(init?.headers)
+    });
+};
+
 export const api = {
+    setAuthStorageMode(mode: AuthStorageMode) {
+        AUTH_STORAGE_MODE = mode;
+    },
+    setAuthTokens(tokens: AuthTokens | null) {
+        setAuth(tokens);
+    },
+    getAuthTokens(): AuthTokens | null {
+        return getAuth();
+    },
+    clearAuthTokens() {
+        setAuth(null);
+    },
+    async authRegister(config: ApiConfig, payload: { email: string; password: string; displayName?: string }) {
+        const res = await fetch(`${config.baseUrl}/auth/register`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body?.detail?.message || body?.detail || `API Error: ${res.statusText}`);
+        return body;
+    },
+    async authLogin(config: ApiConfig, payload: { email: string; password: string }) {
+        const res = await fetch(`${config.baseUrl}/auth/login`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body?.detail?.message || body?.detail || `API Error: ${res.statusText}`);
+        if (body?.accessToken) {
+            setAuth({ accessToken: body.accessToken, refreshToken: body.refreshToken, expiresAt: body.expiresAt });
+        }
+        return body;
+    },
+    async authMe(config: ApiConfig) {
+        const res = await requestJson(config, '/auth/me', { method: 'GET' });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err?.detail?.message || err?.detail || `API Error: ${res.statusText}`);
+        }
+        return res.json();
+    },
+    async authLogout(config: ApiConfig) {
+        const res = await requestJson(config, '/auth/logout', { method: 'POST' }, false);
+        setAuth(null);
+        if (!res.ok) throw new Error(`API Error: ${res.statusText}`);
+        return res.json();
+    },
     async ping(config: ApiConfig, timeoutMs = 2000) {
         if (config.isMock) return true;
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
         try {
-            const res = await fetch(`${config.baseUrl}/sessions`, { signal: controller.signal });
+            const res = await fetch(`${config.baseUrl}/sessions`, {
+                signal: controller.signal,
+                credentials: 'include',
+                headers: headersWithAuth()
+            });
             return res.ok;
         } catch {
             return false;
@@ -753,7 +919,7 @@ export const api = {
             }
             return {};
         }
-        const res = await fetch(`${config.baseUrl}${endpoint}`);
+        const res = await requestJson(config, endpoint, { method: 'GET' });
         if (!res.ok) throw new Error(`API Error: ${res.statusText}`);
         return res.json();
     },
@@ -846,18 +1012,18 @@ export const api = {
             return {};
         }
 
-        const res = await fetch(`${config.baseUrl}${endpoint}`, {
+        const res = await requestJson(config, endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body)
         });
-        if (!res.ok) { const err = await res.json(); throw new Error(err.detail || `API Error: ${res.statusText}`); }
+        if (!res.ok) { const err = await res.json(); throw new Error(err?.detail?.message || err?.detail || `API Error: ${res.statusText}`); }
         return res.json();
     },
 
     async export(config: ApiConfig, endpoint: string, body: any) {
         if (config.isMock) return;
-        const res = await fetch(`${config.baseUrl}${endpoint}`, {
+        const res = await requestJson(config, endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body)
@@ -884,7 +1050,7 @@ export const api = {
             }
             return { status: "ok" };
         }
-        const res = await fetch(`${config.baseUrl}${endpoint}`, { method: 'DELETE' });
+        const res = await requestJson(config, endpoint, { method: 'DELETE' });
         if (!res.ok) throw new Error(`API Error: ${res.statusText}`);
         return res.json();
     },
@@ -899,7 +1065,7 @@ export const api = {
             MOCK_DATASETS.push(newDs);
             return newDs;
         }
-        const res = await fetch(`${config.baseUrl}${endpoint}`, { method: 'POST', body: formData });
+        const res = await requestJson(config, endpoint, { method: 'POST', body: formData });
         if (!res.ok) throw new Error(`Upload Error: ${res.statusText}`);
         return res.json();
     }

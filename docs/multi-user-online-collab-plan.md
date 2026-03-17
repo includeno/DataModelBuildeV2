@@ -101,9 +101,96 @@ flowchart LR
 2. 当前 `session` 升级为 `project` 的运行容器，保留“工作流树 + 数据集引用 + SQL 历史”。
 3. 每个 project 属于 organization；用户通过 membership 获取访问权。
 
+### ER 图与命名规范（A-001）
+
+```mermaid
+erDiagram
+    users ||--o{ auth_tokens : owns
+    users ||--o{ organizations : creates
+    users ||--o{ organization_members : joins
+    organizations ||--o{ organization_members : contains
+    organizations ||--o{ projects : contains
+    users ||--o{ projects : creates
+    users ||--o{ project_members : joins
+    projects ||--o{ project_members : contains
+    projects ||--|| project_states : has
+    projects ||--o{ project_events : emits
+    users ||--o{ project_events : commits
+
+    users {
+      text id PK
+      text email UK
+      text password_hash
+      text display_name
+      int created_at
+      int updated_at
+    }
+    organizations {
+      text id PK
+      text name
+      text owner_user_id FK
+      int created_at
+      int updated_at
+      int deleted_at
+    }
+    organization_members {
+      text organization_id PK,FK
+      text user_id PK,FK
+      text role
+      text invited_by
+      int joined_at
+      int updated_at
+      int deleted_at
+    }
+    projects {
+      text id PK
+      text org_id FK
+      text name
+      text description
+      text created_by FK
+      int archived
+      int deleted_at
+      int created_at
+      int updated_at
+    }
+    project_members {
+      text project_id PK,FK
+      text user_id PK,FK
+      text role
+      text added_by
+      int created_at
+      int updated_at
+      int deleted_at
+    }
+    project_states {
+      text project_id PK,FK
+      int version
+      text state_json
+      text updated_by
+      int updated_at
+    }
+    project_events {
+      int id PK
+      text project_id FK
+      int version
+      text client_op_id
+      text event_type
+      text payload_json
+      text created_by FK
+      int created_at
+    }
+```
+
+字段命名冻结规则：
+1. 数据库统一 `snake_case`。
+2. 主键字段统一 `id`，关联键统一 `<entity>_id`。
+3. 软删除统一 `deleted_at`（毫秒时间戳，NULL 表示未删除）。
+4. 时间字段统一 `created_at`/`updated_at`（毫秒时间戳）。
+5. 布尔状态字段统一 `INTEGER(0/1)`（如 `archived`、`revoked`）。
+
 ### TODO（详细拆分）
 
-- [ ] A-001 设计 ER 图并冻结字段命名规范（snake_case）。
+- [x] A-001 设计 ER 图并冻结字段命名规范（snake_case）。
 - [x] A-002 定义 `users` 表（id/email/password_hash/status/created_at/updated_at）。
 - [x] A-003 定义 `organizations` 表（id/name/owner_user_id/status）。
 - [x] A-004 定义 `organization_members` 表（org_id/user_id/role/invited_by/joined_at）。
@@ -112,8 +199,8 @@ flowchart LR
 - [x] A-007 为 `project_members(project_id,user_id)` 建唯一索引。
 - [x] A-008 增加软删除字段策略（deleted_at）并约定查询过滤器。
 - [x] A-009 在后端代码中新增 domain model 与 DTO 映射层。
-- [ ] A-010 编写迁移脚本（Alembic revision）并支持回滚。
-- [ ] A-011 编写初始化脚本（创建默认组织 + 首个 owner）。
+- [x] A-010 编写迁移脚本（Alembic revision）并支持回滚。
+- [x] A-011 编写初始化脚本（创建默认组织 + 首个 owner）。
 - [x] A-012 增加项目命名规则校验（长度、字符、重名策略）。
 - [x] A-013 为 project 查询增加分页、排序、关键字搜索。
 - [x] A-014 定义归档策略（project archived 后只读）。
@@ -139,11 +226,11 @@ flowchart LR
 - [x] B-006 增加密码策略（最小长度、复杂度、哈希算法）。
 - [x] B-007 实现 `get_current_user` 依赖注入。
 - [x] B-008 实现项目级权限装饰器（viewer/editor/admin/owner）。
-- [ ] B-009 将所有 `/sessions/*` 改造为 `/projects/*` 且加权限检查。
+- [x] B-009 将所有 `/sessions/*` 改造为 `/projects/*` 且加权限检查。
 - [x] B-010 增加鉴权失败错误码规范（401/403 + code）。
-- [ ] B-011 前端新增登录页与 token 存储策略（httpOnly/secure 优先）。
-- [ ] B-012 前端 API 客户端自动附带 `Authorization`。
-- [ ] B-013 前端处理 token 过期自动刷新与重试。
+- [x] B-011 前端新增登录页与 token 存储策略（httpOnly/secure 优先）。
+- [x] B-012 前端 API 客户端自动附带 `Authorization`。
+- [x] B-013 前端处理 token 过期自动刷新与重试。
 - [x] B-014 编写越权访问测试（跨组织、跨项目、匿名访问）。
 - [x] B-015 验收：所有项目写接口必须在 editor+ 才可调用成功。
 
@@ -168,14 +255,14 @@ flowchart LR
 - [x] C-006 事务内校验 `baseVersion == current_version`。
 - [x] C-007 成功后 `version +1` 并记录 events。
 - [x] C-008 冲突时返回 `409 + current_version + server_state_hash`。
-- [ ] C-009 提供 `GET /projects/{id}/state?sinceVersion=xx` 增量拉取。
+- [x] C-009 提供 `GET /projects/{id}/state?sinceVersion=xx` 增量拉取。
 - [x] C-010 提供 `GET /projects/{id}/events?from=xx&limit=xx` 回放接口。
 - [x] C-011 增加 `clientOpId` 幂等去重表（防止重试重复提交）。
-- [ ] C-012 前端编辑动作改为本地生成 patch。
-- [ ] C-013 前端增加自动保存防抖队列（例如 500ms）。
-- [ ] C-014 前端冲突处理：提示“远端已更新”，支持刷新重放。
-- [ ] C-015 增加状态快照压缩策略（每 N 个事件做快照）。
-- [ ] C-016 验收：双浏览器并发编辑不会静默丢数据。
+- [x] C-012 前端编辑动作改为本地生成 patch。
+- [x] C-013 前端增加自动保存防抖队列（例如 500ms）。
+- [x] C-014 前端冲突处理：提示“远端已更新”，支持刷新重放。
+- [x] C-015 增加状态快照压缩策略（每 N 个事件做快照）。
+- [x] C-016 验收：双浏览器并发编辑不会静默丢数据。
 
 ---
 
