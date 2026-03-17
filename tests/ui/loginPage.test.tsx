@@ -31,6 +31,7 @@ describe('LoginPage', () => {
           onLogin={onLogin}
           loading={props?.loading}
           error={props?.error}
+          onBack={props?.onBack}
         />
       );
       await flush();
@@ -64,5 +65,17 @@ describe('LoginPage', () => {
     const submit = container.querySelector('button[type="submit"]') as HTMLButtonElement;
     expect(submit.disabled).toBe(true);
     expect(submit.textContent).toContain('登录中');
+  });
+
+  it('supports back action button', async () => {
+    const onBack = vi.fn();
+    await renderPage({ onBack });
+    const backBtn = Array.from(container.querySelectorAll('button')).find(btn => btn.textContent?.includes('返回首页'));
+    expect(backBtn).toBeTruthy();
+    await act(async () => {
+      backBtn!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+    expect(onBack).toHaveBeenCalledTimes(1);
   });
 });

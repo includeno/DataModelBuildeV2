@@ -5,13 +5,15 @@ interface LoginPageProps {
   loading?: boolean;
   error?: string | null;
   onLogin: (email: string, password: string) => Promise<void> | void;
+  onBack?: () => void;
 }
 
 export const LoginPage: React.FC<LoginPageProps> = ({
   backendLabel,
   loading = false,
   error = null,
-  onLogin
+  onLogin,
+  onBack
 }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -70,6 +72,15 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           >
             {loading ? '登录中...' : '登录'}
           </button>
+          {onBack ? (
+            <button
+              type="button"
+              className="w-full rounded-lg border border-slate-300 text-slate-700 text-sm font-medium py-2.5 hover:bg-slate-50"
+              onClick={onBack}
+            >
+              返回首页
+            </button>
+          ) : null}
         </form>
       </div>
     </div>

@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { GitBranch, ChevronDown, Clock, Check, Trash2, Plus, Layers, Terminal, Server, Play, PanelRight, Settings, Menu, SlidersHorizontal, Activity, Table as TableIcon } from 'lucide-react';
+import { GitBranch, ChevronDown, Clock, Check, Trash2, Plus, Layers, Terminal, Server, Play, PanelRight, Settings, Menu, SlidersHorizontal, Activity, Table as TableIcon, LogOut } from 'lucide-react';
 import { SessionMetadata, ApiConfig } from '../types';
 import { Button } from './Button';
 
@@ -22,6 +22,10 @@ interface TopBarProps {
   onRunSql: () => void;
   onToggleRightPanel: () => void;
   onToggleMobileSidebar: () => void;
+  isAuthenticated?: boolean;
+  authChecking?: boolean;
+  authError?: string | null;
+  onLogout?: () => void | Promise<void>;
   canExecute?: boolean;
 }
 
@@ -43,6 +47,10 @@ export const TopBar: React.FC<TopBarProps> = ({
   onRunSql,
   onToggleRightPanel,
   onToggleMobileSidebar,
+  isAuthenticated = false,
+  authChecking = false,
+  authError = null,
+  onLogout,
   canExecute = true
 }) => {
   const [isSessionMenuOpen, setIsSessionMenuOpen] = useState(false);
@@ -54,6 +62,22 @@ export const TopBar: React.FC<TopBarProps> = ({
           : backendStatus === 'offline'
               ? 'Offline'
               : 'Checking';
+  const connectionLabel = apiConfig.isMock
+      ? 'Mock Mode'
+      : backendStatus === 'online'
+          ? '已连接'
+          : backendStatus === 'offline'
+              ? '已断开'
+              : '连接中';
+  const authLabel = apiConfig.isMock
+      ? '免登录'
+      : authChecking
+          ? '认证检查中'
+          : isAuthenticated
+              ? '已登录'
+              : '未登录';
+  const canShowLogout = !apiConfig.isMock && isAuthenticated && typeof onLogout === 'function';
+  const connectedServerTitle = `Connected Server: ${apiConfig.baseUrl || 'N/A'} (${connectionLabel}, ${authLabel}${authError ? `, ${authError}` : ''})`;
 
   return (
     <>
@@ -255,6 +279,34 @@ export const TopBar: React.FC<TopBarProps> = ({
                 <Server className={`w-3 h-3 md:mr-1.5 ${isBackendOnline ? '' : 'opacity-70'}`} />
                 <span className="hidden md:inline">{backendLabel}</span>
              </div>
+
+             <div
+                className={`hidden md:flex items-center max-w-[320px] px-3 py-1.5 text-xs font-medium rounded-full border cursor-default select-none ${
+                    backendStatus === 'online'
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                        : backendStatus === 'offline'
+                            ? 'bg-red-50 text-red-700 border-red-200'
+                            : backendStatus === 'checking'
+                                ? 'bg-gray-50 text-gray-600 border-gray-200'
+                                : 'bg-yellow-50 text-yellow-700 border-yellow-200'
+                }`}
+                title={connectedServerTitle}
+             >
+                <span className="truncate max-w-[170px]">{apiConfig.baseUrl}</span>
+                <span className="mx-1 text-gray-400">|</span>
+                <span className="whitespace-nowrap">{connectionLabel}</span>
+             </div>
+
+            {canShowLogout && (
+                <button
+                    onClick={onLogout}
+                    className="inline-flex items-center px-2.5 py-1.5 text-xs font-medium rounded-md border border-red-200 text-red-600 hover:bg-red-50 transition-colors"
+                    title="Log out"
+                >
+                    <LogOut className="w-3.5 h-3.5 md:mr-1" />
+                    <span className="hidden md:inline">登出</span>
+                </button>
+            )}
 
             {currentView === 'workflow' && (
                 <>

@@ -49,6 +49,48 @@ const DEFAULT_APPEARANCE: AppearanceConfig = {
   showDatasetIds: false
 };
 
+const CONNECTION_STATE_STORAGE_KEY = 'dmb_connection_state_v1';
+
+type PersistedConnectionState = {
+  apiConfig: ApiConfig;
+  knownServers: string[];
+  savedAt: number;
+};
+
+const isConnectionPersistenceEnabled = (): boolean => {
+  if (typeof window === 'undefined' || !window.localStorage) return false;
+  const userAgent = typeof navigator !== 'undefined' ? String(navigator.userAgent || '') : '';
+  return !/jsdom/i.test(userAgent);
+};
+
+const loadPersistedConnectionState = (): PersistedConnectionState | null => {
+  try {
+    if (!isConnectionPersistenceEnabled()) return null;
+    const raw = window.localStorage.getItem(CONNECTION_STATE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as PersistedConnectionState;
+    if (!parsed?.apiConfig?.baseUrl || typeof parsed.apiConfig.isMock !== 'boolean') return null;
+    if (!Array.isArray(parsed.knownServers)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+};
+
+const savePersistedConnectionState = (apiConfig: ApiConfig, knownServers: string[]) => {
+  try {
+    if (!isConnectionPersistenceEnabled()) return;
+    const next: PersistedConnectionState = {
+      apiConfig,
+      knownServers: Array.from(new Set(knownServers.filter(Boolean))),
+      savedAt: Date.now()
+    };
+    window.localStorage.setItem(CONNECTION_STATE_STORAGE_KEY, JSON.stringify(next));
+  } catch {
+    // ignore storage failures
+  }
+};
+
 function App() {
   // --- STATE ---
   const [sessionId, setSessionId] = useState<string>('');
@@ -85,6 +127,7 @@ function App() {
   const [sqlRunRequestId, setSqlRunRequestId] = useState(0);
   const [sqlRunState, setSqlRunState] = useState({ canRun: false, running: false });
   const [authChecking, setAuthChecking] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
   const [authRequired, setAuthRequired] = useState(false);
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -159,12 +202,31 @@ function App() {
      });
      return schema;
   }, [datasets]);
+  const isAuthenticated = useMemo(() => {
+    if (apiConfig.isMock) return false;
+    return authChecked && !authChecking && !authRequired;
+  }, [apiConfig.isMock, authChecked, authChecking, authRequired]);
 
 
   // --- INITIALIZATION ---
   useEffect(() => {
       let cancelled = false;
       const loadDefaultServer = async () => {
+          const persisted = loadPersistedConnectionState();
+          if (persisted) {
+              if (!cancelled) {
+                  setApiConfig(persisted.apiConfig);
+                  const mergedServers = Array.from(new Set([
+                      'mockServer',
+                      'http://localhost:8000',
+                      ...persisted.knownServers,
+                      persisted.apiConfig.baseUrl,
+                  ].filter(Boolean)));
+                  setKnownServers(mergedServers);
+                  setConfigReady(true);
+              }
+              return;
+          }
           try {
               const res = await fetch('http://localhost:8000/config/default_server');
               if (!res.ok) throw new Error('Failed to load default server');
@@ -188,14 +250,21 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!configReady) return;
+    if (!configReady || !authChecked) return;
+    if (!apiConfig.isMock && authRequired) return;
     fetchSessions();
-  }, [apiConfig, configReady]);
+  }, [apiConfig, configReady, authChecked, authRequired]);
+
+  useEffect(() => {
+    if (!configReady) return;
+    savePersistedConnectionState(apiConfig, knownServers);
+  }, [apiConfig, knownServers, configReady]);
 
   useEffect(() => {
     if (!configReady) return;
     if (apiConfig.isMock) {
       setAuthChecking(false);
+      setAuthChecked(true);
       setAuthRequired(false);
       setAuthLoading(false);
       setAuthError(null);
@@ -204,22 +273,45 @@ function App() {
 
     let cancelled = false;
     const verifyAuth = async () => {
+      if (backendStatus === 'checking' || backendStatus === 'mock') {
+        return;
+      }
+      if (backendStatus === 'offline') {
+        if (!cancelled) {
+          setAuthChecking(false);
+          setAuthChecked(true);
+          setAuthRequired(false);
+          setAuthError(`服务器连接失败：${apiConfig.baseUrl}`);
+        }
+        return;
+      }
+
       setAuthChecking(true);
+      setAuthChecked(false);
       setAuthError(null);
       try {
         await api.authMe(apiConfig);
         if (!cancelled) setAuthRequired(false);
-      } catch {
-        if (!cancelled) setAuthRequired(true);
+      } catch (e: any) {
+        if (!cancelled) {
+          const message = String(e?.message || '');
+          setAuthRequired(true);
+          if (message && !message.toLowerCase().includes('unauthorized')) {
+            setAuthError(`认证状态检查失败：${message}`);
+          }
+        }
       } finally {
-        if (!cancelled) setAuthChecking(false);
+        if (!cancelled) {
+          setAuthChecking(false);
+          setAuthChecked(true);
+        }
       }
     };
     verifyAuth();
     return () => {
       cancelled = true;
     };
-  }, [apiConfig.baseUrl, apiConfig.isMock, configReady]);
+  }, [apiConfig.baseUrl, apiConfig.isMock, configReady, backendStatus]);
 
   useEffect(() => {
       if (!isSettingsOpen) return;
@@ -361,12 +453,48 @@ function App() {
           await api.authLogin(apiConfig, { email, password });
           await api.authMe(apiConfig);
           setAuthRequired(false);
+          setAuthChecked(true);
           await fetchSessions();
       } catch (e: any) {
           setAuthRequired(true);
           setAuthError(e?.message || '登录失败');
       } finally {
           setAuthLoading(false);
+      }
+  };
+
+  const handleBackToIndex = () => {
+      setAuthRequired(false);
+      setAuthChecked(true);
+      setAuthChecking(false);
+      setAuthLoading(false);
+      setAuthError(null);
+      setApiConfig({ baseUrl: 'mockServer', isMock: true });
+  };
+
+  const handleLogout = async () => {
+      if (apiConfig.isMock) return;
+      setAuthLoading(true);
+      let logoutMessage: string | null = null;
+      try {
+          await api.authLogout(apiConfig);
+      } catch (e: any) {
+          const raw = String(e?.message || '');
+          logoutMessage = raw ? `登出请求失败（已清理本地状态）：${raw}` : '登出请求失败（已清理本地状态）';
+      } finally {
+          api.clearAuthTokens();
+          setAuthRequired(true);
+          setAuthChecked(true);
+          setAuthChecking(false);
+          setAuthLoading(false);
+          setAuthError(logoutMessage);
+          setSessionId('');
+          setSessionName('');
+          setSessions([]);
+          setTree(INITIAL_TREE);
+          setSqlHistory([]);
+          setPreviewData(null);
+          setDatasets([]);
       }
   };
 
@@ -973,6 +1101,7 @@ function App() {
         loading={authLoading}
         error={authError}
         onLogin={handleLogin}
+        onBack={handleBackToIndex}
       />
     );
   }
@@ -997,6 +1126,10 @@ function App() {
         onRunSql={() => setSqlRunRequestId(v => v + 1)}
         onToggleRightPanel={() => setIsRightPanelOpen(!isRightPanelOpen)}
         onToggleMobileSidebar={() => setIsMobileSidebarOpen(!isMobileSidebarOpen)}
+        isAuthenticated={isAuthenticated}
+        authChecking={authChecking}
+        authError={authError}
+        onLogout={handleLogout}
         canExecute={sqlRunState.canRun && !sqlRunState.running}
       />
 
