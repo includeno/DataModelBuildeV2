@@ -161,6 +161,30 @@ class CollabStorage:
                 );
                 CREATE INDEX IF NOT EXISTS idx_project_members_user_id ON project_members(user_id);
 
+                CREATE TABLE IF NOT EXISTS dataset_assets (
+                    id TEXT PRIMARY KEY,
+                    project_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    table_name TEXT NOT NULL,
+                    storage_key TEXT NOT NULL,
+                    format TEXT NOT NULL,
+                    file_size INTEGER,
+                    rows INTEGER,
+                    schema_json TEXT NOT NULL DEFAULT '{}',
+                    dataset_version INTEGER NOT NULL DEFAULT 1,
+                    status TEXT NOT NULL DEFAULT 'ready',
+                    created_by TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL,
+                    deleted_at INTEGER,
+                    FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+                    FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE RESTRICT
+                );
+                CREATE INDEX IF NOT EXISTS idx_dataset_assets_project_id
+                ON dataset_assets(project_id, deleted_at, created_at);
+                CREATE INDEX IF NOT EXISTS idx_dataset_assets_project_table
+                ON dataset_assets(project_id, table_name, deleted_at, dataset_version);
+
                 CREATE TABLE IF NOT EXISTS project_states (
                     project_id TEXT PRIMARY KEY,
                     version INTEGER NOT NULL DEFAULT 0,
@@ -228,6 +252,31 @@ class CollabStorage:
             "updatedAt": row["updated_at"],
             "archived": bool(row["archived"]),
             "role": row["role"],
+        }
+
+    def _row_to_dataset_asset(self, row: sqlite3.Row) -> Dict[str, Any]:
+        schema: Dict[str, Any] = {}
+        try:
+            schema = json.loads(row["schema_json"] or "{}")
+        except Exception:
+            schema = {}
+        return {
+            "id": row["id"],
+            "projectId": row["project_id"],
+            "name": row["name"],
+            "tableName": row["table_name"],
+            "storageKey": row["storage_key"],
+            "format": row["format"],
+            "fileSize": row["file_size"],
+            "rows": row["rows"],
+            "schema": schema,
+            "fields": list(schema.keys()) if isinstance(schema, dict) else [],
+            "datasetVersion": row["dataset_version"],
+            "status": row["status"],
+            "createdBy": row["created_by"],
+            "createdAt": row["created_at"],
+            "updatedAt": row["updated_at"],
+            "deletedAt": row["deleted_at"],
         }
 
     def _get_default_org_for_user(self, conn: sqlite3.Connection, user_id: str) -> Optional[str]:
@@ -314,6 +363,7 @@ class CollabStorage:
                 """
                 DELETE FROM auth_tokens;
                 DELETE FROM project_events;
+                DELETE FROM dataset_assets;
                 DELETE FROM project_states;
                 DELETE FROM project_members;
                 DELETE FROM projects;
@@ -995,6 +1045,334 @@ class CollabStorage:
                 "updatedAt": row["updated_at"],
             }
 
+    # --- Project datasets ---
+
+    def _get_active_project_dataset_asset(
+        self,
+        conn: sqlite3.Connection,
+        project_id: str,
+        dataset_id_or_name: str,
+    ) -> Optional[sqlite3.Row]:
+        raw = (dataset_id_or_name or "").strip()
+        if not raw:
+            return None
+        return conn.execute(
+            """
+            SELECT *
+            FROM dataset_assets
+            WHERE project_id = ?
+              AND deleted_at IS NULL
+              AND status = 'ready'
+              AND (id = ? OR table_name = ? OR name = ?)
+            ORDER BY dataset_version DESC, created_at DESC
+            LIMIT 1
+            """,
+            (project_id, raw, raw, raw),
+        ).fetchone()
+
+    def list_active_project_dataset_assets(self, project_id: str) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT *
+                FROM dataset_assets
+                WHERE project_id = ? AND deleted_at IS NULL AND status = 'ready'
+                ORDER BY updated_at DESC, created_at DESC
+                """,
+                (project_id,),
+            ).fetchall()
+            return [self._row_to_dataset_asset(row) for row in rows]
+
+    def list_project_dataset_assets(self, project_id: str, user_id: str) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            role = self._get_project_role(conn, project_id, user_id)
+            if not role:
+                raise PermissionError("permission denied")
+            rows = conn.execute(
+                """
+                SELECT *
+                FROM dataset_assets
+                WHERE project_id = ? AND deleted_at IS NULL AND status = 'ready'
+                ORDER BY updated_at DESC, created_at DESC
+                """,
+                (project_id,),
+            ).fetchall()
+            return [self._row_to_dataset_asset(row) for row in rows]
+
+    def get_project_dataset_asset(self, project_id: str, user_id: str, dataset_id_or_name: str) -> Optional[Dict[str, Any]]:
+        with self._connect() as conn:
+            role = self._get_project_role(conn, project_id, user_id)
+            if not role:
+                raise PermissionError("permission denied")
+            row = self._get_active_project_dataset_asset(conn, project_id, dataset_id_or_name)
+            return self._row_to_dataset_asset(row) if row else None
+
+    def _get_latest_project_dataset_version(
+        self,
+        conn: sqlite3.Connection,
+        project_id: str,
+        table_name: str,
+    ) -> int:
+        row = conn.execute(
+            """
+            SELECT MAX(dataset_version) AS max_version
+            FROM dataset_assets
+            WHERE project_id = ? AND table_name = ?
+            """,
+            (project_id, table_name),
+        ).fetchone()
+        if not row or row["max_version"] is None:
+            return 0
+        return int(row["max_version"])
+
+    def prepare_project_dataset_asset(
+        self,
+        project_id: str,
+        user_id: str,
+        *,
+        name: str,
+        table_name: str,
+        storage_key: str,
+        format: str,
+        dataset_version: Optional[int] = None,
+        asset_id: Optional[str] = None,
+        status: str = "uploading",
+    ) -> Dict[str, Any]:
+        now = _now_ms()
+        clean_name = (name or "").strip() or table_name
+        clean_table_name = (table_name or "").strip()
+        clean_storage_key = (storage_key or "").strip()
+        clean_format = (format or "").strip() or "parquet"
+        next_asset_id = asset_id or f"ast_{uuid.uuid4().hex[:12]}"
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                role = self._get_project_role(conn, project_id, user_id)
+                if role not in WRITE_PROJECT_ROLES:
+                    raise PermissionError("permission denied")
+                project = conn.execute(
+                    "SELECT id FROM projects WHERE id = ? AND deleted_at IS NULL",
+                    (project_id,),
+                ).fetchone()
+                if not project:
+                    raise ValueError("project not found")
+                next_version = dataset_version or (self._get_latest_project_dataset_version(conn, project_id, clean_table_name) + 1)
+                conn.execute(
+                    """
+                    INSERT INTO dataset_assets (
+                        id, project_id, name, table_name, storage_key, format, file_size, rows,
+                        schema_json, dataset_version, status, created_by, created_at, updated_at, deleted_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, '{}', ?, ?, ?, ?, ?, NULL)
+                    """,
+                    (
+                        next_asset_id,
+                        project_id,
+                        clean_name,
+                        clean_table_name,
+                        clean_storage_key,
+                        clean_format,
+                        next_version,
+                        status,
+                        user_id,
+                        now,
+                        now,
+                    ),
+                )
+                conn.execute("UPDATE projects SET updated_at = ? WHERE id = ?", (now, project_id))
+                row = conn.execute("SELECT * FROM dataset_assets WHERE id = ?", (next_asset_id,)).fetchone()
+                conn.execute("COMMIT")
+                return self._row_to_dataset_asset(row)
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+
+    def finalize_project_dataset_asset(
+        self,
+        project_id: str,
+        actor_user_id: str,
+        asset_id: str,
+        *,
+        file_size: Optional[int],
+        rows: Optional[int],
+        schema: Optional[Dict[str, Any]] = None,
+        status: str = "ready",
+        replace_existing: bool = True,
+    ) -> Dict[str, Any]:
+        now = _now_ms()
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                role = self._get_project_role(conn, project_id, actor_user_id)
+                if role not in WRITE_PROJECT_ROLES:
+                    raise PermissionError("permission denied")
+                row = conn.execute(
+                    """
+                    SELECT *
+                    FROM dataset_assets
+                    WHERE id = ? AND project_id = ?
+                    """,
+                    (asset_id, project_id),
+                ).fetchone()
+                if not row:
+                    raise ValueError("dataset asset not found")
+                if replace_existing:
+                    conn.execute(
+                        """
+                        UPDATE dataset_assets
+                        SET deleted_at = ?, updated_at = ?, status = 'deleted'
+                        WHERE project_id = ?
+                          AND table_name = ?
+                          AND id <> ?
+                          AND deleted_at IS NULL
+                          AND status = 'ready'
+                        """,
+                        (now, now, project_id, row["table_name"], asset_id),
+                    )
+                conn.execute(
+                    """
+                    UPDATE dataset_assets
+                    SET file_size = ?, rows = ?, schema_json = ?, status = ?, updated_at = ?, deleted_at = NULL
+                    WHERE id = ?
+                    """,
+                    (
+                        file_size,
+                        rows,
+                        json.dumps(schema or {}, ensure_ascii=False),
+                        status,
+                        now,
+                        asset_id,
+                    ),
+                )
+                conn.execute("UPDATE projects SET updated_at = ? WHERE id = ?", (now, project_id))
+                updated = conn.execute("SELECT * FROM dataset_assets WHERE id = ?", (asset_id,)).fetchone()
+                conn.execute("COMMIT")
+                return self._row_to_dataset_asset(updated)
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+
+    def mark_project_dataset_asset_failed(
+        self,
+        project_id: str,
+        actor_user_id: str,
+        asset_id: str,
+    ) -> Dict[str, Any]:
+        now = _now_ms()
+        with self._connect() as conn:
+            role = self._get_project_role(conn, project_id, actor_user_id)
+            if role not in WRITE_PROJECT_ROLES:
+                raise PermissionError("permission denied")
+            row = conn.execute(
+                """
+                SELECT *
+                FROM dataset_assets
+                WHERE id = ? AND project_id = ?
+                """,
+                (asset_id, project_id),
+            ).fetchone()
+            if not row:
+                raise ValueError("dataset asset not found")
+            conn.execute(
+                """
+                UPDATE dataset_assets
+                SET status = 'failed', updated_at = ?
+                WHERE id = ?
+                """,
+                (now, asset_id),
+            )
+            conn.execute("UPDATE projects SET updated_at = ? WHERE id = ?", (now, project_id))
+            updated = conn.execute("SELECT * FROM dataset_assets WHERE id = ?", (asset_id,)).fetchone()
+            return self._row_to_dataset_asset(updated)
+
+    def record_project_dataset_asset(
+        self,
+        project_id: str,
+        user_id: str,
+        *,
+        name: str,
+        table_name: str,
+        storage_key: str,
+        format: str,
+        file_size: Optional[int],
+        rows: Optional[int],
+        schema: Optional[Dict[str, Any]] = None,
+        status: str = "ready",
+    ) -> Dict[str, Any]:
+        prepared = self.prepare_project_dataset_asset(
+            project_id,
+            user_id,
+            name=name,
+            table_name=table_name,
+            storage_key=storage_key,
+            format=format,
+            status="uploading",
+        )
+        if status == "failed":
+            return self.mark_project_dataset_asset_failed(project_id, user_id, prepared["id"])
+        return self.finalize_project_dataset_asset(
+            project_id,
+            user_id,
+            prepared["id"],
+            file_size=file_size,
+            rows=rows,
+            schema=schema,
+            status=status,
+            replace_existing=True,
+        )
+
+    def update_project_dataset_schema(
+        self,
+        project_id: str,
+        actor_user_id: str,
+        dataset_id_or_name: str,
+        schema: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        now = _now_ms()
+        with self._connect() as conn:
+            role = self._get_project_role(conn, project_id, actor_user_id)
+            if role not in WRITE_PROJECT_ROLES:
+                raise PermissionError("permission denied")
+            row = self._get_active_project_dataset_asset(conn, project_id, dataset_id_or_name)
+            if not row:
+                raise ValueError("dataset asset not found")
+            conn.execute(
+                """
+                UPDATE dataset_assets
+                SET schema_json = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (json.dumps(schema or {}, ensure_ascii=False), now, row["id"]),
+            )
+            updated = conn.execute("SELECT * FROM dataset_assets WHERE id = ?", (row["id"],)).fetchone()
+            return self._row_to_dataset_asset(updated)
+
+    def soft_delete_project_dataset_asset(
+        self,
+        project_id: str,
+        actor_user_id: str,
+        dataset_id_or_name: str,
+    ) -> Dict[str, Any]:
+        now = _now_ms()
+        with self._connect() as conn:
+            role = self._get_project_role(conn, project_id, actor_user_id)
+            if role not in WRITE_PROJECT_ROLES:
+                raise PermissionError("permission denied")
+            row = self._get_active_project_dataset_asset(conn, project_id, dataset_id_or_name)
+            if not row:
+                raise ValueError("dataset asset not found")
+            conn.execute(
+                """
+                UPDATE dataset_assets
+                SET deleted_at = ?, updated_at = ?, status = 'deleted'
+                WHERE id = ?
+                """,
+                (now, now, row["id"]),
+            )
+            updated = conn.execute("SELECT * FROM dataset_assets WHERE id = ?", (row["id"],)).fetchone()
+            conn.execute("UPDATE projects SET updated_at = ? WHERE id = ?", (now, project_id))
+            return self._row_to_dataset_asset(updated)
+
     # --- Project state / events ---
 
     def get_project_state(self, project_id: str, user_id: str) -> Dict[str, Any]:
@@ -1134,6 +1512,7 @@ class CollabStorage:
                         "baseVersion": current_version,
                         "nextVersion": next_version,
                         "patches": patches or [],
+                        "state": next_state,
                     },
                     ensure_ascii=False,
                 )

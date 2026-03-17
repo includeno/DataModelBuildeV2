@@ -44,6 +44,29 @@ def test_path_helpers_and_config_reading(monkeypatch, tmp_path: Path):
     assert storage_module._read_session_storage_config() is None
 
 
+def test_local_file_backend_helpers(monkeypatch, tmp_path: Path):
+    data_root = _patch_storage_env(monkeypatch, tmp_path, is_test_env=True)
+    backend = storage_module.LocalFileBackend(str(data_root / storage_module.PROJECT_ASSETS_DIRNAME))
+
+    storage_key = f"{storage_module.PROJECT_ASSETS_DIRNAME}/projects/p1/datasets/a1/v1.parquet"
+    backend.put(storage_key, b"demo")
+    assert backend.exists(storage_key) is True
+    with backend.open(storage_key, "rb") as f:
+        assert f.read() == b"demo"
+
+    staged_key = backend.stage_delete(storage_key)
+    assert staged_key is not None
+    assert backend.exists(staged_key) is True
+    assert backend.exists(storage_key) is False
+
+    health = backend.healthcheck()
+    assert health["exists"] is True
+    assert health["writable"] is True
+    assert health["freeSpaceOk"] is True
+    assert health["tempDir"]["available"] is True
+    assert health["healthy"] is True
+
+
 def test_load_sessions_dir_and_save_sessions_dir(monkeypatch, tmp_path: Path):
     data_root = _patch_storage_env(monkeypatch, tmp_path, is_test_env=False)
 

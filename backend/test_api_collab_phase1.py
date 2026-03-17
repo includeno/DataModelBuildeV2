@@ -6,14 +6,17 @@ from storage import storage
 from collab_storage import collab_storage
 
 
-client = TestClient(app)
+@pytest.fixture
+def client():
+    with TestClient(app) as test_client:
+        yield test_client
 
 
 def _auth_header(token: str):
     return {"Authorization": f"Bearer {token}"}
 
 
-def _register(email: str, password: str = "Passw0rd!", display_name: str = ""):
+def _register(client: TestClient, email: str, password: str = "Passw0rd!", display_name: str = ""):
     res = client.post(
         "/auth/register",
         json={"email": email, "password": password, "displayName": display_name},
@@ -21,7 +24,7 @@ def _register(email: str, password: str = "Passw0rd!", display_name: str = ""):
     return res
 
 
-def _login(email: str, password: str = "Passw0rd!"):
+def _login(client: TestClient, email: str, password: str = "Passw0rd!"):
     return client.post("/auth/login", json={"email": email, "password": password})
 
 
@@ -34,21 +37,21 @@ def clean_data():
     collab_storage.clear()
 
 
-def test_auth_register_login_and_me():
-    weak = _register("weak@example.com", password="12345678")
+def test_auth_register_login_and_me(client: TestClient):
+    weak = _register(client, "weak@example.com", password="12345678")
     assert weak.status_code == 400
 
-    reg = _register("owner@example.com", display_name="Owner")
+    reg = _register(client, "owner@example.com", display_name="Owner")
     assert reg.status_code == 200
     assert reg.json()["user"]["email"] == "owner@example.com"
 
-    dup = _register("owner@example.com")
+    dup = _register(client, "owner@example.com")
     assert dup.status_code == 400
 
-    bad_login = _login("owner@example.com", password="wrong-pass")
+    bad_login = _login(client, "owner@example.com", password="wrong-pass")
     assert bad_login.status_code == 401
 
-    login = _login("owner@example.com")
+    login = _login(client, "owner@example.com")
     assert login.status_code == 200
     token = login.json()["accessToken"]
     refresh = login.json()["refreshToken"]
@@ -71,17 +74,17 @@ def test_auth_register_login_and_me():
     assert me_after.status_code == 401
 
 
-def test_phase1_project_membership_and_version_commit_conflict():
-    owner = _register("owner@example.com", display_name="Owner")
-    editor = _register("editor@example.com", display_name="Editor")
-    viewer = _register("viewer@example.com", display_name="Viewer")
+def test_phase1_project_membership_and_version_commit_conflict(client: TestClient):
+    owner = _register(client, "owner@example.com", display_name="Owner")
+    editor = _register(client, "editor@example.com", display_name="Editor")
+    viewer = _register(client, "viewer@example.com", display_name="Viewer")
     assert owner.status_code == 200
     assert editor.status_code == 200
     assert viewer.status_code == 200
 
-    owner_token = _login("owner@example.com").json()["accessToken"]
-    editor_token = _login("editor@example.com").json()["accessToken"]
-    viewer_token = _login("viewer@example.com").json()["accessToken"]
+    owner_token = _login(client, "owner@example.com").json()["accessToken"]
+    editor_token = _login(client, "editor@example.com").json()["accessToken"]
+    viewer_token = _login(client, "viewer@example.com").json()["accessToken"]
 
     no_auth_projects = client.get("/projects")
     assert no_auth_projects.status_code == 401

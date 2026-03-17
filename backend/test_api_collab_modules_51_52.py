@@ -6,21 +6,24 @@ from storage import storage
 from collab_storage import collab_storage
 
 
-client = TestClient(app)
+@pytest.fixture
+def client():
+    with TestClient(app) as test_client:
+        yield test_client
 
 
 def _auth_header(token: str):
     return {"Authorization": f"Bearer {token}"}
 
 
-def _register(email: str, password: str = "Passw0rd!", display_name: str = ""):
+def _register(client: TestClient, email: str, password: str = "Passw0rd!", display_name: str = ""):
     return client.post(
         "/auth/register",
         json={"email": email, "password": password, "displayName": display_name},
     )
 
 
-def _login(email: str, password: str = "Passw0rd!"):
+def _login(client: TestClient, email: str, password: str = "Passw0rd!"):
     return client.post("/auth/login", json={"email": email, "password": password})
 
 
@@ -33,11 +36,11 @@ def clean_data():
     collab_storage.clear()
 
 
-def test_organization_bootstrap_and_member_management():
-    assert _register("owner@example.com", display_name="Owner").status_code == 200
-    assert _register("member@example.com", display_name="Member").status_code == 200
+def test_organization_bootstrap_and_member_management(client: TestClient):
+    assert _register(client, "owner@example.com", display_name="Owner").status_code == 200
+    assert _register(client, "member@example.com", display_name="Member").status_code == 200
 
-    owner_login = _login("owner@example.com")
+    owner_login = _login(client, "owner@example.com")
     assert owner_login.status_code == 200
     owner_token = owner_login.json()["accessToken"]
 
@@ -70,7 +73,7 @@ def test_organization_bootstrap_and_member_management():
     assert update_member.status_code == 200
     assert update_member.json()["role"] == "admin"
 
-    member_login = _login("member@example.com")
+    member_login = _login(client, "member@example.com")
     assert member_login.status_code == 200
     member_token = member_login.json()["accessToken"]
 
@@ -83,12 +86,12 @@ def test_organization_bootstrap_and_member_management():
     assert len(member_list.json()) == 2
 
 
-def test_project_search_archive_delete_and_org_scoping():
-    assert _register("owner@example.com", display_name="Owner").status_code == 200
-    assert _register("outsider@example.com", display_name="Outsider").status_code == 200
+def test_project_search_archive_delete_and_org_scoping(client: TestClient):
+    assert _register(client, "owner@example.com", display_name="Owner").status_code == 200
+    assert _register(client, "outsider@example.com", display_name="Outsider").status_code == 200
 
-    owner_token = _login("owner@example.com").json()["accessToken"]
-    outsider_token = _login("outsider@example.com").json()["accessToken"]
+    owner_token = _login(client, "owner@example.com").json()["accessToken"]
+    outsider_token = _login(client, "outsider@example.com").json()["accessToken"]
 
     create_org = client.post(
         "/organizations",
@@ -155,16 +158,16 @@ def test_project_search_archive_delete_and_org_scoping():
     assert refresh_invalid.status_code == 401
 
 
-def test_project_scoped_runtime_endpoints_with_permissions():
-    assert _register("owner@example.com", display_name="Owner").status_code == 200
-    assert _register("editor@example.com", display_name="Editor").status_code == 200
-    assert _register("viewer@example.com", display_name="Viewer").status_code == 200
-    assert _register("outsider@example.com", display_name="Outsider").status_code == 200
+def test_project_scoped_runtime_endpoints_with_permissions(client: TestClient):
+    assert _register(client, "owner@example.com", display_name="Owner").status_code == 200
+    assert _register(client, "editor@example.com", display_name="Editor").status_code == 200
+    assert _register(client, "viewer@example.com", display_name="Viewer").status_code == 200
+    assert _register(client, "outsider@example.com", display_name="Outsider").status_code == 200
 
-    owner_token = _login("owner@example.com").json()["accessToken"]
-    editor_token = _login("editor@example.com").json()["accessToken"]
-    viewer_token = _login("viewer@example.com").json()["accessToken"]
-    outsider_token = _login("outsider@example.com").json()["accessToken"]
+    owner_token = _login(client, "owner@example.com").json()["accessToken"]
+    editor_token = _login(client, "editor@example.com").json()["accessToken"]
+    viewer_token = _login(client, "viewer@example.com").json()["accessToken"]
+    outsider_token = _login(client, "outsider@example.com").json()["accessToken"]
 
     create_project = client.post(
         "/projects",
@@ -223,12 +226,12 @@ def test_project_scoped_runtime_endpoints_with_permissions():
     assert outsider_read.status_code == 404
 
 
-def test_state_since_snapshot_and_conflict_replay_acceptance():
-    assert _register("owner@example.com", display_name="Owner").status_code == 200
-    assert _register("editor@example.com", display_name="Editor").status_code == 200
+def test_state_since_snapshot_and_conflict_replay_acceptance(client: TestClient):
+    assert _register(client, "owner@example.com", display_name="Owner").status_code == 200
+    assert _register(client, "editor@example.com", display_name="Editor").status_code == 200
 
-    owner_token = _login("owner@example.com").json()["accessToken"]
-    editor_token = _login("editor@example.com").json()["accessToken"]
+    owner_token = _login(client, "owner@example.com").json()["accessToken"]
+    editor_token = _login(client, "editor@example.com").json()["accessToken"]
 
     create_project = client.post(
         "/projects",

@@ -1,5 +1,5 @@
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Body, Depends, Header, Query
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Body, Depends, Header, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
@@ -12,8 +12,9 @@ import tempfile
 import duckdb
 import time
 import logging
+import re
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 
 from models import (
     ExecuteRequest,
@@ -32,9 +33,10 @@ from models import (
     RefreshTokenRequest,
 )
 import storage as storage_module
-from storage import storage, resolve_data_subdir, to_data_relative, save_sessions_dir
+from storage import storage, resolve_data_subdir, to_data_relative, save_sessions_dir, PROJECT_ASSETS_DIRNAME, local_file_backend
 from engine import ExecutionEngine
 from collab_storage import collab_storage
+from realtime import realtime_hub
 
 LOG_PATH = os.environ.get(
     "BACKEND_LOG_PATH",
@@ -48,6 +50,17 @@ logging.basicConfig(
     handlers=[logging.FileHandler(LOG_PATH), logging.StreamHandler()]
 )
 logger = logging.getLogger("backend")
+
+MAX_UPLOAD_SIZE_BYTES = int(os.environ.get("MAX_UPLOAD_SIZE_BYTES", str(64 * 1024 * 1024)))
+ALLOWED_UPLOAD_EXTENSIONS = {
+    ".csv": "csv",
+    ".xlsx": "excel",
+    ".xls": "excel",
+    ".parquet": "parquet",
+    ".pq": "parquet",
+}
+VALID_DUPLICATE_STRATEGIES = {"replace", "new_name"}
+SAFE_DATASET_NAME_RE = re.compile(r"[^\w.\- ]+", re.UNICODE)
 
 app = FastAPI()
 
@@ -181,6 +194,21 @@ def _extract_bearer_token(authorization: Optional[str]) -> Optional[str]:
     return raw
 
 
+def _extract_ws_token(websocket: WebSocket) -> Optional[str]:
+    token = websocket.query_params.get("token")
+    if token:
+        return token.strip() or None
+    auth_header = websocket.headers.get("authorization")
+    return _extract_bearer_token(auth_header)
+
+
+def _to_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 async def get_current_user(authorization: Optional[str] = Header(None)) -> Dict[str, Any]:
     if not _is_auth_enabled():
         return {
@@ -208,9 +236,139 @@ def _require_project_access(project_id: str, user_id: str, need_write: bool = Fa
     return project
 
 
+def _infer_schema_field(dtype: Any) -> Dict[str, Any]:
+    raw = str(dtype).lower()
+    if "int" in raw or "float" in raw or "double" in raw or "decimal" in raw:
+        return {"type": "number"}
+    if "bool" in raw:
+        return {"type": "boolean"}
+    if "date" in raw or "time" in raw:
+        return {"type": "date"}
+    if "json" in raw or "dict" in raw or "struct" in raw:
+        return {"type": "json"}
+    return {"type": "string"}
+
+
+def _build_dataframe_schema(df: pd.DataFrame) -> Dict[str, Any]:
+    return {str(col): _infer_schema_field(dtype) for col, dtype in df.dtypes.items()}
+
+
+def _build_project_storage_key(project_id: str, asset_id: str, dataset_version: int) -> str:
+    return (
+        f"{PROJECT_ASSETS_DIRNAME}/projects/{project_id}/datasets/"
+        f"{asset_id}/v{int(dataset_version)}.parquet"
+    )
+
+
+def _normalize_duplicate_strategy(raw: Optional[str]) -> str:
+    strategy = (raw or "replace").strip().lower() or "replace"
+    if strategy not in VALID_DUPLICATE_STRATEGIES:
+        raise ValueError("duplicateStrategy must be one of: replace, new_name")
+    return strategy
+
+
+def _normalize_upload_filename(filename: Optional[str]) -> str:
+    raw = (filename or "").strip()
+    if not raw:
+        raise ValueError("Uploaded file must include a filename")
+    if "/" in raw or "\\" in raw or "\x00" in raw:
+        raise ValueError("Invalid filename")
+    return os.path.basename(raw)
+
+
+def _normalize_dataset_name(raw_name: Optional[str], fallback_name: str) -> str:
+    raw = (raw_name or "").strip() or fallback_name
+    if "/" in raw or "\\" in raw or "\x00" in raw:
+        raise ValueError("Invalid dataset name")
+    collapsed = re.sub(r"\s+", " ", raw).strip()
+    cleaned = SAFE_DATASET_NAME_RE.sub("_", collapsed).strip("._ ")
+    if not cleaned:
+        raise ValueError("Dataset name is required")
+    return cleaned[:120]
+
+
+def _build_unique_project_dataset_name(project_id: str, user_id: str, dataset_name: str) -> str:
+    active_assets = collab_storage.list_project_dataset_assets(project_id, user_id)
+    existing_tables = {
+        str(item.get("tableName") or item.get("name") or item.get("id") or "").strip()
+        for item in active_assets
+    }
+    base_table_name = storage._derive_table_name(dataset_name)
+    if base_table_name not in existing_tables:
+        return dataset_name
+    suffix = 2
+    while True:
+        candidate = f"{base_table_name}_{suffix}"
+        if candidate not in existing_tables:
+            return candidate
+        suffix += 1
+
+
+def _merge_project_dataset_payload(
+    runtime_datasets: List[Dict[str, Any]],
+    asset_datasets: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    asset_by_table = {
+        str(item.get("tableName") or item.get("name") or item.get("id")): item
+        for item in asset_datasets or []
+    }
+    merged: List[Dict[str, Any]] = []
+    seen_tables = set()
+
+    for ds in runtime_datasets or []:
+        table_name = str(ds.get("id") or ds.get("name") or "").strip()
+        if not table_name:
+            continue
+        asset = asset_by_table.get(table_name)
+        payload = dict(ds)
+        if asset:
+            payload.update(
+                {
+                    "assetId": asset.get("id"),
+                    "storageKey": asset.get("storageKey"),
+                    "datasetVersion": asset.get("datasetVersion"),
+                    "status": asset.get("status"),
+                    "format": asset.get("format"),
+                    "fileSize": asset.get("fileSize"),
+                    "createdAt": asset.get("createdAt") or payload.get("createdAt"),
+                    "fieldTypes": asset.get("schema") or payload.get("fieldTypes"),
+                    "totalCount": asset.get("rows") if asset.get("rows") is not None else payload.get("totalCount"),
+                }
+            )
+        merged.append(payload)
+        seen_tables.add(table_name)
+
+    for asset in asset_datasets or []:
+        table_name = str(asset.get("tableName") or asset.get("name") or asset.get("id") or "").strip()
+        if not table_name or table_name in seen_tables:
+            continue
+        merged.append(
+            {
+                "id": table_name,
+                "name": asset.get("name") or table_name,
+                "rows": [],
+                "fields": asset.get("fields") or [],
+                "fieldTypes": asset.get("schema") or {},
+                "totalCount": asset.get("rows"),
+                "assetId": asset.get("id"),
+                "storageKey": asset.get("storageKey"),
+                "datasetVersion": asset.get("datasetVersion"),
+                "status": asset.get("status"),
+                "format": asset.get("format"),
+                "fileSize": asset.get("fileSize"),
+                "createdAt": asset.get("createdAt"),
+            }
+        )
+
+    return merged
+
+
 def _ensure_project_runtime_session(project_id: str) -> None:
     # Keep runtime engine compatibility by mapping project_id to session storage namespace.
     storage.create_session(project_id)
+    dataset_assets = collab_storage.list_active_project_dataset_assets(project_id)
+    if dataset_assets:
+        storage.sync_runtime_datasets(project_id, dataset_assets)
 
 
 # ---- Phase 1: local SQLite collaboration/auth APIs ----
@@ -483,6 +641,22 @@ async def commit_project_state(
 
     if result.get("conflict"):
         raise HTTPException(status_code=409, detail={"code": "PROJECT_STATE_CONFLICT", "message": "Version conflict", "data": result})
+
+    broadcast_patches = raw_patches
+    if broadcast_patches is None:
+        broadcast_patches = [{"op": "replace_state", "state": result.get("state") or {}}]
+    await realtime_hub.broadcast_state_committed(
+        project_id,
+        version=int(result.get("version") or 0),
+        payload={
+            "baseVersion": payload.baseVersion,
+            "clientOpId": payload.clientOpId,
+            "patches": broadcast_patches,
+            "state": result.get("state") or {},
+            "updatedBy": current_user["id"],
+            "updatedAt": result.get("updatedAt"),
+        },
+    )
     return result
 
 
@@ -500,13 +674,113 @@ async def list_project_events(
         raise HTTPException(status_code=403, detail={"code": "PERM_PROJECT_READ", "message": "Insufficient project permission"})
 
 
+@app.websocket("/ws/projects/{project_id}")
+async def project_realtime_socket(websocket: WebSocket, project_id: str):
+    token = _extract_ws_token(websocket)
+    user = collab_storage.get_user_by_token(token or "")
+    if not user:
+        await websocket.close(code=4401, reason="unauthorized")
+        return
+
+    try:
+        project = _require_project_access(project_id, user["id"])
+    except HTTPException as exc:
+        close_code = 4404 if exc.status_code == 404 else 4403
+        await websocket.close(code=close_code, reason=str(exc.detail.get("message") if isinstance(exc.detail, dict) else exc.detail))
+        return
+
+    ctx = await realtime_hub.accept_connection(websocket, project_id, user, str(project.get("role") or "viewer"))
+    try:
+        while True:
+            raw_message = await websocket.receive_text()
+            try:
+                message = json.loads(raw_message or "{}")
+            except json.JSONDecodeError:
+                await realtime_hub.send_conflict_notice(
+                    ctx,
+                    ctx.last_seen_version,
+                    "Invalid realtime payload.",
+                )
+                continue
+
+            message_type = str(message.get("type") or "").strip().lower()
+
+            if message_type == "subscribe":
+                requested_project_id = str(message.get("projectId") or project_id).strip() or project_id
+                if requested_project_id != project_id:
+                    await realtime_hub.send_conflict_notice(
+                        ctx,
+                        ctx.last_seen_version,
+                        "Project mismatch in realtime subscribe payload.",
+                    )
+                    continue
+
+                client_version = max(_to_int(message.get("clientVersion"), 0), 0)
+                if message.get("sessionId") is not None:
+                    ctx.session_id = str(message.get("sessionId") or "").strip() or None
+                ctx.last_pong_at = int(time.time() * 1000)
+                events = collab_storage.list_project_events(
+                    project_id,
+                    user["id"],
+                    from_version=client_version,
+                    limit=500,
+                )
+                latest_version = _to_int(events.get("latestVersion"), 0)
+                if client_version > latest_version:
+                    await realtime_hub.send_conflict_notice(
+                        ctx,
+                        latest_version,
+                        "Client version is ahead of server state; resyncing to latest.",
+                    )
+                    client_version = latest_version
+                ctx.last_seen_version = client_version
+                await realtime_hub.subscribe(ctx, latest_version, events.get("events") or [])
+                continue
+
+            if message_type == "pong":
+                realtime_hub.mark_pong(ctx, _to_int(message.get("lastSeenVersion"), ctx.last_seen_version))
+                continue
+
+            if message_type == "ack_version":
+                realtime_hub.acknowledge_version(ctx, _to_int(message.get("version"), ctx.last_seen_version))
+                continue
+
+            if message_type == "presence_update":
+                incoming_session_id = str(message.get("sessionId") or "").strip() or None
+                if ctx.session_id and incoming_session_id and incoming_session_id != ctx.session_id:
+                    await realtime_hub.send_conflict_notice(
+                        ctx,
+                        ctx.last_seen_version,
+                        "Realtime session mismatch.",
+                    )
+                    continue
+                await realtime_hub.update_presence(
+                    ctx,
+                    editing_node_id=message.get("editingNodeId"),
+                    last_seen_version=_to_int(message.get("lastSeenVersion"), ctx.last_seen_version),
+                )
+                continue
+
+            await realtime_hub.send_conflict_notice(
+                ctx,
+                ctx.last_seen_version,
+                f"Unsupported realtime message type: {message_type or 'unknown'}",
+            )
+    except WebSocketDisconnect:
+        logger.info("project realtime disconnected project=%s user=%s", project_id, user["id"])
+    finally:
+        await realtime_hub.disconnect(ctx)
+
+
 # ---- Project-scoped runtime endpoints (replacement for /sessions/*) ----
 
 @app.get("/projects/{project_id}/datasets")
 async def project_list_datasets(project_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
     _require_project_access(project_id, current_user["id"])
     _ensure_project_runtime_session(project_id)
-    return storage.list_datasets(project_id)
+    runtime_datasets = storage.list_datasets(project_id)
+    asset_datasets = collab_storage.list_project_dataset_assets(project_id, current_user["id"])
+    return _merge_project_dataset_payload(runtime_datasets, asset_datasets)
 
 
 @app.get("/projects/{project_id}/imports")
@@ -525,7 +799,9 @@ async def project_dataset_preview(
 ):
     _require_project_access(project_id, current_user["id"])
     _ensure_project_runtime_session(project_id)
-    df = storage.get_dataset_preview(project_id, dataset_id, limit=limit)
+    asset = collab_storage.get_project_dataset_asset(project_id, current_user["id"], dataset_id)
+    runtime_dataset_id = asset["tableName"] if asset else dataset_id
+    df = storage.get_dataset_preview(project_id, runtime_dataset_id, limit=limit)
     if df is None:
         raise HTTPException(status_code=404, detail="Dataset not found")
     return {"rows": clean_df_for_json(df), "totalCount": len(df)}
@@ -535,8 +811,12 @@ async def project_dataset_preview(
 async def project_delete_dataset(project_id: str, dataset_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
     _require_project_access(project_id, current_user["id"], need_write=True)
     _ensure_project_runtime_session(project_id)
-    removed = storage.delete_dataset(project_id, dataset_id)
-    if not removed:
+    asset = collab_storage.get_project_dataset_asset(project_id, current_user["id"], dataset_id)
+    runtime_dataset_id = asset["tableName"] if asset else dataset_id
+    removed = storage.delete_dataset(project_id, runtime_dataset_id, delete_file=not bool(asset))
+    if asset:
+        collab_storage.soft_delete_project_dataset_asset(project_id, current_user["id"], dataset_id)
+    elif not removed:
         raise HTTPException(status_code=404, detail="Dataset not found")
     return {"status": "ok"}
 
@@ -555,7 +835,11 @@ async def project_update_dataset_schema(
         raise HTTPException(status_code=400, detail="datasetId is required")
     if field_types is None:
         raise HTTPException(status_code=400, detail="fieldTypes is required")
-    storage.save_dataset_field_types(project_id, dataset_id, field_types)
+    asset = collab_storage.get_project_dataset_asset(project_id, current_user["id"], dataset_id)
+    runtime_dataset_id = asset["tableName"] if asset else dataset_id
+    storage.save_dataset_field_types(project_id, runtime_dataset_id, field_types)
+    if asset:
+        collab_storage.update_project_dataset_schema(project_id, current_user["id"], dataset_id, field_types)
     return {"status": "ok"}
 
 
@@ -590,11 +874,112 @@ async def project_upload_file(
     project_id: str,
     file: UploadFile = File(...),
     name: Optional[str] = Form(None),
+    duplicateStrategy: str = Form("replace"),
     current_user: Dict[str, Any] = Depends(get_current_user),
 ):
     _require_project_access(project_id, current_user["id"], need_write=True)
     _ensure_project_runtime_session(project_id)
-    return await upload_file(file=file, sessionId=project_id, name=name)
+    pending_asset_id: Optional[str] = None
+    runtime_dataset_id: Optional[str] = None
+    try:
+        df, _source_format, normalized_filename = await _read_uploaded_dataframe(file)
+        df.columns = [str(c).strip().replace(" ", "_") for c in df.columns]
+        duplicate_strategy = _normalize_duplicate_strategy(duplicateStrategy)
+        requested_name = _normalize_dataset_name(name, normalized_filename)
+        dataset_name = requested_name
+        if duplicate_strategy == "new_name":
+            dataset_name = _build_unique_project_dataset_name(project_id, current_user["id"], requested_name)
+        table_name = storage._derive_table_name(dataset_name)
+        current_asset = collab_storage.get_project_dataset_asset(project_id, current_user["id"], table_name)
+        next_version = int(current_asset["datasetVersion"]) + 1 if current_asset and duplicate_strategy == "replace" else 1
+        asset_id = f"ast_{uuid.uuid4().hex[:12]}"
+        storage_key = _build_project_storage_key(project_id, asset_id, next_version)
+        schema = _build_dataframe_schema(df)
+        pending_asset = collab_storage.prepare_project_dataset_asset(
+            project_id,
+            current_user["id"],
+            name=dataset_name,
+            table_name=table_name,
+            storage_key=storage_key,
+            format="parquet",
+            dataset_version=next_version,
+            asset_id=asset_id,
+            status="uploading",
+        )
+        pending_asset_id = pending_asset["id"]
+
+        runtime_dataset_id = storage.add_dataset(
+            project_id,
+            dataset_name,
+            df,
+            storage_key=storage_key,
+            extra_index_fields={
+                "datasetVersion": next_version,
+                "status": "uploading",
+                "storageKey": storage_key,
+                "fieldTypes": schema,
+                "assetId": asset_id,
+            },
+        )
+        entry = storage.get_dataset_entry(project_id, runtime_dataset_id) or {}
+        file_path = storage._resolve_dataset_file_path(project_id, entry) or ""
+        asset = collab_storage.finalize_project_dataset_asset(
+            project_id,
+            current_user["id"],
+            pending_asset_id,
+            file_size=os.path.getsize(file_path) if file_path and os.path.exists(file_path) else None,
+            rows=len(df),
+            schema=schema,
+            status="ready",
+            replace_existing=duplicate_strategy == "replace",
+        )
+        entry["assetId"] = asset["id"]
+        storage.sync_runtime_datasets(project_id, collab_storage.list_active_project_dataset_assets(project_id))
+
+        storage.append_import_history(project_id, {
+            "timestamp": int(time.time() * 1000),
+            "originalFileName": normalized_filename,
+            "datasetName": dataset_name,
+            "tableName": runtime_dataset_id,
+            "rows": len(df)
+        })
+
+        preview_rows = clean_df_for_json(df.head(50))
+        return {
+            "id": runtime_dataset_id,
+            "assetId": asset["id"],
+            "name": runtime_dataset_id,
+            "fields": df.columns.tolist(),
+            "rows": preview_rows,
+            "totalCount": len(df),
+            "storageKey": storage_key,
+            "datasetVersion": asset["datasetVersion"],
+            "status": asset["status"],
+            "format": asset["format"],
+            "duplicateStrategy": duplicate_strategy,
+        }
+    except PermissionError:
+        if pending_asset_id:
+            collab_storage.mark_project_dataset_asset_failed(project_id, current_user["id"], pending_asset_id)
+        if runtime_dataset_id:
+            storage.delete_dataset(project_id, runtime_dataset_id)
+            storage.sync_runtime_datasets(project_id, collab_storage.list_active_project_dataset_assets(project_id))
+        raise HTTPException(status_code=403, detail="Insufficient project permission")
+    except ValueError as e:
+        if pending_asset_id:
+            collab_storage.mark_project_dataset_asset_failed(project_id, current_user["id"], pending_asset_id)
+        if runtime_dataset_id:
+            storage.delete_dataset(project_id, runtime_dataset_id)
+            storage.sync_runtime_datasets(project_id, collab_storage.list_active_project_dataset_assets(project_id))
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        if pending_asset_id:
+            collab_storage.mark_project_dataset_asset_failed(project_id, current_user["id"], pending_asset_id)
+        if runtime_dataset_id:
+            storage.delete_dataset(project_id, runtime_dataset_id)
+            storage.sync_runtime_datasets(project_id, collab_storage.list_active_project_dataset_assets(project_id))
+        logger.exception("Project upload error")
+        raise HTTPException(status_code=500, detail="Project upload failed")
 
 
 @app.post("/projects/{project_id}/execute")
@@ -698,6 +1083,11 @@ async def get_session_storage():
         "sessionsDir": storage.sessions_dir,
         "relative": to_data_relative(storage.sessions_dir)
     }
+
+
+@app.get("/config/storage_health")
+async def get_storage_health():
+    return local_file_backend.healthcheck()
 
 @app.get("/config/session_storage/list")
 async def list_session_storage(path: str = ""):
@@ -923,8 +1313,50 @@ async def get_session_diagnostics(session_id: str):
         report["warnings"].append("No source commands found.")
     if not report["datasets"]:
         report["warnings"].append("No datasets found in storage.")
+    report["storageHealth"] = local_file_backend.healthcheck()
 
     return report
+
+
+async def _read_uploaded_dataframe(file: UploadFile) -> Tuple[pd.DataFrame, str, str]:
+    content = await file.read()
+    normalized_filename = _normalize_upload_filename(file.filename)
+    filename = normalized_filename.lower()
+    _, extension = os.path.splitext(filename)
+    if extension not in ALLOWED_UPLOAD_EXTENSIONS:
+        raise ValueError("Unsupported file format. Please upload CSV, Excel, or Parquet.")
+    if len(content) > MAX_UPLOAD_SIZE_BYTES:
+        raise ValueError(f"File is too large. Max size is {MAX_UPLOAD_SIZE_BYTES} bytes.")
+
+    if filename.endswith('.csv'):
+        try:
+            return pd.read_csv(io.BytesIO(content)), "csv", normalized_filename
+        except Exception:
+            raise ValueError("Could not parse CSV")
+    if filename.endswith('.xlsx') or filename.endswith('.xls'):
+        try:
+            return pd.read_excel(io.BytesIO(content)), "excel", normalized_filename
+        except Exception:
+            raise ValueError("Could not parse Excel file")
+    if filename.endswith('.parquet') or filename.endswith('.pq'):
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".parquet") as tmp:
+                tmp.write(content)
+                tmp_path = tmp.name
+            con = duckdb.connect(":memory:")
+            try:
+                escaped = tmp_path.replace("'", "''")
+                return con.execute(f"SELECT * FROM read_parquet('{escaped}')").df(), "parquet", normalized_filename
+            finally:
+                con.close()
+        except Exception as e:
+            raise ValueError(f"Could not parse Parquet file: {e}")
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+    raise ValueError("Unsupported file format. Please upload CSV, Excel, or Parquet.")
 
 @app.post("/upload")
 async def upload_file(
@@ -933,51 +1365,19 @@ async def upload_file(
     name: Optional[str] = Form(None)
 ):
     try:
-        content = await file.read()
-        filename = file.filename.lower() if file.filename else ""
-        
-        if filename.endswith('.csv'):
-            try:
-                df = pd.read_csv(io.BytesIO(content))
-            except:
-                return {"error": "Could not parse CSV"}
-        elif filename.endswith('.xlsx') or filename.endswith('.xls'):
-            try:
-                df = pd.read_excel(io.BytesIO(content))
-            except:
-                return {"error": "Could not parse Excel file"}
-        elif filename.endswith('.parquet') or filename.endswith('.pq'):
-            tmp_path = None
-            try:
-                # Use DuckDB to read parquet without extra deps
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".parquet") as tmp:
-                    tmp.write(content)
-                    tmp_path = tmp.name
-                con = duckdb.connect(":memory:")
-                try:
-                    escaped = tmp_path.replace("'", "''")
-                    df = con.execute(f"SELECT * FROM read_parquet('{escaped}')").df()
-                finally:
-                    con.close()
-            except Exception as e:
-                return {"error": f"Could not parse Parquet file: {e}"}
-            finally:
-                if tmp_path and os.path.exists(tmp_path):
-                    os.remove(tmp_path)
-        else:
-             return {"error": "Unsupported file format. Please upload CSV, Excel, or Parquet."}
+        df, _source_format, normalized_filename = await _read_uploaded_dataframe(file)
             
         # Clean col names
         df.columns = [str(c).strip().replace(" ", "_") for c in df.columns]
         
         # Determine dataset name
-        dataset_name = name if name and name.strip() else (file.filename or "uploaded_file")
+        dataset_name = _normalize_dataset_name(name, normalized_filename)
         
         table_name = storage.add_dataset(sessionId, dataset_name, df)
 
         storage.append_import_history(sessionId, {
             "timestamp": int(time.time() * 1000),
-            "originalFileName": file.filename or "",
+            "originalFileName": normalized_filename,
             "datasetName": dataset_name,
             "tableName": table_name,
             "rows": len(df)

@@ -299,27 +299,51 @@ erDiagram
 
 ### 设计说明
 
-1. 文件从本地目录迁移为对象存储（S3/MinIO），后端生成存储键。
-2. 数据集元信息入库：`dataset_assets`。
-3. 执行查询时由后端读取对象存储文件并映射到 DuckDB。
+1. 本期继续使用本地文件存储，不做 S3/MinIO、预签名上传、对象存储健康检查。
+2. 仍然要求“后端生成存储键”，只是先把存储键映射到本地目录，避免前端直接决定文件路径。
+3. 数据集元信息入库：`dataset_assets`；文件物理位置走本地 `StorageBackend` 抽象。
+4. 执行查询、预览、删除统一通过存储抽象读取文件，后续切换对象存储时尽量不改业务接口。
+
+### 当前范围
+
+1. 上传方式保留后端直传，不做预签名或分布式上传链路。
+2. 存储介质固定为本地目录，但路径由后端生成 `storage_key`，例如 `projects/{project_id}/datasets/{asset_id}/v{dataset_version}.{ext}`。
+3. 本期重点是“项目级共享可读 + 元信息入库 + 可回滚 + 可版本化”，不是“云存储接入”。
 
 ### TODO（详细拆分）
 
-- [ ] E-001 新建 `dataset_assets` 表（id/project_id/name/object_key/format/rows/schema_json/created_by）。
-- [ ] E-002 抽象存储接口 `StorageBackend`（put/get/delete/signed_url）。
-- [ ] E-003 保留 LocalFileBackend 作为 dev fallback。
-- [ ] E-004 增加 S3Backend（兼容 MinIO endpoint）。
-- [ ] E-005 上传接口改造为两步：预签名上传 or 直传代理。
-- [ ] E-006 上传完成后解析 schema 并写 dataset_assets。
-- [ ] E-007 对重名数据集定义策略（replace/new_version/new_name）。
-- [ ] E-008 增加数据集版本号字段（dataset_version）。
-- [ ] E-009 预览接口读取对象存储并限制默认行数。
-- [ ] E-010 删除数据集时同步删除对象与元数据（软删可选）。
-- [ ] E-011 增加文件大小上限、类型白名单、分块上传策略。
-- [ ] E-012 增加导入失败补偿逻辑（元数据回滚）。
-- [ ] E-013 增加生命周期策略（冷存储/过期清理）。
-- [ ] E-014 增加对象存储连接健康检查接口。
-- [ ] E-015 验收：同项目多用户都可读取同一数据集预览。
+#### E-1 元数据模型
+
+- [x] E-001 新建 `dataset_assets` 表，字段先按本地文件版落地：`id/project_id/name/storage_key/format/file_size/rows/schema_json/dataset_version/status/created_by/created_at/deleted_at`。
+- [x] E-002 统一 `storage_key` 命名规则，由后端生成，前端不可传入真实路径。
+- [x] E-003 明确定义数据集状态流转：`uploading`、`ready`、`failed`、`deleted`。
+- [x] E-004 明确定义重名策略，先只支持 `replace` 和 `new_name`，把 `new_version` 作为后续增强。
+
+#### E-2 本地存储抽象
+
+- [x] E-005 抽象 `StorageBackend` 接口，至少覆盖 `put/open/delete/exists/move_atomic`。
+- [x] E-006 实现 `LocalFileBackend`，落盘目录按 `project_id + asset_id + dataset_version` 分层。
+- [x] E-007 上传时先写入临时文件，再原子移动到正式路径，避免半写入文件被读取。
+
+#### E-3 上传与读取链路
+
+- [x] E-008 改造项目级上传接口：上传成功后解析 schema、记录行数、写入 `dataset_assets`，并把数据集挂到项目下。
+- [x] E-009 预览接口改为先查 `dataset_assets`，再通过 `StorageBackend` 打开文件并限制默认返回行数。
+- [x] E-010 查询执行链路改为从项目数据集映射中解析文件位置，不再依赖单用户本地会话目录。
+- [x] E-011 数据集列表接口返回版本号、行数、格式、schema 摘要、状态等信息，供前端展示。
+
+#### E-4 删除、回滚与安全
+
+- [x] E-012 删除数据集时同步处理元数据与本地文件；默认先软删元数据，再异步或延迟删除物理文件。
+- [x] E-013 上传失败时回滚元数据并清理临时文件，避免产生“库里有记录但磁盘没文件”的脏状态。
+- [x] E-014 增加文件大小上限、类型白名单、文件名规范化，阻止危险扩展名和路径穿越。
+- [x] E-015 增加本地存储健康检查：目录存在、可写、剩余空间阈值、临时目录可用。
+
+#### E-5 验收标准
+
+- [x] E-016 同项目多用户都可读取同一数据集预览。
+- [x] E-017 服务重启后仍可根据 `dataset_assets + storage_key` 恢复数据集读取。
+- [x] E-018 同名上传按既定策略生效，不会覆盖错误文件，也不会留下孤儿文件。
 
 ---
 
