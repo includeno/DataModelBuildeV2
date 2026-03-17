@@ -104,20 +104,20 @@ flowchart LR
 ### TODO（详细拆分）
 
 - [ ] A-001 设计 ER 图并冻结字段命名规范（snake_case）。
-- [ ] A-002 定义 `users` 表（id/email/password_hash/status/created_at/updated_at）。
-- [ ] A-003 定义 `organizations` 表（id/name/owner_user_id/status）。
-- [ ] A-004 定义 `organization_members` 表（org_id/user_id/role/invited_by/joined_at）。
-- [ ] A-005 定义 `projects` 表（id/org_id/name/description/created_by/archived）。
-- [ ] A-006 定义 `project_members` 表（project_id/user_id/role）。
-- [ ] A-007 为 `project_members(project_id,user_id)` 建唯一索引。
-- [ ] A-008 增加软删除字段策略（deleted_at）并约定查询过滤器。
-- [ ] A-009 在后端代码中新增 domain model 与 DTO 映射层。
+- [x] A-002 定义 `users` 表（id/email/password_hash/status/created_at/updated_at）。
+- [x] A-003 定义 `organizations` 表（id/name/owner_user_id/status）。
+- [x] A-004 定义 `organization_members` 表（org_id/user_id/role/invited_by/joined_at）。
+- [x] A-005 定义 `projects` 表（id/org_id/name/description/created_by/archived）。
+- [x] A-006 定义 `project_members` 表（project_id/user_id/role）。
+- [x] A-007 为 `project_members(project_id,user_id)` 建唯一索引。
+- [x] A-008 增加软删除字段策略（deleted_at）并约定查询过滤器。
+- [x] A-009 在后端代码中新增 domain model 与 DTO 映射层。
 - [ ] A-010 编写迁移脚本（Alembic revision）并支持回滚。
 - [ ] A-011 编写初始化脚本（创建默认组织 + 首个 owner）。
-- [ ] A-012 增加项目命名规则校验（长度、字符、重名策略）。
-- [ ] A-013 为 project 查询增加分页、排序、关键字搜索。
-- [ ] A-014 定义归档策略（project archived 后只读）。
-- [ ] A-015 验收：同组织多用户能看到同一项目列表，未授权用户不可见。
+- [x] A-012 增加项目命名规则校验（长度、字符、重名策略）。
+- [x] A-013 为 project 查询增加分页、排序、关键字搜索。
+- [x] A-014 定义归档策略（project archived 后只读）。
+- [x] A-015 验收：同组织多用户能看到同一项目列表，未授权用户不可见。
 
 ---
 
@@ -131,21 +131,21 @@ flowchart LR
 
 ### TODO（详细拆分）
 
-- [ ] B-001 新增 `POST /auth/register`。
-- [ ] B-002 新增 `POST /auth/login`（返回 access + refresh）。
-- [ ] B-003 新增 `POST /auth/refresh`（刷新 access token）。
-- [ ] B-004 新增 `POST /auth/logout`（服务端失效 refresh token）。
-- [ ] B-005 新增 refresh token 持久化表与吊销状态字段。
-- [ ] B-006 增加密码策略（最小长度、复杂度、哈希算法）。
-- [ ] B-007 实现 `get_current_user` 依赖注入。
-- [ ] B-008 实现项目级权限装饰器（viewer/editor/admin/owner）。
+- [x] B-001 新增 `POST /auth/register`。
+- [x] B-002 新增 `POST /auth/login`（返回 access + refresh）。
+- [x] B-003 新增 `POST /auth/refresh`（刷新 access token）。
+- [x] B-004 新增 `POST /auth/logout`（服务端失效 refresh token）。
+- [x] B-005 新增 refresh token 持久化表与吊销状态字段。
+- [x] B-006 增加密码策略（最小长度、复杂度、哈希算法）。
+- [x] B-007 实现 `get_current_user` 依赖注入。
+- [x] B-008 实现项目级权限装饰器（viewer/editor/admin/owner）。
 - [ ] B-009 将所有 `/sessions/*` 改造为 `/projects/*` 且加权限检查。
-- [ ] B-010 增加鉴权失败错误码规范（401/403 + code）。
+- [x] B-010 增加鉴权失败错误码规范（401/403 + code）。
 - [ ] B-011 前端新增登录页与 token 存储策略（httpOnly/secure 优先）。
 - [ ] B-012 前端 API 客户端自动附带 `Authorization`。
 - [ ] B-013 前端处理 token 过期自动刷新与重试。
-- [ ] B-014 编写越权访问测试（跨组织、跨项目、匿名访问）。
-- [ ] B-015 验收：所有项目写接口必须在 editor+ 才可调用成功。
+- [x] B-014 编写越权访问测试（跨组织、跨项目、匿名访问）。
+- [x] B-015 验收：所有项目写接口必须在 editor+ 才可调用成功。
 
 ---
 
@@ -160,17 +160,17 @@ flowchart LR
 
 ### TODO（详细拆分）
 
-- [ ] C-001 新建 `project_states` 表（project_id 唯一）。
-- [ ] C-002 新建 `project_events` 表（event_id/project_id/version/op_type/op_payload/user_id）。
-- [ ] C-003 设计 patch 协议（add_node/update_node/delete_node/reorder_node/update_command）。
-- [ ] C-004 实现 `POST /projects/{id}/state:commit`。
-- [ ] C-005 请求体增加 `baseVersion`、`clientOpId`、`patches[]`。
-- [ ] C-006 事务内校验 `baseVersion == current_version`。
-- [ ] C-007 成功后 `version +1` 并记录 events。
-- [ ] C-008 冲突时返回 `409 + current_version + server_state_hash`。
+- [x] C-001 新建 `project_states` 表（project_id 唯一）。
+- [x] C-002 新建 `project_events` 表（event_id/project_id/version/op_type/op_payload/user_id）。
+- [x] C-003 设计 patch 协议（add_node/update_node/delete_node/reorder_node/update_command）。
+- [x] C-004 实现 `POST /projects/{id}/state:commit`。
+- [x] C-005 请求体增加 `baseVersion`、`clientOpId`、`patches[]`。
+- [x] C-006 事务内校验 `baseVersion == current_version`。
+- [x] C-007 成功后 `version +1` 并记录 events。
+- [x] C-008 冲突时返回 `409 + current_version + server_state_hash`。
 - [ ] C-009 提供 `GET /projects/{id}/state?sinceVersion=xx` 增量拉取。
-- [ ] C-010 提供 `GET /projects/{id}/events?from=xx&limit=xx` 回放接口。
-- [ ] C-011 增加 `clientOpId` 幂等去重表（防止重试重复提交）。
+- [x] C-010 提供 `GET /projects/{id}/events?from=xx&limit=xx` 回放接口。
+- [x] C-011 增加 `clientOpId` 幂等去重表（防止重试重复提交）。
 - [ ] C-012 前端编辑动作改为本地生成 patch。
 - [ ] C-013 前端增加自动保存防抖队列（例如 500ms）。
 - [ ] C-014 前端冲突处理：提示“远端已更新”，支持刷新重放。
@@ -493,4 +493,3 @@ flowchart LR
 4. `App.tsx`：前端状态流重构为协作 store + 提交队列。
 5. `utils/api.ts`：统一 auth header、错误码、重试、冲突处理。
 6. `types.ts`：新增协作协议类型（version、patch、event、presence）。
-

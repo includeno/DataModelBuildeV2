@@ -149,6 +149,7 @@ class LoginRequest(BaseModel):
 class CreateProjectRequest(BaseModel):
     name: str
     description: Optional[str] = ""
+    orgId: Optional[str] = None
 
 
 class AddProjectMemberRequest(BaseModel):
@@ -157,6 +158,19 @@ class AddProjectMemberRequest(BaseModel):
 
 
 class UpdateProjectMemberRequest(BaseModel):
+    role: str
+
+
+class CreateOrganizationRequest(BaseModel):
+    name: str
+
+
+class AddOrganizationMemberRequest(BaseModel):
+    memberEmail: str
+    role: str = "member"
+
+
+class UpdateOrganizationMemberRequest(BaseModel):
     role: str
 
 
@@ -172,3 +186,7 @@ class CommitProjectStateRequest(BaseModel):
     state: Optional[Dict[str, Any]] = None
     clientOpId: Optional[str] = None
     patches: Optional[List[CommitPatch]] = None
+
+
+class RefreshTokenRequest(BaseModel):
+    refreshToken: str

@@ -35,6 +35,9 @@ def clean_data():
 
 
 def test_auth_register_login_and_me():
+    weak = _register("weak@example.com", password="12345678")
+    assert weak.status_code == 400
+
     reg = _register("owner@example.com", display_name="Owner")
     assert reg.status_code == 200
     assert reg.json()["user"]["email"] == "owner@example.com"
@@ -48,11 +51,18 @@ def test_auth_register_login_and_me():
     login = _login("owner@example.com")
     assert login.status_code == 200
     token = login.json()["accessToken"]
+    refresh = login.json()["refreshToken"]
     assert token
+    assert refresh
 
     me = client.get("/auth/me", headers=_auth_header(token))
     assert me.status_code == 200
     assert me.json()["email"] == "owner@example.com"
+
+    refreshed = client.post("/auth/refresh", json={"refreshToken": refresh})
+    assert refreshed.status_code == 200
+    assert refreshed.json()["accessToken"]
+    assert refreshed.json()["refreshToken"] == refresh
 
     out = client.post("/auth/logout", headers=_auth_header(token))
     assert out.status_code == 200
@@ -147,7 +157,8 @@ def test_phase1_project_membership_and_version_commit_conflict():
         headers=_auth_header(owner_token),
     )
     assert owner_stale_commit.status_code == 409
-    assert owner_stale_commit.json()["detail"]["latestVersion"] == 1
+    assert owner_stale_commit.json()["detail"]["code"] == "PROJECT_STATE_CONFLICT"
+    assert owner_stale_commit.json()["detail"]["data"]["latestVersion"] == 1
 
     owner_patch_commit = client.post(
         f"/projects/{project_id}/state/commit",
@@ -191,4 +202,3 @@ def test_phase1_project_membership_and_version_commit_conflict():
     versions = [e["version"] for e in events.json()["events"]]
     assert versions == [1, 2]
     assert events.json()["latestVersion"] == 2
-

@@ -23,9 +23,13 @@ from models import (
     RegisterRequest,
     LoginRequest,
     CreateProjectRequest,
+    CreateOrganizationRequest,
+    AddOrganizationMemberRequest,
+    UpdateOrganizationMemberRequest,
     AddProjectMemberRequest,
     UpdateProjectMemberRequest,
     CommitProjectStateRequest,
+    RefreshTokenRequest,
 )
 import storage as storage_module
 from storage import storage, resolve_data_subdir, to_data_relative, save_sessions_dir
@@ -143,19 +147,19 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> Dict[
     token = _extract_bearer_token(authorization)
     user = collab_storage.get_user_by_token(token or "")
     if not user:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+        raise HTTPException(status_code=401, detail={"code": "AUTH_UNAUTHORIZED", "message": "Unauthorized"})
     return user
 
 
 def _require_project_access(project_id: str, user_id: str, need_write: bool = False, need_manage: bool = False) -> Dict[str, Any]:
     project = collab_storage.get_project_for_user(project_id, user_id)
     if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise HTTPException(status_code=404, detail={"code": "PROJECT_NOT_FOUND", "message": "Project not found"})
     role = str(project.get("role") or "")
     if need_manage and role not in ("owner", "admin"):
-        raise HTTPException(status_code=403, detail="Insufficient project permission")
+        raise HTTPException(status_code=403, detail={"code": "PERM_PROJECT_MANAGE", "message": "Insufficient project permission"})
     if need_write and role not in ("owner", "admin", "editor"):
-        raise HTTPException(status_code=403, detail="Insufficient project permission")
+        raise HTTPException(status_code=403, detail={"code": "PERM_PROJECT_WRITE", "message": "Insufficient project permission"})
     return project
 
 
@@ -167,16 +171,24 @@ async def register(payload: RegisterRequest):
         user = collab_storage.register_user(payload.email, payload.password, payload.displayName or "")
         return {"user": user}
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail={"code": "AUTH_REGISTER_INVALID", "message": str(e)})
 
 
 @app.post("/auth/login")
 async def login(payload: LoginRequest):
     user = collab_storage.authenticate_user(payload.email, payload.password)
     if not user:
-        raise HTTPException(status_code=401, detail="Invalid email or password")
-    token = collab_storage.issue_token(user["id"])
-    return {**token, "user": user}
+        raise HTTPException(status_code=401, detail={"code": "AUTH_INVALID_CREDENTIALS", "message": "Invalid email or password"})
+    tokens = collab_storage.issue_auth_tokens(user["id"])
+    return {**tokens, "user": user}
+
+
+@app.post("/auth/refresh")
+async def refresh_token(payload: RefreshTokenRequest):
+    try:
+        return collab_storage.refresh_access_token(payload.refreshToken)
+    except ValueError as e:
+        raise HTTPException(status_code=401, detail={"code": "AUTH_REFRESH_INVALID", "message": str(e)})
 
 
 @app.post("/auth/logout")
@@ -192,12 +204,87 @@ async def get_auth_me(current_user: Dict[str, Any] = Depends(get_current_user)):
     return current_user
 
 
+@app.post("/organizations")
+async def create_organization(payload: CreateOrganizationRequest, current_user: Dict[str, Any] = Depends(get_current_user)):
+    try:
+        return collab_storage.create_organization(current_user["id"], payload.name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail={"code": "ORG_CREATE_INVALID", "message": str(e)})
+
+
+@app.get("/organizations")
+async def list_organizations(current_user: Dict[str, Any] = Depends(get_current_user)):
+    return collab_storage.list_organizations_for_user(current_user["id"])
+
+
+@app.get("/organizations/{organization_id}")
+async def get_organization(organization_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    org = collab_storage.get_organization_for_user(organization_id, current_user["id"])
+    if not org:
+        raise HTTPException(status_code=404, detail={"code": "ORG_NOT_FOUND", "message": "Organization not found"})
+    return org
+
+
+@app.get("/organizations/{organization_id}/members")
+async def list_organization_members(organization_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    try:
+        return collab_storage.list_organization_members(organization_id, current_user["id"])
+    except PermissionError:
+        raise HTTPException(status_code=403, detail={"code": "PERM_ORG_READ", "message": "Insufficient organization permission"})
+
+
+@app.post("/organizations/{organization_id}/members")
+async def add_organization_member(
+    organization_id: str,
+    payload: AddOrganizationMemberRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    try:
+        return collab_storage.add_organization_member(
+            organization_id,
+            current_user["id"],
+            payload.memberEmail,
+            payload.role,
+        )
+    except PermissionError:
+        raise HTTPException(status_code=403, detail={"code": "PERM_ORG_MANAGE", "message": "Insufficient organization permission"})
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail={"code": "ORG_MEMBER_INVALID", "message": str(e)})
+
+
+@app.patch("/organizations/{organization_id}/members/{member_user_id}")
+async def update_organization_member(
+    organization_id: str,
+    member_user_id: str,
+    payload: UpdateOrganizationMemberRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    try:
+        return collab_storage.update_organization_member_role(
+            organization_id,
+            current_user["id"],
+            member_user_id,
+            payload.role,
+        )
+    except PermissionError:
+        raise HTTPException(status_code=403, detail={"code": "PERM_ORG_MANAGE", "message": "Insufficient organization permission"})
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail={"code": "ORG_MEMBER_INVALID", "message": str(e)})
+
+
 @app.post("/projects")
 async def create_project(payload: CreateProjectRequest, current_user: Dict[str, Any] = Depends(get_current_user)):
     try:
-        return collab_storage.create_project(current_user["id"], payload.name, payload.description or "")
+        return collab_storage.create_project(
+            current_user["id"],
+            payload.name,
+            payload.description or "",
+            payload.orgId,
+        )
+    except PermissionError:
+        raise HTTPException(status_code=403, detail={"code": "PERM_ORG_WRITE", "message": "Insufficient organization permission"})
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail={"code": "PROJECT_CREATE_INVALID", "message": str(e)})
 
 
 @app.get("/projects")
@@ -205,12 +292,51 @@ async def list_projects(current_user: Dict[str, Any] = Depends(get_current_user)
     return collab_storage.list_projects_for_user(current_user["id"])
 
 
+@app.get("/projects/query")
+async def query_projects(
+    page: int = Query(1),
+    page_size: int = Query(20, alias="pageSize"),
+    search: str = Query(""),
+    include_archived: bool = Query(False, alias="includeArchived"),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    return collab_storage.search_projects_for_user(
+        current_user["id"],
+        page=page,
+        page_size=page_size,
+        search=search,
+        include_archived=include_archived,
+    )
+
+
 @app.get("/projects/{project_id}")
 async def get_project(project_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
     project = collab_storage.get_project_for_user(project_id, current_user["id"])
     if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise HTTPException(status_code=404, detail={"code": "PROJECT_NOT_FOUND", "message": "Project not found"})
     return project
+
+
+@app.post("/projects/{project_id}/archive")
+async def archive_project(project_id: str, payload: dict = Body(...), current_user: Dict[str, Any] = Depends(get_current_user)):
+    archived = bool(payload.get("archived", True))
+    try:
+        return collab_storage.archive_project(project_id, current_user["id"], archived)
+    except PermissionError:
+        raise HTTPException(status_code=403, detail={"code": "PERM_PROJECT_MANAGE", "message": "Insufficient project permission"})
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail={"code": "PROJECT_NOT_FOUND", "message": str(e)})
+
+
+@app.delete("/projects/{project_id}")
+async def delete_project(project_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    try:
+        collab_storage.soft_delete_project(project_id, current_user["id"])
+        return {"status": "ok"}
+    except PermissionError:
+        raise HTTPException(status_code=403, detail={"code": "PERM_PROJECT_MANAGE", "message": "Insufficient project permission"})
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail={"code": "PROJECT_NOT_FOUND", "message": str(e)})
 
 
 @app.get("/projects/{project_id}/members")
@@ -219,7 +345,7 @@ async def list_project_members(project_id: str, current_user: Dict[str, Any] = D
     try:
         return collab_storage.list_project_members(project_id, current_user["id"])
     except PermissionError:
-        raise HTTPException(status_code=403, detail="Insufficient project permission")
+        raise HTTPException(status_code=403, detail={"code": "PERM_PROJECT_READ", "message": "Insufficient project permission"})
 
 
 @app.post("/projects/{project_id}/members")
@@ -228,9 +354,9 @@ async def add_project_member(project_id: str, payload: AddProjectMemberRequest, 
     try:
         return collab_storage.add_project_member(project_id, current_user["id"], payload.memberEmail, payload.role)
     except PermissionError:
-        raise HTTPException(status_code=403, detail="Insufficient project permission")
+        raise HTTPException(status_code=403, detail={"code": "PERM_PROJECT_MANAGE", "message": "Insufficient project permission"})
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail={"code": "PROJECT_MEMBER_INVALID", "message": str(e)})
 
 
 @app.patch("/projects/{project_id}/members/{member_user_id}")
@@ -244,9 +370,9 @@ async def update_project_member(
     try:
         return collab_storage.update_project_member_role(project_id, current_user["id"], member_user_id, payload.role)
     except PermissionError:
-        raise HTTPException(status_code=403, detail="Insufficient project permission")
+        raise HTTPException(status_code=403, detail={"code": "PERM_PROJECT_MANAGE", "message": "Insufficient project permission"})
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail={"code": "PROJECT_MEMBER_INVALID", "message": str(e)})
 
 
 @app.get("/projects/{project_id}/state")
@@ -255,9 +381,9 @@ async def get_project_state(project_id: str, current_user: Dict[str, Any] = Depe
     try:
         return collab_storage.get_project_state(project_id, current_user["id"])
     except PermissionError:
-        raise HTTPException(status_code=403, detail="Insufficient project permission")
+        raise HTTPException(status_code=403, detail={"code": "PERM_PROJECT_READ", "message": "Insufficient project permission"})
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail={"code": "PROJECT_STATE_NOT_FOUND", "message": str(e)})
 
 
 @app.post("/projects/{project_id}/state/commit")
@@ -287,12 +413,12 @@ async def commit_project_state(
             patches=raw_patches,
         )
     except PermissionError:
-        raise HTTPException(status_code=403, detail="Insufficient project permission")
+        raise HTTPException(status_code=403, detail={"code": "PERM_PROJECT_WRITE", "message": "Insufficient project permission"})
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail={"code": "PROJECT_COMMIT_INVALID", "message": str(e)})
 
     if result.get("conflict"):
-        raise HTTPException(status_code=409, detail=result)
+        raise HTTPException(status_code=409, detail={"code": "PROJECT_STATE_CONFLICT", "message": "Version conflict", "data": result})
     return result
 
 
@@ -307,7 +433,7 @@ async def list_project_events(
     try:
         return collab_storage.list_project_events(project_id, current_user["id"], from_version=from_version, limit=limit)
     except PermissionError:
-        raise HTTPException(status_code=403, detail="Insufficient project permission")
+        raise HTTPException(status_code=403, detail={"code": "PERM_PROJECT_READ", "message": "Insufficient project permission"})
 
 @app.get("/sessions")
 async def list_sessions():
