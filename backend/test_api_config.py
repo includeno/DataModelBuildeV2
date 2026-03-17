@@ -42,6 +42,42 @@ def test_default_server_from_file(monkeypatch, tmp_path: Path):
     assert payload["isMock"] is False
 
 
+def test_auth_config_defaults_enabled():
+    res = client.get("/config/auth")
+    assert res.status_code == 200
+    payload = res.json()
+    assert payload["authEnabled"] is True
+    assert payload["authRequired"] is True
+    assert payload["mode"] == "required"
+
+
+def test_auth_disabled_mode_blocks_auth_endpoints(monkeypatch):
+    monkeypatch.setenv("BACKEND_AUTH_ENABLED", "0")
+
+    cfg = client.get("/config/auth")
+    assert cfg.status_code == 200
+    payload = cfg.json()
+    assert payload["authEnabled"] is False
+    assert payload["authRequired"] is False
+    assert payload["mode"] == "disabled"
+
+    default_cfg = client.get("/config/default_server")
+    assert default_cfg.status_code == 200
+    assert default_cfg.json()["authEnabled"] is False
+
+    reg = client.post("/auth/register", json={"email": "noauth@example.com", "password": "Passw0rd!"})
+    assert reg.status_code == 404
+    assert reg.json()["detail"]["code"] == "AUTH_DISABLED"
+
+    login = client.post("/auth/login", json={"email": "noauth@example.com", "password": "Passw0rd!"})
+    assert login.status_code == 404
+    assert login.json()["detail"]["code"] == "AUTH_DISABLED"
+
+    me = client.get("/auth/me")
+    assert me.status_code == 404
+    assert me.json()["detail"]["code"] == "AUTH_DISABLED"
+
+
 def test_dataset_preview_endpoint():
     session_id = client.post("/sessions").json()["sessionId"]
     csv_content = "id,name\n1,Alice\n2,Bob"

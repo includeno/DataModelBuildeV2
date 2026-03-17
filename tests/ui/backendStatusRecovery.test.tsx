@@ -54,18 +54,18 @@ describe('Backend status recovery (UI)', () => {
       await flushPromises();
     });
 
-    const badgeOffline = container.querySelector('[title^="Backend Status:"]') as HTMLElement | null;
+    const badgeOffline = container.querySelector('[title^="Connected Server:"]') as HTMLElement | null;
     expect(badgeOffline).toBeTruthy();
-    expect(badgeOffline!.getAttribute('title')).toContain('Offline');
+    expect(badgeOffline!.getAttribute('title')).toContain('已断开');
 
     await act(async () => {
       vi.advanceTimersByTime(10000);
       await flushPromises();
     });
 
-    const badgeOnline = container.querySelector('[title^="Backend Status:"]') as HTMLElement | null;
+    const badgeOnline = container.querySelector('[title^="Connected Server:"]') as HTMLElement | null;
     expect(badgeOnline).toBeTruthy();
-    expect(badgeOnline!.getAttribute('title')).toContain('Localhost');
+    expect(badgeOnline!.getAttribute('title')).toContain('已连接');
   });
 
   it('shows mock status when default server is mockServer', async () => {
@@ -92,8 +92,8 @@ describe('Backend status recovery (UI)', () => {
       await flushPromises();
     });
 
-    const badge = container.querySelector('[title^="Backend Status:"]') as HTMLElement | null;
+    const badge = container.querySelector('[title^="Connected Server:"]') as HTMLElement | null;
     expect(badge).toBeTruthy();
-    expect(badge!.getAttribute('title')).toContain('Mock Server');
+    expect(badge!.getAttribute('title')).toContain('Mock Mode');
   });
 });

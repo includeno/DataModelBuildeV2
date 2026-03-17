@@ -16,10 +16,12 @@ describe('api auth client', () => {
   beforeEach(() => {
     api.clearAuthTokens();
     api.setAuthStorageMode('local_storage');
+    api.setAuthApiEnabled(true);
   });
 
   afterEach(() => {
     api.clearAuthTokens();
+    api.setAuthApiEnabled(true);
     vi.restoreAllMocks();
     global.fetch = REAL_FETCH;
   });

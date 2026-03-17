@@ -62,6 +62,8 @@ def _load_cors_origins() -> List[str]:
     return [
         "http://127.0.0.1:5173",
         "http://localhost:5173",
+        "http://127.0.0.1:1420",
+        "http://localhost:1420",
         "http://127.0.0.1:4173",
         "http://localhost:4173",
     ]
@@ -80,6 +82,24 @@ app.add_middleware(
 engine = ExecutionEngine()
 
 DEFAULT_SERVER_FILE = os.path.join(os.path.dirname(__file__), "default_server.json")
+
+
+def _is_auth_enabled() -> bool:
+    raw = (
+        os.environ.get("BACKEND_AUTH_ENABLED")
+        or os.environ.get("BACKEND_AUTH_REQUIRED")
+        or "1"
+    )
+    return str(raw).strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _ensure_auth_enabled() -> None:
+    if _is_auth_enabled():
+        return
+    raise HTTPException(
+        status_code=404,
+        detail={"code": "AUTH_DISABLED", "message": "Authentication endpoints are disabled"},
+    )
 
 def load_default_server() -> str:
     if not os.path.exists(DEFAULT_SERVER_FILE):
@@ -162,6 +182,13 @@ def _extract_bearer_token(authorization: Optional[str]) -> Optional[str]:
 
 
 async def get_current_user(authorization: Optional[str] = Header(None)) -> Dict[str, Any]:
+    if not _is_auth_enabled():
+        return {
+            "id": "usr_auth_disabled",
+            "email": "auth-disabled@local",
+            "displayName": "Auth Disabled",
+            "authDisabled": True,
+        }
     token = _extract_bearer_token(authorization)
     user = collab_storage.get_user_by_token(token or "")
     if not user:
@@ -190,6 +217,7 @@ def _ensure_project_runtime_session(project_id: str) -> None:
 
 @app.post("/auth/register")
 async def register(payload: RegisterRequest):
+    _ensure_auth_enabled()
     try:
         user = collab_storage.register_user(payload.email, payload.password, payload.displayName or "")
         return {"user": user}
@@ -199,6 +227,7 @@ async def register(payload: RegisterRequest):
 
 @app.post("/auth/login")
 async def login(payload: LoginRequest):
+    _ensure_auth_enabled()
     user = collab_storage.authenticate_user(payload.email, payload.password)
     if not user:
         raise HTTPException(status_code=401, detail={"code": "AUTH_INVALID_CREDENTIALS", "message": "Invalid email or password"})
@@ -208,6 +237,7 @@ async def login(payload: LoginRequest):
 
 @app.post("/auth/refresh")
 async def refresh_token(payload: RefreshTokenRequest):
+    _ensure_auth_enabled()
     try:
         return collab_storage.refresh_access_token(payload.refreshToken)
     except ValueError as e:
@@ -216,6 +246,7 @@ async def refresh_token(payload: RefreshTokenRequest):
 
 @app.post("/auth/logout")
 async def logout(current_user: Dict[str, Any] = Depends(get_current_user), authorization: Optional[str] = Header(None)):
+    _ensure_auth_enabled()
     token = _extract_bearer_token(authorization)
     if token:
         collab_storage.revoke_token(token)
@@ -224,6 +255,7 @@ async def logout(current_user: Dict[str, Any] = Depends(get_current_user), autho
 
 @app.get("/auth/me")
 async def get_auth_me(current_user: Dict[str, Any] = Depends(get_current_user)):
+    _ensure_auth_enabled()
     return current_user
 
 
@@ -641,7 +673,23 @@ async def list_sessions():
 @app.get("/config/default_server")
 async def get_default_server():
     server = load_default_server()
-    return {"server": server, "isMock": server == "mockServer"}
+    auth_enabled = _is_auth_enabled()
+    return {
+        "server": server,
+        "isMock": server == "mockServer",
+        "authEnabled": auth_enabled,
+        "authRequired": auth_enabled,
+    }
+
+
+@app.get("/config/auth")
+async def get_auth_config():
+    auth_enabled = _is_auth_enabled()
+    return {
+        "authEnabled": auth_enabled,
+        "authRequired": auth_enabled,
+        "mode": "required" if auth_enabled else "disabled",
+    }
 
 @app.get("/config/session_storage")
 async def get_session_storage():

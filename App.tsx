@@ -57,6 +57,12 @@ type PersistedConnectionState = {
   savedAt: number;
 };
 
+const parseAuthEnabled = (payload: any, fallback = true): boolean => {
+  if (typeof payload?.authEnabled === 'boolean') return payload.authEnabled;
+  if (typeof payload?.authRequired === 'boolean') return payload.authRequired;
+  return fallback;
+};
+
 const isConnectionPersistenceEnabled = (): boolean => {
   if (typeof window === 'undefined' || !window.localStorage) return false;
   const userAgent = typeof navigator !== 'undefined' ? String(navigator.userAgent || '') : '';
@@ -131,6 +137,8 @@ function App() {
   const [authRequired, setAuthRequired] = useState(false);
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [authEnabled, setAuthEnabled] = useState(true);
+  const [authModeReady, setAuthModeReady] = useState(false);
   
   // Configuration State
   const [apiConfig, setApiConfig] = useState<ApiConfig>({ baseUrl: 'mockServer', isMock: true });
@@ -203,9 +211,9 @@ function App() {
      return schema;
   }, [datasets]);
   const isAuthenticated = useMemo(() => {
-    if (apiConfig.isMock) return false;
+    if (apiConfig.isMock || !authEnabled) return false;
     return authChecked && !authChecking && !authRequired;
-  }, [apiConfig.isMock, authChecked, authChecking, authRequired]);
+  }, [apiConfig.isMock, authEnabled, authChecked, authChecking, authRequired]);
 
 
   // --- INITIALIZATION ---
@@ -223,6 +231,9 @@ function App() {
                       persisted.apiConfig.baseUrl,
                   ].filter(Boolean)));
                   setKnownServers(mergedServers);
+                  const initialAuthEnabled = !persisted.apiConfig.isMock;
+                  setAuthEnabled(initialAuthEnabled);
+                  api.setAuthApiEnabled(initialAuthEnabled);
                   setConfigReady(true);
               }
               return;
@@ -233,8 +244,11 @@ function App() {
               const data = await res.json();
               const server = typeof data?.server === 'string' ? data.server : 'mockServer';
               const isMock = server === 'mockServer';
+              const nextAuthEnabled = isMock ? false : parseAuthEnabled(data, true);
               if (!cancelled) {
                   setApiConfig({ baseUrl: server, isMock });
+                  setAuthEnabled(nextAuthEnabled);
+                  api.setAuthApiEnabled(nextAuthEnabled);
                   if (server) {
                       setKnownServers(prev => prev.includes(server) ? prev : [...prev, server]);
                   }
@@ -250,10 +264,10 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!configReady || !authChecked) return;
-    if (!apiConfig.isMock && authRequired) return;
+    if (!configReady || !authModeReady || !authChecked) return;
+    if (!apiConfig.isMock && authEnabled && authRequired) return;
     fetchSessions();
-  }, [apiConfig, configReady, authChecked, authRequired]);
+  }, [apiConfig, configReady, authModeReady, authChecked, authEnabled, authRequired]);
 
   useEffect(() => {
     if (!configReady) return;
@@ -261,8 +275,57 @@ function App() {
   }, [apiConfig, knownServers, configReady]);
 
   useEffect(() => {
-    if (!configReady) return;
-    if (apiConfig.isMock) {
+    let cancelled = false;
+    const detectAuthMode = async () => {
+      if (!configReady) return;
+      if (apiConfig.isMock) {
+        if (!cancelled) {
+          setAuthEnabled(false);
+          api.setAuthApiEnabled(false);
+          setAuthModeReady(true);
+          setAuthChecking(false);
+          setAuthChecked(true);
+          setAuthRequired(false);
+          setAuthLoading(false);
+          setAuthError(null);
+        }
+        return;
+      }
+      if (!cancelled) setAuthModeReady(false);
+      try {
+        const res = await fetch(`${apiConfig.baseUrl}/config/auth`, { credentials: 'include' });
+        const payload = res.ok ? await res.json() : null;
+        const enabled = parseAuthEnabled(payload, true);
+        if (!cancelled) {
+          setAuthEnabled(enabled);
+          api.setAuthApiEnabled(enabled);
+          setAuthModeReady(true);
+          if (!enabled) {
+            setAuthChecking(false);
+            setAuthChecked(true);
+            setAuthRequired(false);
+            setAuthLoading(false);
+            setAuthError(null);
+          }
+        }
+      } catch {
+        if (!cancelled) {
+          // Secure fallback: require auth when server auth config is unavailable.
+          setAuthEnabled(true);
+          api.setAuthApiEnabled(true);
+          setAuthModeReady(true);
+        }
+      }
+    };
+    detectAuthMode();
+    return () => {
+      cancelled = true;
+    };
+  }, [configReady, apiConfig.baseUrl, apiConfig.isMock]);
+
+  useEffect(() => {
+    if (!configReady || !authModeReady) return;
+    if (apiConfig.isMock || !authEnabled) {
       setAuthChecking(false);
       setAuthChecked(true);
       setAuthRequired(false);
@@ -311,7 +374,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [apiConfig.baseUrl, apiConfig.isMock, configReady, backendStatus]);
+  }, [apiConfig.baseUrl, apiConfig.isMock, configReady, backendStatus, authModeReady, authEnabled]);
 
   useEffect(() => {
       if (!isSettingsOpen) return;
@@ -447,6 +510,14 @@ function App() {
   };
 
   const handleLogin = async (email: string, password: string) => {
+      if (!authEnabled) {
+          setAuthRequired(false);
+          setAuthChecked(true);
+          setAuthChecking(false);
+          setAuthLoading(false);
+          setAuthError(null);
+          return;
+      }
       setAuthLoading(true);
       setAuthError(null);
       try {
@@ -469,11 +540,14 @@ function App() {
       setAuthChecking(false);
       setAuthLoading(false);
       setAuthError(null);
+      setAuthEnabled(false);
+      setAuthModeReady(true);
+      api.setAuthApiEnabled(false);
       setApiConfig({ baseUrl: 'mockServer', isMock: true });
   };
 
   const handleLogout = async () => {
-      if (apiConfig.isMock) return;
+      if (apiConfig.isMock || !authEnabled) return;
       setAuthLoading(true);
       let logoutMessage: string | null = null;
       try {
@@ -1086,7 +1160,7 @@ function App() {
       }
   };
 
-  if (!apiConfig.isMock && authChecking) {
+  if (!apiConfig.isMock && (authChecking || !authModeReady)) {
     return (
       <div className="h-screen w-screen flex items-center justify-center bg-slate-100 text-slate-700">
         验证登录状态中...
@@ -1094,7 +1168,7 @@ function App() {
     );
   }
 
-  if (!apiConfig.isMock && authRequired) {
+  if (!apiConfig.isMock && authEnabled && authRequired) {
     return (
       <LoginPage
         backendLabel={apiConfig.baseUrl}
@@ -1127,6 +1201,7 @@ function App() {
         onToggleRightPanel={() => setIsRightPanelOpen(!isRightPanelOpen)}
         onToggleMobileSidebar={() => setIsMobileSidebarOpen(!isMobileSidebarOpen)}
         isAuthenticated={isAuthenticated}
+        authEnabled={authEnabled}
         authChecking={authChecking}
         authError={authError}
         onLogout={handleLogout}

@@ -75,11 +75,11 @@ async function setStepDataset(step: Locator, datasetPartial: string) {
 async function ensureBackendAndStorage(page: Page) {
   await page.getByRole('button', { name: /Global Settings/i }).click();
   await page.getByText('http://localhost:8000').click();
-  const backendBadge = page.locator('[title^="Backend Status:"]');
+  const backendBadge = page.locator('[title^="Connected Server:"]');
   await expect(backendBadge).toBeVisible();
   await expect
     .poll(async () => (await backendBadge.getAttribute('title')) || '')
-    .toContain('Localhost');
+    .toContain('已连接');
   const storageSection = page.getByRole('heading', { name: 'Session Storage' }).locator('..').locator('..');
   const storageOption = storageSection.locator('div.cursor-pointer', { hasText: 'test_sessions' });
   await expect(storageOption).toBeVisible();

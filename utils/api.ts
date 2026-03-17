@@ -729,6 +729,7 @@ type AuthStorageMode = 'cookie_preferred' | 'local_storage';
 const AUTH_STORAGE_KEY = 'dmb_auth_tokens_v1';
 let AUTH_STORAGE_MODE: AuthStorageMode = 'cookie_preferred';
 let RUNTIME_AUTH: AuthTokens | null = null;
+let AUTH_API_ENABLED = true;
 
 const loadStoredAuth = (): AuthTokens | null => {
     try {
@@ -792,7 +793,7 @@ const requestJson = async (config: ApiConfig, endpoint: string, init?: RequestIn
         headers: headersWithAuth(init?.headers)
     });
 
-    if (res.status !== 401 || !allowRefresh || config.isMock) return res;
+    if (res.status !== 401 || !allowRefresh || config.isMock || !AUTH_API_ENABLED) return res;
     const auth = getAuth();
     if (!auth?.refreshToken) return res;
 
@@ -830,6 +831,15 @@ const requestJson = async (config: ApiConfig, endpoint: string, init?: RequestIn
 };
 
 export const api = {
+    setAuthApiEnabled(enabled: boolean) {
+        AUTH_API_ENABLED = enabled;
+        if (!enabled) {
+            setAuth(null);
+        }
+    },
+    isAuthApiEnabled(): boolean {
+        return AUTH_API_ENABLED;
+    },
     setAuthStorageMode(mode: AuthStorageMode) {
         AUTH_STORAGE_MODE = mode;
     },
@@ -843,6 +853,7 @@ export const api = {
         setAuth(null);
     },
     async authRegister(config: ApiConfig, payload: { email: string; password: string; displayName?: string }) {
+        if (!AUTH_API_ENABLED) throw new Error('Authentication is disabled on this server');
         const res = await fetch(`${config.baseUrl}/auth/register`, {
             method: 'POST',
             credentials: 'include',
@@ -854,6 +865,7 @@ export const api = {
         return body;
     },
     async authLogin(config: ApiConfig, payload: { email: string; password: string }) {
+        if (!AUTH_API_ENABLED) throw new Error('Authentication is disabled on this server');
         const res = await fetch(`${config.baseUrl}/auth/login`, {
             method: 'POST',
             credentials: 'include',
@@ -868,6 +880,7 @@ export const api = {
         return body;
     },
     async authMe(config: ApiConfig) {
+        if (!AUTH_API_ENABLED) throw new Error('Authentication is disabled on this server');
         const res = await requestJson(config, '/auth/me', { method: 'GET' });
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
@@ -876,6 +889,10 @@ export const api = {
         return res.json();
     },
     async authLogout(config: ApiConfig) {
+        if (!AUTH_API_ENABLED) {
+            setAuth(null);
+            return { status: 'skipped', reason: 'auth_disabled' };
+        }
         const res = await requestJson(config, '/auth/logout', { method: 'POST' }, false);
         setAuth(null);
         if (!res.ok) throw new Error(`API Error: ${res.statusText}`);

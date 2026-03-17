@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { GitBranch, ChevronDown, Clock, Check, Trash2, Plus, Layers, Terminal, Server, Play, PanelRight, Settings, Menu, SlidersHorizontal, Activity, Table as TableIcon, LogOut } from 'lucide-react';
+import { GitBranch, ChevronDown, Clock, Check, Trash2, Plus, Layers, Terminal, Play, PanelRight, Settings, Menu, SlidersHorizontal, Activity, Table as TableIcon, LogOut } from 'lucide-react';
 import { SessionMetadata, ApiConfig } from '../types';
 import { Button } from './Button';
 
@@ -22,6 +22,7 @@ interface TopBarProps {
   onRunSql: () => void;
   onToggleRightPanel: () => void;
   onToggleMobileSidebar: () => void;
+  authEnabled?: boolean;
   isAuthenticated?: boolean;
   authChecking?: boolean;
   authError?: string | null;
@@ -47,6 +48,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   onRunSql,
   onToggleRightPanel,
   onToggleMobileSidebar,
+  authEnabled = true,
   isAuthenticated = false,
   authChecking = false,
   authError = null,
@@ -54,14 +56,6 @@ export const TopBar: React.FC<TopBarProps> = ({
   canExecute = true
 }) => {
   const [isSessionMenuOpen, setIsSessionMenuOpen] = useState(false);
-  const isBackendOnline = backendStatus === 'online' || backendStatus === 'mock';
-  const backendLabel = backendStatus === 'mock'
-      ? 'Mock Server'
-      : backendStatus === 'online'
-          ? (apiConfig.baseUrl.includes('localhost') ? 'Localhost' : 'Backend')
-          : backendStatus === 'offline'
-              ? 'Offline'
-              : 'Checking';
   const connectionLabel = apiConfig.isMock
       ? 'Mock Mode'
       : backendStatus === 'online'
@@ -69,14 +63,14 @@ export const TopBar: React.FC<TopBarProps> = ({
           : backendStatus === 'offline'
               ? '已断开'
               : '连接中';
-  const authLabel = apiConfig.isMock
+  const authLabel = apiConfig.isMock || !authEnabled
       ? '免登录'
       : authChecking
           ? '认证检查中'
           : isAuthenticated
               ? '已登录'
               : '未登录';
-  const canShowLogout = !apiConfig.isMock && isAuthenticated && typeof onLogout === 'function';
+  const canShowLogout = !apiConfig.isMock && authEnabled && isAuthenticated && typeof onLogout === 'function';
   const connectedServerTitle = `Connected Server: ${apiConfig.baseUrl || 'N/A'} (${connectionLabel}, ${authLabel}${authError ? `, ${authError}` : ''})`;
 
   return (
@@ -263,23 +257,6 @@ export const TopBar: React.FC<TopBarProps> = ({
         </div>
 
         <div className="flex items-center space-x-2">
-             {/* Server Status Badge */}
-             <div 
-                className={`flex items-center px-2 md:px-3 py-1.5 text-xs font-medium rounded-full border cursor-default select-none ${
-                    backendStatus === 'mock'
-                    ? 'bg-yellow-50 text-yellow-700 border-yellow-200'
-                    : backendStatus === 'online'
-                        ? 'bg-green-50 text-green-700 border-green-200'
-                        : backendStatus === 'offline'
-                            ? 'bg-red-50 text-red-700 border-red-200'
-                            : 'bg-gray-50 text-gray-600 border-gray-200'
-                }`}
-                title={`Backend Status: ${backendLabel}${apiConfig.baseUrl ? ` (${apiConfig.baseUrl})` : ''}`}
-             >
-                <Server className={`w-3 h-3 md:mr-1.5 ${isBackendOnline ? '' : 'opacity-70'}`} />
-                <span className="hidden md:inline">{backendLabel}</span>
-             </div>
-
              <div
                 className={`hidden md:flex items-center max-w-[320px] px-3 py-1.5 text-xs font-medium rounded-full border cursor-default select-none ${
                     backendStatus === 'online'

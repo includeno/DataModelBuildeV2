@@ -81,6 +81,20 @@ export const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClos
     }
   };
 
+  const openFilePicker = () => {
+    if (!inputRef.current) return;
+    const input = inputRef.current as HTMLInputElement & { showPicker?: () => void };
+    if (typeof input.showPicker === 'function') {
+      try {
+        input.showPicker();
+        return;
+      } catch {
+        // Fall back to click for environments where showPicker exists but is restricted.
+      }
+    }
+    input.click();
+  };
+
   const processFileSelection = (file: File) => {
       setSelectedFile(file);
       // Default name: remove extension
@@ -153,23 +167,34 @@ export const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClos
 
             {!selectedFile ? (
                 <div 
+                    data-testid="data-import-dropzone"
                     className={`relative flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-xl transition-all duration-200 cursor-pointer ${
                         dragActive 
                         ? "border-blue-500 bg-blue-50 scale-[1.02]" 
                         : "border-gray-300 bg-gray-50 hover:bg-gray-100 hover:border-gray-400"
                     }`}
+                    role="button"
+                    tabIndex={0}
+                    onClick={openFilePicker}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        openFilePicker();
+                      }
+                    }}
                     onDragEnter={handleDrag}
                     onDragLeave={handleDrag}
                     onDragOver={handleDrag}
                     onDrop={handleDrop}
-                    onClick={() => inputRef.current?.click()}
                 >
                     <input 
+                        data-testid="data-import-file-input"
                         ref={inputRef}
                         type="file" 
-                        className="hidden"
+                        className="sr-only"
                         onChange={handleChange}
                         accept=".csv,.xlsx,.xls,.parquet,.pq"
+                        aria-label="Upload file"
                     />
                     
                     <div className="flex flex-col items-center text-gray-500">
