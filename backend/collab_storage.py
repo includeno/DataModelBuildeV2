@@ -185,6 +185,31 @@ class CollabStorage:
                 CREATE INDEX IF NOT EXISTS idx_dataset_assets_project_table
                 ON dataset_assets(project_id, table_name, deleted_at, dataset_version);
 
+                CREATE TABLE IF NOT EXISTS jobs (
+                    id TEXT PRIMARY KEY,
+                    project_id TEXT NOT NULL,
+                    job_type TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    progress INTEGER NOT NULL DEFAULT 0,
+                    payload_json TEXT NOT NULL DEFAULT '{}',
+                    result_json TEXT,
+                    error_code TEXT,
+                    error_category TEXT,
+                    error_message TEXT,
+                    cancel_requested INTEGER NOT NULL DEFAULT 0,
+                    created_by TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL,
+                    started_at INTEGER,
+                    finished_at INTEGER,
+                    FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+                    FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE RESTRICT
+                );
+                CREATE INDEX IF NOT EXISTS idx_jobs_project_status
+                ON jobs(project_id, status, created_at);
+                CREATE INDEX IF NOT EXISTS idx_jobs_status_created
+                ON jobs(status, created_at);
+
                 CREATE TABLE IF NOT EXISTS project_states (
                     project_id TEXT PRIMARY KEY,
                     version INTEGER NOT NULL DEFAULT 0,
@@ -279,6 +304,44 @@ class CollabStorage:
             "deletedAt": row["deleted_at"],
         }
 
+    def _row_to_job(self, row: sqlite3.Row) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {}
+        result: Optional[Dict[str, Any]] = None
+        try:
+            payload = json.loads(row["payload_json"] or "{}")
+        except Exception:
+            payload = {}
+        if row["result_json"]:
+            try:
+                result = json.loads(row["result_json"])
+            except Exception:
+                result = {"raw": row["result_json"]}
+        job = {
+            "id": row["id"],
+            "projectId": row["project_id"],
+            "type": row["job_type"],
+            "status": row["status"],
+            "progress": int(row["progress"] or 0),
+            "payload": payload,
+            "result": result,
+            "error": None,
+            "cancelRequested": bool(row["cancel_requested"]),
+            "createdBy": row["created_by"],
+            "createdAt": row["created_at"],
+            "updatedAt": row["updated_at"],
+            "startedAt": row["started_at"],
+            "finishedAt": row["finished_at"],
+        }
+        if row["error_code"] or row["error_message"]:
+            job["error"] = {
+                "code": row["error_code"],
+                "category": row["error_category"],
+                "message": row["error_message"],
+            }
+        if isinstance(result, dict) and result.get("downloadUrl"):
+            job["downloadUrl"] = result["downloadUrl"]
+        return job
+
     def _get_default_org_for_user(self, conn: sqlite3.Connection, user_id: str) -> Optional[str]:
         row = conn.execute(
             """
@@ -364,6 +427,7 @@ class CollabStorage:
                 DELETE FROM auth_tokens;
                 DELETE FROM project_events;
                 DELETE FROM dataset_assets;
+                DELETE FROM jobs;
                 DELETE FROM project_states;
                 DELETE FROM project_members;
                 DELETE FROM projects;
@@ -1372,6 +1436,239 @@ class CollabStorage:
             updated = conn.execute("SELECT * FROM dataset_assets WHERE id = ?", (row["id"],)).fetchone()
             conn.execute("UPDATE projects SET updated_at = ? WHERE id = ?", (now, project_id))
             return self._row_to_dataset_asset(updated)
+
+    # --- Project jobs ---
+
+    def create_project_job(
+        self,
+        project_id: str,
+        user_id: str,
+        *,
+        job_type: str,
+        payload: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        now = _now_ms()
+        job_id = f"job_{uuid.uuid4().hex[:12]}"
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                role = self._get_project_role(conn, project_id, user_id)
+                if role not in WRITE_PROJECT_ROLES:
+                    raise PermissionError("permission denied")
+                project = conn.execute(
+                    "SELECT id FROM projects WHERE id = ? AND deleted_at IS NULL",
+                    (project_id,),
+                ).fetchone()
+                if not project:
+                    raise ValueError("project not found")
+                conn.execute(
+                    """
+                    INSERT INTO jobs (
+                        id, project_id, job_type, status, progress, payload_json, result_json,
+                        error_code, error_category, error_message, cancel_requested,
+                        created_by, created_at, updated_at, started_at, finished_at
+                    )
+                    VALUES (?, ?, ?, 'queued', 0, ?, NULL, NULL, NULL, NULL, 0, ?, ?, ?, NULL, NULL)
+                    """,
+                    (
+                        job_id,
+                        project_id,
+                        (job_type or "").strip() or "execute",
+                        json.dumps(payload or {}, ensure_ascii=False),
+                        user_id,
+                        now,
+                        now,
+                    ),
+                )
+                conn.execute("UPDATE projects SET updated_at = ? WHERE id = ?", (now, project_id))
+                row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+                conn.execute("COMMIT")
+                return self._row_to_job(row)
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+
+    def list_project_jobs(self, project_id: str, user_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            role = self._get_project_role(conn, project_id, user_id)
+            if not role:
+                raise PermissionError("permission denied")
+            rows = conn.execute(
+                """
+                SELECT *
+                FROM jobs
+                WHERE project_id = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (project_id, max(1, int(limit or 50))),
+            ).fetchall()
+            return [self._row_to_job(row) for row in rows]
+
+    def get_project_job_for_user(self, job_id: str, user_id: str) -> Dict[str, Any]:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+            if not row:
+                raise ValueError("job not found")
+            role = self._get_project_role(conn, row["project_id"], user_id)
+            if not role:
+                raise PermissionError("permission denied")
+            return self._row_to_job(row)
+
+    def get_project_job_internal(self, job_id: str) -> Optional[Dict[str, Any]]:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+            return self._row_to_job(row) if row else None
+
+    def claim_next_project_job(self, *, max_running_per_project: int = 1) -> Optional[Dict[str, Any]]:
+        now = _now_ms()
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                rows = conn.execute(
+                    """
+                    SELECT *
+                    FROM jobs
+                    WHERE status = 'queued' AND cancel_requested = 0
+                    ORDER BY created_at ASC
+                    """,
+                ).fetchall()
+                selected = None
+                for row in rows:
+                    running_count = conn.execute(
+                        "SELECT COUNT(1) AS cnt FROM jobs WHERE project_id = ? AND status = 'running'",
+                        (row["project_id"],),
+                    ).fetchone()
+                    if int((running_count or {"cnt": 0})["cnt"]) >= max(1, int(max_running_per_project or 1)):
+                        continue
+                    selected = row
+                    break
+                if not selected:
+                    conn.execute("COMMIT")
+                    return None
+                conn.execute(
+                    """
+                    UPDATE jobs
+                    SET status = 'running', progress = CASE WHEN progress < 5 THEN 5 ELSE progress END,
+                        started_at = COALESCE(started_at, ?), updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (now, now, selected["id"]),
+                )
+                row = conn.execute("SELECT * FROM jobs WHERE id = ?", (selected["id"],)).fetchone()
+                conn.execute("COMMIT")
+                return self._row_to_job(row)
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+
+    def update_project_job_progress(self, job_id: str, progress: int, status: Optional[str] = None) -> Dict[str, Any]:
+        now = _now_ms()
+        clean_progress = max(0, min(100, int(progress or 0)))
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+            if not row:
+                raise ValueError("job not found")
+            next_status = status or row["status"]
+            conn.execute(
+                "UPDATE jobs SET progress = ?, status = ?, updated_at = ? WHERE id = ?",
+                (clean_progress, next_status, now, job_id),
+            )
+            updated = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+            return self._row_to_job(updated)
+
+    def complete_project_job(self, job_id: str, result: Dict[str, Any]) -> Dict[str, Any]:
+        now = _now_ms()
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+            if not row:
+                raise ValueError("job not found")
+            conn.execute(
+                """
+                UPDATE jobs
+                SET status = 'completed', progress = 100, result_json = ?, error_code = NULL,
+                    error_category = NULL, error_message = NULL, updated_at = ?, finished_at = ?
+                WHERE id = ?
+                """,
+                (json.dumps(result or {}, ensure_ascii=False), now, now, job_id),
+            )
+            updated = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+            return self._row_to_job(updated)
+
+    def fail_project_job(
+        self,
+        job_id: str,
+        *,
+        error_code: str,
+        error_category: str,
+        error_message: str,
+    ) -> Dict[str, Any]:
+        now = _now_ms()
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+            if not row:
+                raise ValueError("job not found")
+            conn.execute(
+                """
+                UPDATE jobs
+                SET status = 'failed', error_code = ?, error_category = ?, error_message = ?,
+                    updated_at = ?, finished_at = ?
+                WHERE id = ?
+                """,
+                (error_code, error_category, error_message, now, now, job_id),
+            )
+            updated = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+            return self._row_to_job(updated)
+
+    def cancel_project_job(self, job_id: str, user_id: str) -> Dict[str, Any]:
+        now = _now_ms()
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+                if not row:
+                    raise ValueError("job not found")
+                role = self._get_project_role(conn, row["project_id"], user_id)
+                if role not in WRITE_PROJECT_ROLES:
+                    raise PermissionError("permission denied")
+                status = row["status"]
+                if status in ("completed", "failed", "canceled"):
+                    updated = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+                    conn.execute("COMMIT")
+                    return self._row_to_job(updated)
+                next_status = "canceled" if status == "queued" else status
+                finished_at = now if status == "queued" else row["finished_at"]
+                conn.execute(
+                    """
+                    UPDATE jobs
+                    SET cancel_requested = 1, status = ?, updated_at = ?, finished_at = ?
+                    WHERE id = ?
+                    """,
+                    (next_status, now, finished_at, job_id),
+                )
+                updated = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+                conn.execute("COMMIT")
+                return self._row_to_job(updated)
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+
+    def mark_project_job_canceled(self, job_id: str) -> Dict[str, Any]:
+        now = _now_ms()
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+            if not row:
+                raise ValueError("job not found")
+            conn.execute(
+                """
+                UPDATE jobs
+                SET status = 'canceled', updated_at = ?, finished_at = ?
+                WHERE id = ?
+                """,
+                (now, now, job_id),
+            )
+            updated = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+            return self._row_to_job(updated)
 
     # --- Project state / events ---
 

@@ -1,5 +1,10 @@
 
 from pydantic import BaseModel, Field
+try:
+    from pydantic import model_validator
+except ImportError:  # pragma: no cover - pydantic v1 fallback
+    model_validator = None
+    from pydantic import root_validator
 from typing import List, Any, Optional, Dict, Union
 
 class FieldInfo(BaseModel):
@@ -113,9 +118,32 @@ try:
 except AttributeError:
     OperationNode.update_forward_refs()
 
-class ExecuteRequest(BaseModel):
-    session_id: str = Field(..., alias="sessionId")
-    tree: OperationNode
+
+class ExecutionContextRequest(BaseModel):
+    session_id: Optional[str] = Field(None, alias="sessionId")
+    project_id: Optional[str] = Field(None, alias="projectId")
+
+    if model_validator is not None:
+        @model_validator(mode="before")
+        @classmethod
+        def _require_context_id(cls, values):
+            if values.get("sessionId") or values.get("projectId"):
+                return values
+            raise ValueError("sessionId or projectId is required")
+    else:  # pragma: no cover - pydantic v1 fallback
+        @root_validator(pre=True)
+        def _require_context_id(cls, values):
+            if values.get("sessionId") or values.get("projectId"):
+                return values
+            raise ValueError("sessionId or projectId is required")
+
+    @property
+    def context_id(self) -> str:
+        return str(self.project_id or self.session_id or "")
+
+
+class ExecuteRequest(ExecutionContextRequest):
+    tree: Optional[OperationNode] = None
     targetNodeId: str
     targetCommandId: Optional[str] = None
     includeCommandMeta: bool = False
@@ -123,15 +151,13 @@ class ExecuteRequest(BaseModel):
     pageSize: int = 50
     viewId: str = "main" # 'main' or specific subTable ID
 
-class ExecuteSqlRequest(BaseModel):
-    session_id: str = Field(..., alias="sessionId")
+class ExecuteSqlRequest(ExecutionContextRequest):
     query: str
     page: int = 1
     pageSize: int = 50
 
-class AnalyzeRequest(BaseModel):
-    session_id: str = Field(..., alias="sessionId")
-    tree: OperationNode
+class AnalyzeRequest(ExecutionContextRequest):
+    tree: Optional[OperationNode] = None
     parentNodeId: str
 
 

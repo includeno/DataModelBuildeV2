@@ -723,14 +723,18 @@ class SessionStorage:
         finally:
             con.close()
 
-    def execute_sql(self, session_id: str, query: str) -> pd.DataFrame:
+    def execute_sql(self, session_id: str, query: str, row_limit: Optional[int] = None) -> pd.DataFrame:
         db_path = self._get_db_path(session_id)
         if not os.path.exists(db_path):
              raise ValueError("Session database not found")
         self._ensure_duckdb_views(session_id)
         con = duckdb.connect(db_path)
         try:
-            df = con.execute(query).df()
+            sql = query
+            if row_limit is not None:
+                clean_query = (query or "").strip().rstrip(";")
+                sql = f"SELECT * FROM ({clean_query}) AS __dmb_query LIMIT {int(row_limit)}"
+            df = con.execute(sql).df()
             return df
         finally:
             con.close()

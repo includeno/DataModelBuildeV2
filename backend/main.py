@@ -2,6 +2,7 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Body, Depends, Header, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 import pandas as pd
 import numpy as np
 import io
@@ -36,6 +37,7 @@ import storage as storage_module
 from storage import storage, resolve_data_subdir, to_data_relative, save_sessions_dir, PROJECT_ASSETS_DIRNAME, local_file_backend
 from engine import ExecutionEngine
 from collab_storage import collab_storage
+from job_runner import ProjectJobRunner, JobExecutionError, JobCanceledError
 from realtime import realtime_hub
 
 LOG_PATH = os.environ.get(
@@ -61,6 +63,15 @@ ALLOWED_UPLOAD_EXTENSIONS = {
 }
 VALID_DUPLICATE_STRATEGIES = {"replace", "new_name"}
 SAFE_DATASET_NAME_RE = re.compile(r"[^\w.\- ]+", re.UNICODE)
+MAX_SYNC_EXECUTION_SECONDS = float(os.environ.get("MAX_SYNC_EXECUTION_SECONDS", "30"))
+MAX_SYNC_RESULT_ROWS = int(os.environ.get("MAX_SYNC_RESULT_ROWS", "5000"))
+MAX_SYNC_QUERY_ROWS = int(os.environ.get("MAX_SYNC_QUERY_ROWS", "5000"))
+MAX_SYNC_PAGE_SIZE = int(os.environ.get("MAX_SYNC_PAGE_SIZE", "1000"))
+MAX_SYNC_RESULT_BYTES = int(os.environ.get("MAX_SYNC_RESULT_BYTES", str(32 * 1024 * 1024)))
+MAX_ASYNC_RESULT_ROWS = int(os.environ.get("MAX_ASYNC_RESULT_ROWS", "25000"))
+MAX_ASYNC_RESULT_BYTES = int(os.environ.get("MAX_ASYNC_RESULT_BYTES", str(64 * 1024 * 1024)))
+ASYNC_JOB_TIMEOUT_SECONDS = float(os.environ.get("ASYNC_JOB_TIMEOUT_SECONDS", "120"))
+MAX_RUNNING_JOBS_PER_PROJECT = int(os.environ.get("MAX_RUNNING_JOBS_PER_PROJECT", "1"))
 
 app = FastAPI()
 
@@ -93,6 +104,7 @@ app.add_middleware(
 )
 
 engine = ExecutionEngine()
+sync_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="dmb-sync-exec")
 
 DEFAULT_SERVER_FILE = os.path.join(os.path.dirname(__file__), "default_server.json")
 
@@ -369,6 +381,288 @@ def _ensure_project_runtime_session(project_id: str) -> None:
     dataset_assets = collab_storage.list_active_project_dataset_assets(project_id)
     if dataset_assets:
         storage.sync_runtime_datasets(project_id, dataset_assets)
+
+
+def _execution_error(code: str, message: str, *, category: str, status_code: int) -> HTTPException:
+    return HTTPException(
+        status_code=status_code,
+        detail={
+            "code": code,
+            "message": message,
+            "category": category,
+        },
+    )
+
+
+def _raise_execution_error(code: str, message: str, *, category: str, status_code: int) -> None:
+    raise _execution_error(code, message, category=category, status_code=status_code)
+
+
+def _validate_page_size(page_size: int) -> int:
+    clean_page_size = max(1, int(page_size or 1))
+    if clean_page_size > MAX_SYNC_PAGE_SIZE:
+        _raise_execution_error(
+            "EXEC_PAGE_SIZE_LIMIT",
+            f"pageSize must be <= {MAX_SYNC_PAGE_SIZE}",
+            category="user_error",
+            status_code=400,
+        )
+    return clean_page_size
+
+
+def _estimate_dataframe_bytes(df: pd.DataFrame) -> int:
+    if df is None:
+        return 0
+    try:
+        return int(df.memory_usage(index=True, deep=True).sum())
+    except Exception:
+        return 0
+
+
+def _validate_dataframe_limits(
+    df: pd.DataFrame,
+    *,
+    max_rows: int,
+    max_bytes: int,
+    scope: str,
+) -> pd.DataFrame:
+    if len(df) > max_rows:
+        _raise_execution_error(
+            "EXEC_RESULT_TOO_LARGE",
+            f"{scope} result exceeds {max_rows} rows",
+            category="user_error",
+            status_code=413,
+        )
+    result_bytes = _estimate_dataframe_bytes(df)
+    if result_bytes > max_bytes:
+        _raise_execution_error(
+            "EXEC_MEMORY_LIMIT",
+            f"{scope} result exceeds {max_bytes} bytes",
+            category="user_error",
+            status_code=413,
+        )
+    return df
+
+
+def _run_with_timeout(fn, *args, timeout_s: float, timeout_code: str, timeout_message: str, **kwargs):
+    future = sync_executor.submit(fn, *args, **kwargs)
+    try:
+        return future.result(timeout=max(timeout_s, 0.1))
+    except FutureTimeoutError:
+        future.cancel()
+        _raise_execution_error(timeout_code, timeout_message, category="timeout", status_code=504)
+
+
+def _build_project_execution_context(
+    project_id: str,
+    user_id: str,
+    payload: Optional[Dict[str, Any]] = None,
+    *,
+    require_tree: bool = False,
+) -> Dict[str, Any]:
+    _require_project_access(project_id, user_id)
+    _ensure_project_runtime_session(project_id)
+    body = dict(payload or {})
+
+    stored_state: Dict[str, Any] = {}
+    stored_version = 0
+    try:
+        project_state = collab_storage.get_project_state(project_id, user_id)
+        stored_state = project_state.get("state") or {}
+        stored_version = int(project_state.get("version") or 0)
+    except Exception:
+        stored_state = {}
+        stored_version = 0
+
+    tree = body.get("tree")
+    if tree is None and isinstance(stored_state, dict):
+        tree = stored_state.get("tree")
+    if require_tree and tree is None:
+        _raise_execution_error(
+            "EXEC_TREE_REQUIRED",
+            "Project execution requires a workflow tree",
+            category="user_error",
+            status_code=400,
+        )
+
+    return {
+        "projectId": project_id,
+        "sessionId": project_id,
+        "tree": tree,
+        "stateVersion": stored_version,
+        "datasets": storage.list_datasets(project_id),
+        **body,
+    }
+
+
+def _classify_job_failure(exc: Exception) -> JobExecutionError:
+    if isinstance(exc, JobExecutionError):
+        return exc
+    if isinstance(exc, HTTPException):
+        detail = exc.detail if isinstance(exc.detail, dict) else {"message": str(exc.detail)}
+        return JobExecutionError(
+            str(detail.get("code") or "JOB_HTTP_ERROR"),
+            str(detail.get("message") or "Job failed"),
+            category=str(detail.get("category") or "system_error"),
+        )
+    if isinstance(exc, ValueError):
+        return JobExecutionError("JOB_USER_ERROR", str(exc), category="user_error")
+    return JobExecutionError("JOB_INTERNAL_ERROR", str(exc), category="system_error")
+
+
+def _serialize_dataframe_result(df: pd.DataFrame, *, page: int, page_size: int, view_id: Optional[str] = None) -> Dict[str, Any]:
+    paginated_df = paginate_df(df, page, page_size)
+    payload: Dict[str, Any] = {
+        "rows": clean_df_for_json(paginated_df),
+        "totalCount": len(df),
+        "columns": df.columns.tolist(),
+        "page": page,
+        "pageSize": page_size,
+    }
+    if view_id is not None:
+        payload["activeViewId"] = view_id
+    return payload
+
+
+def _assert_job_not_canceled(job_id: str, is_cancel_requested) -> None:
+    if is_cancel_requested(job_id):
+        raise JobCanceledError()
+
+
+def _execute_project_dataframe(
+    project_id: str,
+    tree_payload: Dict[str, Any],
+    target_node_id: str,
+    *,
+    view_id: str = "main",
+    target_command_id: Optional[str] = None,
+    timeout_s: float = MAX_SYNC_EXECUTION_SECONDS,
+) -> pd.DataFrame:
+    tree = OperationNode(**tree_payload)
+    return _run_with_timeout(
+        engine.execute,
+        project_id,
+        tree,
+        target_node_id,
+        view_id,
+        target_command_id,
+        timeout_s=timeout_s,
+        timeout_code="EXEC_TIMEOUT",
+        timeout_message=f"Execution exceeded {int(timeout_s)} seconds",
+    )
+
+
+def _execute_project_dataframe_with_retry(
+    project_id: str,
+    tree_payload: Dict[str, Any],
+    target_node_id: str,
+    *,
+    view_id: str = "main",
+    target_command_id: Optional[str] = None,
+    timeout_s: float = MAX_SYNC_EXECUTION_SECONDS,
+) -> pd.DataFrame:
+    df = _execute_project_dataframe(
+        project_id,
+        tree_payload,
+        target_node_id,
+        view_id=view_id,
+        target_command_id=target_command_id,
+        timeout_s=timeout_s,
+    )
+    if df.empty and len(df.columns) == 0:
+        _ensure_project_runtime_session(project_id)
+        df = _execute_project_dataframe(
+            project_id,
+            tree_payload,
+            target_node_id,
+            view_id=view_id,
+            target_command_id=target_command_id,
+            timeout_s=timeout_s,
+        )
+    return df
+
+
+def _process_project_job(job: Dict[str, Any], is_cancel_requested) -> Dict[str, Any]:
+    payload = job.get("payload") or {}
+    job_id = job["id"]
+    project_id = job["projectId"]
+    job_type = job.get("type") or "execute"
+    _assert_job_not_canceled(job_id, is_cancel_requested)
+    collab_storage.update_project_job_progress(job_id, 20, status="running")
+
+    try:
+        if job_type == "execute":
+            df = _execute_project_dataframe_with_retry(
+                project_id,
+                payload.get("tree") or {},
+                str(payload.get("targetNodeId") or ""),
+                view_id=str(payload.get("viewId") or "main"),
+                target_command_id=payload.get("targetCommandId"),
+                timeout_s=ASYNC_JOB_TIMEOUT_SECONDS,
+            )
+            _assert_job_not_canceled(job_id, is_cancel_requested)
+            collab_storage.update_project_job_progress(job_id, 80, status="running")
+            validated = _validate_dataframe_limits(
+                df,
+                max_rows=MAX_ASYNC_RESULT_ROWS,
+                max_bytes=MAX_ASYNC_RESULT_BYTES,
+                scope="Async execution",
+            )
+            return _serialize_dataframe_result(
+                validated,
+                page=1,
+                page_size=min(int(payload.get("pageSize") or 100), MAX_SYNC_PAGE_SIZE),
+                view_id=str(payload.get("viewId") or "main"),
+            )
+
+        if job_type == "export":
+            df = _execute_project_dataframe_with_retry(
+                project_id,
+                payload.get("tree") or {},
+                str(payload.get("targetNodeId") or ""),
+                view_id=str(payload.get("viewId") or "main"),
+                target_command_id=payload.get("targetCommandId"),
+                timeout_s=ASYNC_JOB_TIMEOUT_SECONDS,
+            )
+            _assert_job_not_canceled(job_id, is_cancel_requested)
+            collab_storage.update_project_job_progress(job_id, 80, status="running")
+            output = io.StringIO()
+            df.to_csv(output, index=False)
+            storage_key = (
+                f"{PROJECT_ASSETS_DIRNAME}/projects/{project_id}/jobs/{job_id}/result.csv"
+            )
+            local_file_backend.put(storage_key, output.getvalue().encode("utf-8"))
+            file_name = payload.get("fileName") or f"export_{job_id}.csv"
+            return {
+                "storageKey": storage_key,
+                "downloadUrl": f"/jobs/{job_id}/result",
+                "contentType": "text/csv",
+                "fileName": file_name,
+                "totalCount": len(df),
+                "columns": df.columns.tolist(),
+            }
+
+        raise JobExecutionError("JOB_TYPE_UNSUPPORTED", f"Unsupported job type: {job_type}", category="user_error")
+    except Exception as exc:
+        raise _classify_job_failure(exc)
+
+
+job_runner = ProjectJobRunner(
+    collab_storage,
+    _process_project_job,
+    poll_interval_s=0.05,
+    max_running_per_project=MAX_RUNNING_JOBS_PER_PROJECT,
+)
+
+
+@app.on_event("startup")
+async def _startup_job_runner():
+    job_runner.start()
+
+
+@app.on_event("shutdown")
+async def _shutdown_job_runner():
+    job_runner.stop()
 
 
 # ---- Phase 1: local SQLite collaboration/auth APIs ----
@@ -988,26 +1282,112 @@ async def project_execute(
     payload: dict = Body(...),
     current_user: Dict[str, Any] = Depends(get_current_user),
 ):
+    try:
+        body = _build_project_execution_context(project_id, current_user["id"], payload, require_tree=True)
+        req = ExecuteRequest(**body)
+        page_size = _validate_page_size(req.pageSize)
+        df = _execute_project_dataframe(
+            project_id,
+            req.tree.model_dump() if hasattr(req.tree, "model_dump") else req.tree.dict(),
+            req.targetNodeId,
+            view_id=req.viewId,
+            target_command_id=req.targetCommandId,
+            timeout_s=MAX_SYNC_EXECUTION_SECONDS,
+        )
+        validated = _validate_dataframe_limits(
+            df,
+            max_rows=MAX_SYNC_RESULT_ROWS,
+            max_bytes=MAX_SYNC_RESULT_BYTES,
+            scope="Execution",
+        )
+        return _serialize_dataframe_result(validated, page=req.page, page_size=page_size, view_id=req.viewId)
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise _execution_error("EXEC_INVALID_REQUEST", str(e), category="user_error", status_code=400)
+    except Exception as e:
+        logger.exception("Project execution error")
+        raise _execution_error("EXEC_INTERNAL_ERROR", str(e), category="system_error", status_code=500)
+
+
+@app.post("/projects/{project_id}/jobs/execute", status_code=202)
+async def project_execute_job(
+    project_id: str,
+    payload: dict = Body(...),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    try:
+        body = _build_project_execution_context(project_id, current_user["id"], payload, require_tree=True)
+        req = ExecuteRequest(**body)
+        page_size = _validate_page_size(req.pageSize)
+        tree_payload = req.tree.model_dump() if hasattr(req.tree, "model_dump") else req.tree.dict()
+        job = collab_storage.create_project_job(
+            project_id,
+            current_user["id"],
+            job_type="execute",
+            payload={
+                "projectId": project_id,
+                "tree": tree_payload,
+                "targetNodeId": req.targetNodeId,
+                "targetCommandId": req.targetCommandId,
+                "viewId": req.viewId,
+                "page": req.page,
+                "pageSize": page_size,
+            },
+        )
+        return job
+    except HTTPException:
+        raise
+    except PermissionError:
+        raise HTTPException(status_code=403, detail={"code": "PERM_PROJECT_WRITE", "message": "Insufficient project permission"})
+    except ValueError as e:
+        raise _execution_error("EXEC_INVALID_REQUEST", str(e), category="user_error", status_code=400)
+
+
+@app.get("/projects/{project_id}/jobs")
+async def project_list_jobs(
+    project_id: str,
+    limit: int = 20,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
     _require_project_access(project_id, current_user["id"])
-    _ensure_project_runtime_session(project_id)
-    body = dict(payload or {})
-    body["sessionId"] = project_id
-    req = ExecuteRequest(**body)
-    return await execute(req)
+    try:
+        return collab_storage.list_project_jobs(project_id, current_user["id"], limit=limit)
+    except PermissionError:
+        raise HTTPException(status_code=403, detail={"code": "PERM_PROJECT_READ", "message": "Insufficient project permission"})
 
 
-@app.post("/projects/{project_id}/export")
+@app.post("/projects/{project_id}/export", status_code=202)
 async def project_export(
     project_id: str,
     payload: dict = Body(...),
     current_user: Dict[str, Any] = Depends(get_current_user),
 ):
-    _require_project_access(project_id, current_user["id"])
-    _ensure_project_runtime_session(project_id)
-    body = dict(payload or {})
-    body["sessionId"] = project_id
-    req = ExecuteRequest(**body)
-    return await export_data(req)
+    try:
+        body = _build_project_execution_context(project_id, current_user["id"], payload, require_tree=True)
+        req = ExecuteRequest(**body)
+        safe_name = f"export_{project_id}_{int(time.time() * 1000)}.csv"
+        tree_payload = req.tree.model_dump() if hasattr(req.tree, "model_dump") else req.tree.dict()
+        job = collab_storage.create_project_job(
+            project_id,
+            current_user["id"],
+            job_type="export",
+            payload={
+                "projectId": project_id,
+                "tree": tree_payload,
+                "targetNodeId": req.targetNodeId,
+                "targetCommandId": req.targetCommandId,
+                "viewId": req.viewId,
+                "fileName": safe_name,
+            },
+        )
+        return job
+    except HTTPException:
+        raise
+    except PermissionError:
+        raise HTTPException(status_code=403, detail={"code": "PERM_PROJECT_WRITE", "message": "Insufficient project permission"})
+    except ValueError as e:
+        raise _execution_error("EXEC_INVALID_REQUEST", str(e), category="user_error", status_code=400)
 
 
 @app.post("/projects/{project_id}/generate_sql")
@@ -1016,12 +1396,30 @@ async def project_generate_sql(
     payload: dict = Body(...),
     current_user: Dict[str, Any] = Depends(get_current_user),
 ):
-    _require_project_access(project_id, current_user["id"])
-    _ensure_project_runtime_session(project_id)
-    body = dict(payload or {})
-    body["sessionId"] = project_id
-    req = ExecuteRequest(**body)
-    return await generate_sql(req)
+    try:
+        body = _build_project_execution_context(project_id, current_user["id"], payload, require_tree=True)
+        req = ExecuteRequest(**body)
+        if not req.targetCommandId:
+            raise _execution_error("EXEC_TARGET_COMMAND_REQUIRED", "targetCommandId is required", category="user_error", status_code=400)
+        sql = _run_with_timeout(
+            engine.generate_sql,
+            project_id,
+            req.tree,
+            req.targetNodeId,
+            req.targetCommandId,
+            req.includeCommandMeta,
+            timeout_s=MAX_SYNC_EXECUTION_SECONDS,
+            timeout_code="EXEC_TIMEOUT",
+            timeout_message=f"SQL generation exceeded {int(MAX_SYNC_EXECUTION_SECONDS)} seconds",
+        )
+        return {"sql": sql}
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise _execution_error("EXEC_INVALID_REQUEST", str(e), category="user_error", status_code=400)
+    except Exception as e:
+        logger.exception("Project SQL generation error")
+        raise _execution_error("EXEC_INTERNAL_ERROR", str(e), category="system_error", status_code=500)
 
 
 @app.post("/projects/{project_id}/analyze")
@@ -1030,12 +1428,26 @@ async def project_analyze(
     payload: dict = Body(...),
     current_user: Dict[str, Any] = Depends(get_current_user),
 ):
-    _require_project_access(project_id, current_user["id"])
-    _ensure_project_runtime_session(project_id)
-    body = dict(payload or {})
-    body["sessionId"] = project_id
-    req = AnalyzeRequest(**body)
-    return await analyze_overlap(req)
+    try:
+        body = _build_project_execution_context(project_id, current_user["id"], payload, require_tree=True)
+        req = AnalyzeRequest(**body)
+        report = _run_with_timeout(
+            engine.calculate_overlap,
+            project_id,
+            req.tree,
+            req.parentNodeId,
+            timeout_s=MAX_SYNC_EXECUTION_SECONDS,
+            timeout_code="EXEC_TIMEOUT",
+            timeout_message=f"Analysis exceeded {int(MAX_SYNC_EXECUTION_SECONDS)} seconds",
+        )
+        return {"report": report}
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise _execution_error("EXEC_INVALID_REQUEST", str(e), category="user_error", status_code=400)
+    except Exception as e:
+        logger.exception("Project analysis error")
+        raise _execution_error("EXEC_INTERNAL_ERROR", str(e), category="system_error", status_code=500)
 
 
 @app.post("/projects/{project_id}/query")
@@ -1044,12 +1456,79 @@ async def project_query(
     payload: dict = Body(...),
     current_user: Dict[str, Any] = Depends(get_current_user),
 ):
-    _require_project_access(project_id, current_user["id"])
-    _ensure_project_runtime_session(project_id)
-    body = dict(payload or {})
-    body["sessionId"] = project_id
-    req = ExecuteSqlRequest(**body)
-    return await execute_sql(req)
+    try:
+        body = _build_project_execution_context(project_id, current_user["id"], payload, require_tree=False)
+        req = ExecuteSqlRequest(**body)
+        page_size = _validate_page_size(req.pageSize)
+        df = _run_with_timeout(
+            storage.execute_sql,
+            project_id,
+            req.query,
+            timeout_s=MAX_SYNC_EXECUTION_SECONDS,
+            timeout_code="EXEC_TIMEOUT",
+            timeout_message=f"Query exceeded {int(MAX_SYNC_EXECUTION_SECONDS)} seconds",
+            row_limit=MAX_SYNC_QUERY_ROWS + 1,
+        )
+        validated = _validate_dataframe_limits(
+            df,
+            max_rows=MAX_SYNC_QUERY_ROWS,
+            max_bytes=MAX_SYNC_RESULT_BYTES,
+            scope="Query",
+        )
+        return _serialize_dataframe_result(validated, page=req.page, page_size=page_size)
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise _execution_error("QUERY_INVALID", str(e), category="user_error", status_code=400)
+    except Exception as e:
+        logger.exception("Project query error")
+        raise _execution_error("EXEC_INTERNAL_ERROR", str(e), category="system_error", status_code=500)
+
+
+@app.get("/jobs/{job_id}")
+async def get_project_job(job_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    try:
+        return collab_storage.get_project_job_for_user(job_id, current_user["id"])
+    except PermissionError:
+        raise HTTPException(status_code=403, detail={"code": "PERM_PROJECT_READ", "message": "Insufficient project permission"})
+    except ValueError:
+        raise HTTPException(status_code=404, detail={"code": "JOB_NOT_FOUND", "message": "Job not found"})
+
+
+@app.get("/jobs/{job_id}/result")
+async def get_project_job_result(job_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    try:
+        job = collab_storage.get_project_job_for_user(job_id, current_user["id"])
+    except PermissionError:
+        raise HTTPException(status_code=403, detail={"code": "PERM_PROJECT_READ", "message": "Insufficient project permission"})
+    except ValueError:
+        raise HTTPException(status_code=404, detail={"code": "JOB_NOT_FOUND", "message": "Job not found"})
+
+    if job["status"] != "completed":
+        raise HTTPException(status_code=409, detail={"code": "JOB_NOT_READY", "message": "Job result is not ready"})
+
+    if job["type"] == "export":
+        result = job.get("result") or {}
+        storage_key = result.get("storageKey")
+        if not storage_key or not local_file_backend.exists(storage_key):
+            raise HTTPException(status_code=404, detail={"code": "JOB_RESULT_NOT_FOUND", "message": "Job result not found"})
+        with local_file_backend.open(storage_key, "rb") as f:
+            content = f.read()
+        response = StreamingResponse(iter([content]), media_type=result.get("contentType") or "text/csv")
+        response.headers["Content-Disposition"] = f"attachment; filename={result.get('fileName') or 'job_result.csv'}"
+        return response
+
+    return job.get("result") or {}
+
+
+@app.post("/jobs/{job_id}:cancel")
+async def cancel_project_job(job_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    try:
+        return collab_storage.cancel_project_job(job_id, current_user["id"])
+    except PermissionError:
+        raise HTTPException(status_code=403, detail={"code": "PERM_PROJECT_WRITE", "message": "Insufficient project permission"})
+    except ValueError:
+        raise HTTPException(status_code=404, detail={"code": "JOB_NOT_FOUND", "message": "Job not found"})
 
 @app.get("/sessions")
 async def list_sessions():
