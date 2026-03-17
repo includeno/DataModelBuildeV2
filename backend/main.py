@@ -1,5 +1,5 @@
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Body
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Body, Depends, Header, Query
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
@@ -13,13 +13,24 @@ import duckdb
 import time
 import logging
 from pathlib import Path
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 
-from models import ExecuteRequest, ExecuteSqlRequest, AnalyzeRequest
-from models import OperationNode
+from models import (
+    ExecuteRequest,
+    ExecuteSqlRequest,
+    AnalyzeRequest,
+    OperationNode,
+    RegisterRequest,
+    LoginRequest,
+    CreateProjectRequest,
+    AddProjectMemberRequest,
+    UpdateProjectMemberRequest,
+    CommitProjectStateRequest,
+)
 import storage as storage_module
 from storage import storage, resolve_data_subdir, to_data_relative, save_sessions_dir
 from engine import ExecutionEngine
+from collab_storage import collab_storage
 
 LOG_PATH = os.environ.get(
     "BACKEND_LOG_PATH",
@@ -115,6 +126,188 @@ def paginate_df(df: pd.DataFrame, page: int, page_size: int) -> pd.DataFrame:
     start = (page - 1) * page_size
     end = start + page_size
     return df.iloc[start:end]
+
+
+def _extract_bearer_token(authorization: Optional[str]) -> Optional[str]:
+    if not authorization:
+        return None
+    raw = authorization.strip()
+    if not raw:
+        return None
+    if raw.lower().startswith("bearer "):
+        return raw[7:].strip() or None
+    return raw
+
+
+async def get_current_user(authorization: Optional[str] = Header(None)) -> Dict[str, Any]:
+    token = _extract_bearer_token(authorization)
+    user = collab_storage.get_user_by_token(token or "")
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    return user
+
+
+def _require_project_access(project_id: str, user_id: str, need_write: bool = False, need_manage: bool = False) -> Dict[str, Any]:
+    project = collab_storage.get_project_for_user(project_id, user_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    role = str(project.get("role") or "")
+    if need_manage and role not in ("owner", "admin"):
+        raise HTTPException(status_code=403, detail="Insufficient project permission")
+    if need_write and role not in ("owner", "admin", "editor"):
+        raise HTTPException(status_code=403, detail="Insufficient project permission")
+    return project
+
+
+# ---- Phase 1: local SQLite collaboration/auth APIs ----
+
+@app.post("/auth/register")
+async def register(payload: RegisterRequest):
+    try:
+        user = collab_storage.register_user(payload.email, payload.password, payload.displayName or "")
+        return {"user": user}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/auth/login")
+async def login(payload: LoginRequest):
+    user = collab_storage.authenticate_user(payload.email, payload.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    token = collab_storage.issue_token(user["id"])
+    return {**token, "user": user}
+
+
+@app.post("/auth/logout")
+async def logout(current_user: Dict[str, Any] = Depends(get_current_user), authorization: Optional[str] = Header(None)):
+    token = _extract_bearer_token(authorization)
+    if token:
+        collab_storage.revoke_token(token)
+    return {"status": "ok", "userId": current_user["id"]}
+
+
+@app.get("/auth/me")
+async def get_auth_me(current_user: Dict[str, Any] = Depends(get_current_user)):
+    return current_user
+
+
+@app.post("/projects")
+async def create_project(payload: CreateProjectRequest, current_user: Dict[str, Any] = Depends(get_current_user)):
+    try:
+        return collab_storage.create_project(current_user["id"], payload.name, payload.description or "")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/projects")
+async def list_projects(current_user: Dict[str, Any] = Depends(get_current_user)):
+    return collab_storage.list_projects_for_user(current_user["id"])
+
+
+@app.get("/projects/{project_id}")
+async def get_project(project_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    project = collab_storage.get_project_for_user(project_id, current_user["id"])
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return project
+
+
+@app.get("/projects/{project_id}/members")
+async def list_project_members(project_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    _require_project_access(project_id, current_user["id"])
+    try:
+        return collab_storage.list_project_members(project_id, current_user["id"])
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Insufficient project permission")
+
+
+@app.post("/projects/{project_id}/members")
+async def add_project_member(project_id: str, payload: AddProjectMemberRequest, current_user: Dict[str, Any] = Depends(get_current_user)):
+    _require_project_access(project_id, current_user["id"], need_manage=True)
+    try:
+        return collab_storage.add_project_member(project_id, current_user["id"], payload.memberEmail, payload.role)
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Insufficient project permission")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.patch("/projects/{project_id}/members/{member_user_id}")
+async def update_project_member(
+    project_id: str,
+    member_user_id: str,
+    payload: UpdateProjectMemberRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    _require_project_access(project_id, current_user["id"], need_manage=True)
+    try:
+        return collab_storage.update_project_member_role(project_id, current_user["id"], member_user_id, payload.role)
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Insufficient project permission")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/projects/{project_id}/state")
+async def get_project_state(project_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    _require_project_access(project_id, current_user["id"])
+    try:
+        return collab_storage.get_project_state(project_id, current_user["id"])
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Insufficient project permission")
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.post("/projects/{project_id}/state/commit")
+async def commit_project_state(
+    project_id: str,
+    payload: CommitProjectStateRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    _require_project_access(project_id, current_user["id"], need_write=True)
+
+    raw_patches: Optional[List[Dict[str, Any]]] = None
+    if payload.patches is not None:
+        raw_patches = []
+        for patch in payload.patches:
+            if hasattr(patch, "model_dump"):
+                raw_patches.append(patch.model_dump(exclude_none=True))
+            else:
+                raw_patches.append(patch.dict(exclude_none=True))
+
+    try:
+        result = collab_storage.commit_project_state(
+            project_id=project_id,
+            user_id=current_user["id"],
+            base_version=payload.baseVersion,
+            state=payload.state,
+            client_op_id=payload.clientOpId,
+            patches=raw_patches,
+        )
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Insufficient project permission")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    if result.get("conflict"):
+        raise HTTPException(status_code=409, detail=result)
+    return result
+
+
+@app.get("/projects/{project_id}/events")
+async def list_project_events(
+    project_id: str,
+    from_version: int = Query(0, alias="fromVersion"),
+    limit: int = Query(100),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    _require_project_access(project_id, current_user["id"])
+    try:
+        return collab_storage.list_project_events(project_id, current_user["id"], from_version=from_version, limit=limit)
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Insufficient project permission")
 
 @app.get("/sessions")
 async def list_sessions():

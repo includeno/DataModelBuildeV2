@@ -133,3 +133,42 @@ class AnalyzeRequest(BaseModel):
     session_id: str = Field(..., alias="sessionId")
     tree: OperationNode
     parentNodeId: str
+
+
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+    displayName: Optional[str] = ""
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class CreateProjectRequest(BaseModel):
+    name: str
+    description: Optional[str] = ""
+
+
+class AddProjectMemberRequest(BaseModel):
+    memberEmail: str
+    role: str = "viewer"
+
+
+class UpdateProjectMemberRequest(BaseModel):
+    role: str
+
+
+class CommitPatch(BaseModel):
+    op: str
+    state: Optional[Dict[str, Any]] = None
+    key: Optional[str] = None
+    value: Any = None
+
+
+class CommitProjectStateRequest(BaseModel):
+    baseVersion: int
+    state: Optional[Dict[str, Any]] = None
+    clientOpId: Optional[str] = None
+    patches: Optional[List[CommitPatch]] = None
