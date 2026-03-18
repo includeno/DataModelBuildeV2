@@ -201,6 +201,20 @@ const logStep = (step, detail = '') => {
   console.log(`[step] ${step}${detail ? ` :: ${detail}` : ''}`);
 };
 
+const withTimeout = async (promise, label, timeoutMs = 5000) => {
+  let timer = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+};
+
 const requestJson = async (url, options = {}) => {
   const {
     method = 'GET',
@@ -695,12 +709,21 @@ try {
 } finally {
   logStep('cleanup:start');
   if (!args.keepOpen) {
-    await Promise.allSettled([
-      secondaryContext.close(),
-      primaryContext.close(),
-      secondaryBrowser.close(),
-      primaryBrowser.close(),
-    ]);
+    const cleanupTasks = [
+      ['secondaryContext.close', () => secondaryContext.close()],
+      ['primaryContext.close', () => primaryContext.close()],
+      ['secondaryBrowser.close', () => secondaryBrowser.close()],
+      ['primaryBrowser.close', () => primaryBrowser.close()],
+    ];
+    await Promise.allSettled(
+      cleanupTasks.map(async ([label, action]) => {
+        try {
+          await withTimeout(action(), label, 5000);
+        } catch (error) {
+          logStep('cleanup:warn', `${label} :: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }),
+    );
   }
   logStep('cleanup:done');
 }

@@ -10,6 +10,8 @@ import uuid
 import tempfile
 from typing import List, Dict, Optional, Any
 
+import runtime_config as runtime_config_module
+from security import sanitize_read_only_sql
 from sql_utils import quote_identifier, is_reserved_identifier
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -730,9 +732,10 @@ class SessionStorage:
         self._ensure_duckdb_views(session_id)
         con = duckdb.connect(db_path)
         try:
-            sql = query
+            runtime_config = runtime_config_module.load_runtime_config()
+            clean_query = sanitize_read_only_sql(query) if runtime_config.sql_read_only_enforced else (query or "").strip()
+            sql = clean_query
             if row_limit is not None:
-                clean_query = (query or "").strip().rstrip(";")
                 sql = f"SELECT * FROM ({clean_query}) AS __dmb_query LIMIT {int(row_limit)}"
             df = con.execute(sql).df()
             return df

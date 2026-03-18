@@ -42,6 +42,7 @@ from collab_storage import collab_storage
 from job_runner import ProjectJobRunner, JobExecutionError, JobCanceledError
 from realtime import realtime_hub
 from runtime_config import RuntimeConfig
+from security import validate_upload_metadata
 from api_contract import (
     REQUEST_ID_HEADER,
     ERROR_CODE_CATALOG,
@@ -88,12 +89,6 @@ MAX_ASYNC_RESULT_BYTES = int(os.environ.get("MAX_ASYNC_RESULT_BYTES", str(64 * 1
 ASYNC_JOB_TIMEOUT_SECONDS = float(os.environ.get("ASYNC_JOB_TIMEOUT_SECONDS", "120"))
 MAX_RUNNING_JOBS_PER_PROJECT = int(os.environ.get("MAX_RUNNING_JOBS_PER_PROJECT", "1"))
 IDEMPOTENCY_TTL_SECONDS = int(os.environ.get("IDEMPOTENCY_TTL_SECONDS", "3600"))
-RATE_LIMIT_COMMIT_COUNT = int(os.environ.get("RATE_LIMIT_COMMIT_COUNT", "120"))
-RATE_LIMIT_COMMIT_WINDOW_SECONDS = int(os.environ.get("RATE_LIMIT_COMMIT_WINDOW_SECONDS", "60"))
-RATE_LIMIT_EXECUTE_COUNT = int(os.environ.get("RATE_LIMIT_EXECUTE_COUNT", "60"))
-RATE_LIMIT_EXECUTE_WINDOW_SECONDS = int(os.environ.get("RATE_LIMIT_EXECUTE_WINDOW_SECONDS", "60"))
-RATE_LIMIT_UPLOAD_COUNT = int(os.environ.get("RATE_LIMIT_UPLOAD_COUNT", "20"))
-RATE_LIMIT_UPLOAD_WINDOW_SECONDS = int(os.environ.get("RATE_LIMIT_UPLOAD_WINDOW_SECONDS", "60"))
 
 app = FastAPI(
     title="DataFlow Engine API",
@@ -101,25 +96,7 @@ app = FastAPI(
     description="Collaborative data workflow API with legacy session compatibility.",
 )
 
-
-def _load_cors_origins() -> List[str]:
-    raw = (os.environ.get("BACKEND_CORS_ORIGINS") or "").strip()
-    if raw:
-        origins = [item.strip() for item in raw.split(",") if item.strip()]
-        if origins:
-            return origins
-    # Safe defaults for local development with credentials.
-    return [
-        "http://127.0.0.1:5173",
-        "http://localhost:5173",
-        "http://127.0.0.1:1420",
-        "http://localhost:1420",
-        "http://127.0.0.1:4173",
-        "http://localhost:4173",
-    ]
-
-
-_cors_origins = _load_cors_origins()
+_cors_origins = list(runtime_config_module.load_runtime_config().cors_origins)
 logger.info("CORS allow_origins=%s", _cors_origins)
 app.add_middleware(
     CORSMiddleware,
@@ -196,6 +173,40 @@ def _subject_key(current_user: Dict[str, Any], project_id: str) -> str:
     return f"{current_user.get('id') or 'anon'}:{project_id}"
 
 
+def _normalize_email_subject(email: Optional[str]) -> str:
+    return str(email or "").strip().lower()
+
+
+def _request_client_subject(request: Optional[Request]) -> str:
+    client = getattr(request, "client", None)
+    host = getattr(client, "host", None)
+    return str(host or "unknown")
+
+
+def _audit_log(
+    action: str,
+    *,
+    status: str = "ok",
+    current_user: Optional[Dict[str, Any]] = None,
+    project_id: Optional[str] = None,
+    **extra: Any,
+) -> None:
+    if not get_runtime_config().audit_logs_enabled:
+        return
+    payload = {
+        "event": "audit",
+        "action": action,
+        "status": status,
+        "request_id": get_request_id(),
+        "user_id": (current_user or {}).get("id"),
+        "project_id": project_id,
+    }
+    for key, value in extra.items():
+        if value is not None:
+            payload[key] = value
+    logger.info("AUDIT %s", json.dumps(payload, ensure_ascii=True, sort_keys=True, default=str))
+
+
 def _rate_limit(scope: str, *, subject: str, count: int, window_seconds: int) -> None:
     retry_after = rate_limiter.hit(
         scope=scope,
@@ -254,6 +265,34 @@ def _store_idempotent_response(scope: str, *, subject: str, idempotency_key: Opt
         response_payload=response_payload,
     )
     return response_payload
+
+
+def _enforce_login_attempt_limit(request: Request, email: str) -> None:
+    config = get_runtime_config()
+    client_subject = _request_client_subject(request)
+    _rate_limit(
+        "auth_login_attempt",
+        subject=client_subject,
+        count=config.auth_login_attempt_limit,
+        window_seconds=config.auth_login_window_seconds,
+    )
+    _rate_limit(
+        "auth_login_email",
+        subject=f"{client_subject}:{_normalize_email_subject(email)}",
+        count=config.auth_login_attempt_limit,
+        window_seconds=config.auth_login_window_seconds,
+    )
+
+
+def _record_login_failure_and_maybe_block(request: Request, email: str) -> None:
+    config = get_runtime_config()
+    client_subject = _request_client_subject(request)
+    _rate_limit(
+        "auth_login_failure",
+        subject=f"{client_subject}:{_normalize_email_subject(email)}",
+        count=config.auth_login_failure_limit,
+        window_seconds=config.auth_login_window_seconds,
+    )
 
 
 @app.middleware("http")
@@ -686,14 +725,14 @@ def _build_project_execution_context(
             status_code=400,
         )
 
-    return {
+    request_body = {
         "projectId": project_id,
         "sessionId": project_id,
-        "tree": tree,
-        "stateVersion": stored_version,
-        "datasets": storage.list_datasets(project_id),
         **body,
     }
+    if require_tree or "tree" in body:
+        request_body["tree"] = tree
+    return request_body
 
 
 def _classify_job_failure(exc: Exception) -> JobExecutionError:
@@ -884,18 +923,31 @@ async def register(payload: RegisterRequest):
     _ensure_auth_enabled()
     try:
         user = collab_storage.register_user(payload.email, payload.password, payload.displayName or "")
+        _audit_log("auth_register", current_user=user, status="created", email=user.get("email"))
         return {"user": user}
     except ValueError as e:
+        _audit_log("auth_register", status="rejected", email=payload.email, reason=str(e))
         raise HTTPException(status_code=400, detail={"code": "AUTH_REGISTER_INVALID", "message": str(e)})
 
 
 @app.post("/auth/login")
-async def login(payload: LoginRequest):
+async def login(payload: LoginRequest, request: Request):
     _ensure_auth_enabled()
+    _enforce_login_attempt_limit(request, payload.email)
     user = collab_storage.authenticate_user(payload.email, payload.password)
     if not user:
+        try:
+            _record_login_failure_and_maybe_block(request, payload.email)
+        finally:
+            _audit_log(
+                "auth_login",
+                status="rejected",
+                email=_normalize_email_subject(payload.email),
+                client_subject=_request_client_subject(request),
+            )
         raise HTTPException(status_code=401, detail={"code": "AUTH_INVALID_CREDENTIALS", "message": "Invalid email or password"})
     tokens = collab_storage.issue_auth_tokens(user["id"])
+    _audit_log("auth_login", current_user=user, email=user.get("email"), client_subject=_request_client_subject(request))
     return {**tokens, "user": user}
 
 
@@ -905,6 +957,7 @@ async def refresh_token(payload: RefreshTokenRequest):
     try:
         return collab_storage.refresh_access_token(payload.refreshToken)
     except ValueError as e:
+        _audit_log("auth_refresh", status="rejected", reason=str(e))
         raise HTTPException(status_code=401, detail={"code": "AUTH_REFRESH_INVALID", "message": str(e)})
 
 
@@ -914,6 +967,7 @@ async def logout(current_user: Dict[str, Any] = Depends(get_current_user), autho
     token = _extract_bearer_token(authorization)
     if token:
         collab_storage.revoke_token(token)
+    _audit_log("auth_logout", current_user=current_user)
     return {"status": "ok", "userId": current_user["id"]}
 
 
@@ -1001,10 +1055,12 @@ async def create_project(payload: CreateProjectRequest, current_user: Dict[str, 
             payload.orgId,
         )
         _ensure_project_runtime_session(project["id"])
+        _audit_log("project_create", current_user=current_user, project_id=project["id"], status="created", project_name=project.get("name"))
         return project
     except PermissionError:
         raise HTTPException(status_code=403, detail={"code": "PERM_ORG_WRITE", "message": "Insufficient organization permission"})
     except ValueError as e:
+        _audit_log("project_create", current_user=current_user, status="rejected", project_name=payload.name, reason=str(e))
         raise HTTPException(status_code=400, detail={"code": "PROJECT_CREATE_INVALID", "message": str(e)})
 
 
@@ -1054,6 +1110,7 @@ async def delete_project(project_id: str, current_user: Dict[str, Any] = Depends
     try:
         collab_storage.soft_delete_project(project_id, current_user["id"])
         storage.delete_session(project_id)
+        _audit_log("project_delete", current_user=current_user, project_id=project_id)
         return {"status": "ok"}
     except PermissionError:
         raise HTTPException(status_code=403, detail={"code": "PERM_PROJECT_MANAGE", "message": "Insufficient project permission"})
@@ -1074,7 +1131,15 @@ async def list_project_members(project_id: str, current_user: Dict[str, Any] = D
 async def add_project_member(project_id: str, payload: AddProjectMemberRequest, current_user: Dict[str, Any] = Depends(get_current_user)):
     _require_project_access(project_id, current_user["id"], need_manage=True)
     try:
-        return collab_storage.add_project_member(project_id, current_user["id"], payload.memberEmail, payload.role)
+        result = collab_storage.add_project_member(project_id, current_user["id"], payload.memberEmail, payload.role)
+        _audit_log(
+            "project_member_add",
+            current_user=current_user,
+            project_id=project_id,
+            member_email=payload.memberEmail,
+            role=payload.role,
+        )
+        return result
     except PermissionError:
         raise HTTPException(status_code=403, detail={"code": "PERM_PROJECT_MANAGE", "message": "Insufficient project permission"})
     except ValueError as e:
@@ -1090,7 +1155,15 @@ async def update_project_member(
 ):
     _require_project_access(project_id, current_user["id"], need_manage=True)
     try:
-        return collab_storage.update_project_member_role(project_id, current_user["id"], member_user_id, payload.role)
+        result = collab_storage.update_project_member_role(project_id, current_user["id"], member_user_id, payload.role)
+        _audit_log(
+            "project_member_update",
+            current_user=current_user,
+            project_id=project_id,
+            member_user_id=member_user_id,
+            role=payload.role,
+        )
+        return result
     except PermissionError:
         raise HTTPException(status_code=403, detail={"code": "PERM_PROJECT_MANAGE", "message": "Insufficient project permission"})
     except ValueError as e:
@@ -1105,7 +1178,14 @@ async def remove_project_member(
 ):
     _require_project_access(project_id, current_user["id"], need_manage=True)
     try:
-        return collab_storage.remove_project_member(project_id, current_user["id"], member_user_id)
+        result = collab_storage.remove_project_member(project_id, current_user["id"], member_user_id)
+        _audit_log(
+            "project_member_remove",
+            current_user=current_user,
+            project_id=project_id,
+            member_user_id=member_user_id,
+        )
+        return result
     except PermissionError:
         raise HTTPException(status_code=403, detail={"code": "PERM_PROJECT_MANAGE", "message": "Insufficient project permission"})
     except ValueError as e:
@@ -1137,11 +1217,12 @@ async def commit_project_state(
     current_user: Dict[str, Any] = Depends(get_current_user),
 ):
     _require_project_access(project_id, current_user["id"], need_write=True)
+    config = get_runtime_config()
     _rate_limit(
         "project_commit",
         subject=_subject_key(current_user, project_id),
-        count=RATE_LIMIT_COMMIT_COUNT,
-        window_seconds=RATE_LIMIT_COMMIT_WINDOW_SECONDS,
+        count=config.project_commit_rate_limit_count,
+        window_seconds=config.project_commit_rate_limit_window_seconds,
     )
     payload_dict = payload.model_dump(exclude_none=True) if hasattr(payload, "model_dump") else payload.dict(exclude_none=True)
     replay = _idempotency_replay_or_none(
@@ -1177,6 +1258,16 @@ async def commit_project_state(
         raise HTTPException(status_code=400, detail={"code": "PROJECT_COMMIT_INVALID", "message": str(e)})
 
     if result.get("conflict"):
+        _audit_log(
+            "project_commit",
+            current_user=current_user,
+            project_id=project_id,
+            version=result.get("version"),
+            base_version=payload.baseVersion,
+            patch_count=len(raw_patches or []),
+            conflict=True,
+            status="rejected",
+        )
         raise HTTPException(status_code=409, detail={"code": "PROJECT_STATE_CONFLICT", "message": "Version conflict", "data": result})
 
     broadcast_patches = raw_patches
@@ -1193,6 +1284,15 @@ async def commit_project_state(
             "updatedBy": current_user["id"],
             "updatedAt": result.get("updatedAt"),
         },
+    )
+    _audit_log(
+        "project_commit",
+        current_user=current_user,
+        project_id=project_id,
+        version=result.get("version"),
+        base_version=payload.baseVersion,
+        patch_count=len(broadcast_patches or []),
+        conflict=False,
     )
     return _store_idempotent_response(
         "project_commit",
@@ -1373,6 +1473,13 @@ async def project_delete_dataset(project_id: str, dataset_id: str, current_user:
         collab_storage.soft_delete_project_dataset_asset(project_id, current_user["id"], dataset_id)
     elif not removed:
         raise HTTPException(status_code=404, detail="Dataset not found")
+    _audit_log(
+        "dataset_delete",
+        current_user=current_user,
+        project_id=project_id,
+        dataset_id=dataset_id,
+        runtime_dataset_id=runtime_dataset_id,
+    )
     return {"status": "ok"}
 
 
@@ -1433,11 +1540,12 @@ async def project_upload_file(
     current_user: Dict[str, Any] = Depends(get_current_user),
 ):
     _require_project_access(project_id, current_user["id"], need_write=True)
+    config = get_runtime_config()
     _rate_limit(
         "project_upload",
         subject=_subject_key(current_user, project_id),
-        count=RATE_LIMIT_UPLOAD_COUNT,
-        window_seconds=RATE_LIMIT_UPLOAD_WINDOW_SECONDS,
+        count=config.project_upload_rate_limit_count,
+        window_seconds=config.project_upload_rate_limit_window_seconds,
     )
     _ensure_project_runtime_session(project_id)
     pending_asset_id: Optional[str] = None
@@ -1504,6 +1612,16 @@ async def project_upload_file(
             "tableName": runtime_dataset_id,
             "rows": len(df)
         })
+        _audit_log(
+            "dataset_upload",
+            current_user=current_user,
+            project_id=project_id,
+            dataset_id=runtime_dataset_id,
+            asset_id=asset["id"],
+            storage_key=storage_key,
+            duplicate_strategy=duplicate_strategy,
+            rows=len(df),
+        )
 
         preview_rows = clean_df_for_json(df.head(50))
         return {
@@ -1550,11 +1668,12 @@ async def project_execute(
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
     current_user: Dict[str, Any] = Depends(get_current_user),
 ):
+    config = get_runtime_config()
     _rate_limit(
         "project_execute",
         subject=_subject_key(current_user, project_id),
-        count=RATE_LIMIT_EXECUTE_COUNT,
-        window_seconds=RATE_LIMIT_EXECUTE_WINDOW_SECONDS,
+        count=config.project_execute_rate_limit_count,
+        window_seconds=config.project_execute_rate_limit_window_seconds,
     )
     replay = _idempotency_replay_or_none(
         "project_execute",
@@ -1607,11 +1726,12 @@ async def project_execute_job(
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
     current_user: Dict[str, Any] = Depends(get_current_user),
 ):
+    config = get_runtime_config()
     _rate_limit(
         "project_execute_job",
         subject=_subject_key(current_user, project_id),
-        count=RATE_LIMIT_EXECUTE_COUNT,
-        window_seconds=RATE_LIMIT_EXECUTE_WINDOW_SECONDS,
+        count=config.project_execute_rate_limit_count,
+        window_seconds=config.project_execute_rate_limit_window_seconds,
     )
     replay = _idempotency_replay_or_none(
         "project_execute_job",
@@ -1676,11 +1796,12 @@ async def project_export(
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
     current_user: Dict[str, Any] = Depends(get_current_user),
 ):
+    config = get_runtime_config()
     _rate_limit(
         "project_export",
         subject=_subject_key(current_user, project_id),
-        count=RATE_LIMIT_EXECUTE_COUNT,
-        window_seconds=RATE_LIMIT_EXECUTE_WINDOW_SECONDS,
+        count=config.project_execute_rate_limit_count,
+        window_seconds=config.project_execute_rate_limit_window_seconds,
     )
     replay = _idempotency_replay_or_none(
         "project_export",
@@ -2252,24 +2373,26 @@ async def get_session_diagnostics(
 async def _read_uploaded_dataframe(file: UploadFile) -> Tuple[pd.DataFrame, str, str]:
     content = await file.read()
     normalized_filename = _normalize_upload_filename(file.filename)
+    extension = validate_upload_metadata(
+        filename=normalized_filename,
+        content_type=file.content_type,
+        content=content,
+        max_bytes=MAX_UPLOAD_SIZE_BYTES,
+        allowed_extensions=ALLOWED_UPLOAD_EXTENSIONS.keys(),
+    )
     filename = normalized_filename.lower()
-    _, extension = os.path.splitext(filename)
-    if extension not in ALLOWED_UPLOAD_EXTENSIONS:
-        raise ValueError("Unsupported file format. Please upload CSV, Excel, or Parquet.")
-    if len(content) > MAX_UPLOAD_SIZE_BYTES:
-        raise ValueError(f"File is too large. Max size is {MAX_UPLOAD_SIZE_BYTES} bytes.")
 
-    if filename.endswith('.csv'):
+    if extension == ".csv":
         try:
             return pd.read_csv(io.BytesIO(content)), "csv", normalized_filename
         except Exception:
             raise ValueError("Could not parse CSV")
-    if filename.endswith('.xlsx') or filename.endswith('.xls'):
+    if extension in {".xlsx", ".xls"}:
         try:
             return pd.read_excel(io.BytesIO(content)), "excel", normalized_filename
         except Exception:
             raise ValueError("Could not parse Excel file")
-    if filename.endswith('.parquet') or filename.endswith('.pq'):
+    if extension in {".parquet", ".pq"}:
         tmp_path = None
         try:
             with tempfile.NamedTemporaryFile(delete=False, suffix=".parquet") as tmp:

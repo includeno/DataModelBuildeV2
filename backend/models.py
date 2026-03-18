@@ -1,11 +1,20 @@
 
 from pydantic import BaseModel, Field
 try:
-    from pydantic import model_validator
+    from pydantic import ConfigDict, model_validator
 except ImportError:  # pragma: no cover - pydantic v1 fallback
+    ConfigDict = None
     model_validator = None
     from pydantic import root_validator
 from typing import List, Any, Optional, Dict, Union
+
+
+class StrictRequestModel(BaseModel):
+    if ConfigDict is not None:
+        model_config = ConfigDict(extra="forbid")
+    else:  # pragma: no cover - pydantic v1 fallback
+        class Config:
+            extra = "forbid"
 
 class FieldInfo(BaseModel):
     type: str
@@ -119,7 +128,7 @@ except AttributeError:
     OperationNode.update_forward_refs()
 
 
-class ExecutionContextRequest(BaseModel):
+class ExecutionContextRequest(StrictRequestModel):
     session_id: Optional[str] = Field(None, alias="sessionId")
     project_id: Optional[str] = Field(None, alias="projectId")
 
@@ -161,58 +170,58 @@ class AnalyzeRequest(ExecutionContextRequest):
     parentNodeId: str
 
 
-class RegisterRequest(BaseModel):
+class RegisterRequest(StrictRequestModel):
     email: str
     password: str
     displayName: Optional[str] = ""
 
 
-class LoginRequest(BaseModel):
+class LoginRequest(StrictRequestModel):
     email: str
     password: str
 
 
-class CreateProjectRequest(BaseModel):
+class CreateProjectRequest(StrictRequestModel):
     name: str
     description: Optional[str] = ""
     orgId: Optional[str] = None
 
 
-class AddProjectMemberRequest(BaseModel):
+class AddProjectMemberRequest(StrictRequestModel):
     memberEmail: str
     role: str = "viewer"
 
 
-class UpdateProjectMemberRequest(BaseModel):
+class UpdateProjectMemberRequest(StrictRequestModel):
     role: str
 
 
-class CreateOrganizationRequest(BaseModel):
+class CreateOrganizationRequest(StrictRequestModel):
     name: str
 
 
-class AddOrganizationMemberRequest(BaseModel):
+class AddOrganizationMemberRequest(StrictRequestModel):
     memberEmail: str
     role: str = "member"
 
 
-class UpdateOrganizationMemberRequest(BaseModel):
+class UpdateOrganizationMemberRequest(StrictRequestModel):
     role: str
 
 
-class CommitPatch(BaseModel):
+class CommitPatch(StrictRequestModel):
     op: str
     state: Optional[Dict[str, Any]] = None
     key: Optional[str] = None
     value: Any = None
 
 
-class CommitProjectStateRequest(BaseModel):
+class CommitProjectStateRequest(StrictRequestModel):
     baseVersion: int
     state: Optional[Dict[str, Any]] = None
     clientOpId: Optional[str] = None
     patches: Optional[List[CommitPatch]] = None
 
 
-class RefreshTokenRequest(BaseModel):
+class RefreshTokenRequest(StrictRequestModel):
     refreshToken: str

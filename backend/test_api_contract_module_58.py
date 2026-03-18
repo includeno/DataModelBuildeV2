@@ -167,8 +167,15 @@ def test_commit_idempotency_key_replays_and_rejects_mismatch(monkeypatch, client
 
 def test_commit_rate_limit_returns_429(monkeypatch, client: TestClient):
     monkeypatch.setenv("BACKEND_AUTH_ENABLED", "0")
-    monkeypatch.setattr(main_module, "RATE_LIMIT_COMMIT_COUNT", 1)
-    monkeypatch.setattr(main_module, "RATE_LIMIT_COMMIT_WINDOW_SECONDS", 60)
+    monkeypatch.setattr(
+        runtime_config_module,
+        "DEFAULT_RUNTIME_CONFIG",
+        replace(
+            runtime_config_module.DEFAULT_RUNTIME_CONFIG,
+            project_commit_rate_limit_count=1,
+            project_commit_rate_limit_window_seconds=60,
+        ),
+    )
 
     project = client.post("/projects", json={"name": "Rate Limit Project", "description": ""}).json()
 

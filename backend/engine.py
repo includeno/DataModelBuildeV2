@@ -8,6 +8,8 @@ import json
 import duckdb
 from typing import List, Optional, Dict, Set, Any, Union
 from models import Command, OperationNode
+import runtime_config as runtime_config_module
+from security import compile_python_transform
 from storage import storage
 from simpleeval import simple_eval
 from sql_utils import (
@@ -1030,19 +1032,18 @@ class ExecutionEngine:
     def _apply_transform(self, df: pd.DataFrame, cmd: Command) -> pd.DataFrame:
         mappings = cmd.config.mappings
         if mappings:
-            exec_globals = {'np': np, 'pd': pd, 'math': math, 'datetime': datetime, 're': re}
             mapping_funcs = {}
+            runtime_config = runtime_config_module.load_runtime_config()
             for m in mappings:
                 if not m.outputField or not m.expression: continue
                 if m.mode == 'python':
                     try:
-                        local_scope = {}
-                        exec(m.expression, exec_globals, local_scope)
-                        if 'transform' in local_scope: mapping_funcs[m.outputField] = local_scope['transform']
-                        else:
-                            for k, v in local_scope.items():
-                                if callable(v): mapping_funcs[m.outputField] = v; break
-                    except Exception as e: print(f"Compilation Error: {e}")
+                        mapping_funcs[m.outputField] = compile_python_transform(
+                            m.expression,
+                            allow_unsafe=runtime_config.unsafe_python_transform_enabled,
+                        )
+                    except Exception as e:
+                        print(f"Compilation Error: {e}")
             def apply_row(row):
                 new_data = {}
                 row_dict = row.to_dict()
