@@ -19,6 +19,7 @@ interface OperationTreeProps {
   parentId?: string | null;
   index?: number;
   siblingCount?: number;
+  activeEditorsByNode?: Record<string, string[]>;
 }
 
 export const OperationTree: React.FC<OperationTreeProps> = ({
@@ -37,7 +38,8 @@ export const OperationTree: React.FC<OperationTreeProps> = ({
   level = 0,
   parentId = null,
   index = 0,
-  siblingCount = 0
+  siblingCount = 0,
+  activeEditorsByNode = {}
 }) => {
   const [expanded, setExpanded] = useState(true);
   
@@ -50,6 +52,7 @@ export const OperationTree: React.FC<OperationTreeProps> = ({
   const isSelected = node.id === selectedId;
   const canMoveUp = Boolean(parentId) && index > 0;
   const canMoveDown = Boolean(parentId) && index < siblingCount - 1;
+  const activeEditors = activeEditorsByNode[node.id] || [];
 
   // Determine Icon based on type
   const getIcon = () => {
@@ -100,6 +103,14 @@ export const OperationTree: React.FC<OperationTreeProps> = ({
         <span className={`truncate font-medium flex-1 ${!node.enabled ? 'line-through text-gray-400' : ''}`}>
             {node.name}
         </span>
+        {activeEditors.length > 0 && (
+            <span
+                className="ml-2 hidden xl:inline-flex items-center text-[10px] font-medium text-violet-700 bg-violet-50 border border-violet-200 rounded px-1.5 py-0.5 shrink-0"
+                title={`${activeEditors.join(', ')} 正在编辑`}
+            >
+                {activeEditors.length === 1 ? `${activeEditors[0]} 编辑中` : `${activeEditors.length} 人编辑中`}
+            </span>
+        )}
         {appearance.showNodeIds && (
             <span className="ml-2 text-[9px] font-mono text-gray-400 bg-gray-50 border border-gray-200 rounded px-1.5 py-0.5 shrink-0">
                 {node.id}
@@ -188,6 +199,7 @@ export const OperationTree: React.FC<OperationTreeProps> = ({
                     parentId={node.id}
                     index={childIndex}
                     siblingCount={node.children?.length ?? 0}
+                    activeEditorsByNode={activeEditorsByNode}
                   />
               ))}
           </div>

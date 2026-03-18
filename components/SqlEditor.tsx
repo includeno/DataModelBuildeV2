@@ -7,7 +7,8 @@ import { api } from '../utils/api';
 import { DataPreview } from './DataPreview';
 
 interface SqlEditorProps {
-  sessionId: string;
+  projectId?: string;
+  sessionId?: string;
   apiConfig: ApiConfig;
   datasets: Dataset[];
   targetTable?: string | null;
@@ -30,7 +31,8 @@ interface SqlTab {
 }
 
 export const SqlEditor: React.FC<SqlEditorProps> = ({ 
-    sessionId, 
+    projectId, 
+    sessionId,
     apiConfig, 
     datasets,
     targetTable, 
@@ -40,6 +42,7 @@ export const SqlEditor: React.FC<SqlEditorProps> = ({
     history = [],
     onUpdateHistory
 }) => {
+  const activeProjectId = projectId || sessionId || '';
   // --- STATE ---
   const [tabs, setTabs] = useState<SqlTab[]>([
     { id: '1', title: 'Query 1', query: '', result: null, loading: false, error: null }
@@ -297,8 +300,8 @@ export const SqlEditor: React.FC<SqlEditorProps> = ({
     const startTime = performance.now();
     
     try {
-        const data = await api.post(apiConfig, '/query', { 
-            sessionId, 
+        const data = await api.post(apiConfig, `/projects/${activeProjectId}/query`, { 
+            projectId: activeProjectId,
             query: queryText,
             page: page,
             pageSize: 50

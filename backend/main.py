@@ -34,11 +34,13 @@ from models import (
     RefreshTokenRequest,
 )
 import storage as storage_module
+import runtime_config as runtime_config_module
 from storage import storage, resolve_data_subdir, to_data_relative, save_sessions_dir, PROJECT_ASSETS_DIRNAME, local_file_backend
 from engine import ExecutionEngine
 from collab_storage import collab_storage
 from job_runner import ProjectJobRunner, JobExecutionError, JobCanceledError
 from realtime import realtime_hub
+from runtime_config import RuntimeConfig
 
 LOG_PATH = os.environ.get(
     "BACKEND_LOG_PATH",
@@ -106,43 +108,21 @@ app.add_middleware(
 engine = ExecutionEngine()
 sync_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="dmb-sync-exec")
 
-DEFAULT_SERVER_FILE = os.path.join(os.path.dirname(__file__), "default_server.json")
-
-
-def _is_auth_enabled() -> bool:
-    raw = (
-        os.environ.get("BACKEND_AUTH_ENABLED")
-        or os.environ.get("BACKEND_AUTH_REQUIRED")
-        or "1"
-    )
-    return str(raw).strip().lower() not in {"0", "false", "no", "off"}
+def get_runtime_config() -> RuntimeConfig:
+    return runtime_config_module.load_runtime_config()
 
 
 def _ensure_auth_enabled() -> None:
-    if _is_auth_enabled():
+    if get_runtime_config().auth_enabled:
         return
     raise HTTPException(
         status_code=404,
         detail={"code": "AUTH_DISABLED", "message": "Authentication endpoints are disabled"},
     )
 
+
 def load_default_server() -> str:
-    if not os.path.exists(DEFAULT_SERVER_FILE):
-        return "mockServer"
-    try:
-        with open(DEFAULT_SERVER_FILE, "r") as f:
-            data = json.load(f)
-        if isinstance(data, str):
-            value = data.strip()
-        elif isinstance(data, dict):
-            value = str(data.get("server") or data.get("defaultServer") or data.get("baseUrl") or "").strip()
-        else:
-            value = ""
-        if value.lower() in ("mock", "mockserver"):
-            return "mockServer"
-        return value or "mockServer"
-    except Exception:
-        return "mockServer"
+    return runtime_config_module.load_default_server(get_runtime_config())
 
 def clean_df_for_json(df: pd.DataFrame) -> List[dict]:
     """
@@ -222,11 +202,14 @@ def _to_int(value: Any, default: int = 0) -> int:
 
 
 async def get_current_user(authorization: Optional[str] = Header(None)) -> Dict[str, Any]:
-    if not _is_auth_enabled():
+    config = get_runtime_config()
+    if not config.auth_enabled:
         return {
-            "id": "usr_auth_disabled",
-            "email": "auth-disabled@local",
-            "displayName": "Auth Disabled",
+            **collab_storage.ensure_local_user(
+                "usr_auth_disabled",
+                "auth-disabled@local",
+                "Auth Disabled",
+            ),
             "authDisabled": True,
         }
     token = _extract_bearer_token(authorization)
@@ -885,6 +868,21 @@ async def update_project_member(
         raise HTTPException(status_code=400, detail={"code": "PROJECT_MEMBER_INVALID", "message": str(e)})
 
 
+@app.delete("/projects/{project_id}/members/{member_user_id}")
+async def remove_project_member(
+    project_id: str,
+    member_user_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    _require_project_access(project_id, current_user["id"], need_manage=True)
+    try:
+        return collab_storage.remove_project_member(project_id, current_user["id"], member_user_id)
+    except PermissionError:
+        raise HTTPException(status_code=403, detail={"code": "PERM_PROJECT_MANAGE", "message": "Insufficient project permission"})
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail={"code": "PROJECT_MEMBER_INVALID", "message": str(e)})
+
+
 @app.get("/projects/{project_id}/state")
 async def get_project_state(
     project_id: str,
@@ -970,11 +968,22 @@ async def list_project_events(
 
 @app.websocket("/ws/projects/{project_id}")
 async def project_realtime_socket(websocket: WebSocket, project_id: str):
-    token = _extract_ws_token(websocket)
-    user = collab_storage.get_user_by_token(token or "")
-    if not user:
-        await websocket.close(code=4401, reason="unauthorized")
-        return
+    config = get_runtime_config()
+    if not config.auth_enabled:
+        user = {
+            **collab_storage.ensure_local_user(
+                "usr_auth_disabled",
+                "auth-disabled@local",
+                "Auth Disabled",
+            ),
+            "authDisabled": True,
+        }
+    else:
+        token = _extract_ws_token(websocket)
+        user = collab_storage.get_user_by_token(token or "")
+        if not user:
+            await websocket.close(code=4401, reason="unauthorized")
+            return
 
     try:
         project = _require_project_access(project_id, user["id"])
@@ -1536,23 +1545,23 @@ async def list_sessions():
 
 @app.get("/config/default_server")
 async def get_default_server():
-    server = load_default_server()
-    auth_enabled = _is_auth_enabled()
+    config = get_runtime_config()
+    server = config.default_server
     return {
         "server": server,
-        "isMock": server == "mockServer",
-        "authEnabled": auth_enabled,
-        "authRequired": auth_enabled,
+        "isMock": config.is_mock_server,
+        "authEnabled": config.auth_enabled,
+        "authRequired": config.auth_required,
     }
 
 
 @app.get("/config/auth")
 async def get_auth_config():
-    auth_enabled = _is_auth_enabled()
+    config = get_runtime_config()
     return {
-        "authEnabled": auth_enabled,
-        "authRequired": auth_enabled,
-        "mode": "required" if auth_enabled else "disabled",
+        "authEnabled": config.auth_enabled,
+        "authRequired": config.auth_required,
+        "mode": config.auth_mode,
     }
 
 @app.get("/config/session_storage")

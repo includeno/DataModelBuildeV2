@@ -10,14 +10,16 @@ interface PathConditionsModalProps {
   tree: OperationNode;
   targetNodeId: string;
   targetCommandId?: string;
-  sessionId: string;
+  projectId?: string;
+  sessionId?: string;
   apiConfig: ApiConfig;
 }
 
-export const PathConditionsModal: React.FC<PathConditionsModalProps> = ({ isOpen, onClose, tree, targetNodeId, targetCommandId, sessionId, apiConfig }) => {
+export const PathConditionsModal: React.FC<PathConditionsModalProps> = ({ isOpen, onClose, tree, targetNodeId, targetCommandId, projectId, sessionId, apiConfig }) => {
   const [counts, setCounts] = useState<Record<string, { value: number; timestamp: number } | null>>({});
   const [loadingCounts, setLoadingCounts] = useState<Record<string, boolean>>({});
   const [now, setNow] = useState(Date.now());
+  const activeProjectId = projectId || sessionId || '';
 
   useEffect(() => {
     if (!isOpen) return;
@@ -46,8 +48,8 @@ export const PathConditionsModal: React.FC<PathConditionsModalProps> = ({ isOpen
   const handleCheckCount = async (nodeId: string) => {
     setLoadingCounts(prev => ({ ...prev, [nodeId]: true }));
     try {
-        const res = await api.post(apiConfig, '/execute', {
-            sessionId: sessionId,
+        const res = await api.post(apiConfig, `/projects/${activeProjectId}/execute`, {
+            projectId: activeProjectId,
             tree: tree, 
             targetNodeId: nodeId, 
             page: 1,

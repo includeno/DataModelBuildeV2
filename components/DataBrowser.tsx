@@ -5,7 +5,8 @@ import { api } from '../utils/api';
 import { Button } from './Button';
 
 interface DataBrowserProps {
-  sessionId: string;
+  projectId?: string;
+  sessionId?: string;
   apiConfig: ApiConfig;
   datasets: Dataset[];
   selectedTable?: string | null;
@@ -15,12 +16,14 @@ interface DataBrowserProps {
 const FILTER_COLUMNS_ALL = '__all__';
 
 export const DataBrowser: React.FC<DataBrowserProps> = ({
+  projectId,
   sessionId,
   apiConfig,
   datasets,
   selectedTable,
   onSelectTable
 }) => {
+  const activeProjectId = projectId || sessionId || '';
   const [activeTable, setActiveTable] = useState<string>('');
   const [limit, setLimit] = useState<number>(200);
   const [rows, setRows] = useState<any[]>([]);
@@ -56,7 +59,7 @@ export const DataBrowser: React.FC<DataBrowserProps> = ({
           setImportsLoading(true);
           setImportsError(null);
           try {
-              const data = await api.get(apiConfig, `/sessions/${sessionId}/imports`) as ImportHistoryItem[];
+              const data = await api.get(apiConfig, `/projects/${activeProjectId}/imports`) as ImportHistoryItem[];
               if (!cancelled) setImports(data || []);
           } catch (e: any) {
               if (!cancelled) setImportsError(e.message || 'Failed to load import history.');
@@ -66,7 +69,7 @@ export const DataBrowser: React.FC<DataBrowserProps> = ({
       };
       loadImports();
       return () => { cancelled = true; };
-  }, [sessionId, apiConfig]);
+  }, [activeProjectId, apiConfig]);
 
   useEffect(() => {
       let cancelled = false;
@@ -81,7 +84,7 @@ export const DataBrowser: React.FC<DataBrowserProps> = ({
           try {
               const res = await api.get(
                   apiConfig,
-                  `/sessions/${sessionId}/datasets/${encodeURIComponent(activeTable)}/preview?limit=${limit}`
+                  `/projects/${activeProjectId}/datasets/${encodeURIComponent(activeTable)}/preview?limit=${limit}`
               ) as { rows: any[]; totalCount?: number };
               if (cancelled) return;
               const previewRows = res?.rows || [];
@@ -99,7 +102,7 @@ export const DataBrowser: React.FC<DataBrowserProps> = ({
       };
       loadPreview();
       return () => { cancelled = true; };
-  }, [activeTable, limit, refreshKey, sessionId, apiConfig, datasets]);
+  }, [activeTable, limit, refreshKey, activeProjectId, apiConfig, datasets]);
 
   const filteredRows = useMemo(() => {
       const text = filterText.trim();

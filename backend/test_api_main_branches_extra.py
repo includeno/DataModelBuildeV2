@@ -1,10 +1,12 @@
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 import main as main_module
+import runtime_config as runtime_config_module
 from storage import storage
 
 client = TestClient(main_module.app)
@@ -31,7 +33,11 @@ def _simple_tree():
 def test_load_default_server_string_and_invalid_json(monkeypatch, tmp_path: Path):
     cfg = tmp_path / "default_server.json"
     cfg.write_text(json.dumps("mock"), encoding="utf-8")
-    monkeypatch.setattr(main_module, "DEFAULT_SERVER_FILE", str(cfg))
+    monkeypatch.setattr(
+        runtime_config_module,
+        "DEFAULT_RUNTIME_CONFIG",
+        replace(runtime_config_module.DEFAULT_RUNTIME_CONFIG, default_server_file=str(cfg)),
+    )
     assert main_module.load_default_server() == "mockServer"
 
     cfg.write_text(json.dumps(["not_supported_type"]), encoding="utf-8")

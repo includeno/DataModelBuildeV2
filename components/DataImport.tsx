@@ -8,16 +8,18 @@ interface DataImportModalProps {
   isOpen: boolean;
   onClose: () => void;
   onImport: (dataset: Dataset) => void;
-  sessionId: string;
+  projectId?: string;
+  sessionId?: string;
   apiConfig: ApiConfig;
 }
 
-export const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClose, onImport, sessionId, apiConfig }) => {
+export const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClose, onImport, projectId, sessionId, apiConfig }) => {
   const [dragActive, setDragActive] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [customName, setCustomName] = useState('');
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const activeProjectId = projectId || sessionId || '';
   
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -115,11 +117,10 @@ export const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClos
     
     const formData = new FormData();
     formData.append('file', selectedFile);
-    formData.append('sessionId', sessionId);
     formData.append('name', customName);
 
     try {
-        const data = await api.upload(apiConfig, '/upload', formData);
+        const data = await api.upload(apiConfig, `/projects/${activeProjectId}/upload`, formData);
         
         if (data.error) {
             throw new Error(data.error);

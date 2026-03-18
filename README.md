@@ -88,15 +88,50 @@ To use the real Python backend engine:
    ```bash
    pip install -r backend/requirements.txt
    ```
-2. Start the server:
+2. Start the server (default: production + auth enabled):
    ```bash
    npm run backend
    ```
-   Test environment (isolated sessions/config):
+3. Test environment (isolated sessions/config):
    ```bash
    npm run backend:test
    ```
-3. In the Web App, open **Settings**, enter `http://localhost:8000`, and add the server.
+4. In the Web App, open **Settings**, enter `http://localhost:8000`, and add the server.
+
+#### Backend Startup Modes
+
+The backend now supports both environment mode and auth mode:
+
+- `BACKEND_ENV=production|test`
+- `BACKEND_AUTH_ENABLED=1|0`
+
+Auth mode behavior:
+
+- `BACKEND_AUTH_ENABLED=1` (default): login/register flow enabled.
+- `BACKEND_AUTH_ENABLED=0`: no login/register needed, backend does not process `/auth/*` (returns `AUTH_DISABLED`).
+
+Common combinations:
+
+```bash
+# production + auth enabled (default)
+npm run backend
+
+# test + auth enabled
+npm run backend:test
+
+# production + auth disabled
+BACKEND_AUTH_ENABLED=0 npm run backend
+
+# test + auth disabled
+BACKEND_AUTH_ENABLED=0 npm run backend:test
+```
+
+You can verify runtime auth mode with:
+
+```bash
+curl -s http://localhost:8000/config/auth
+curl -s http://localhost:8000/config/default_server
+```
 
 ### 🐳 Docker / Compose
 

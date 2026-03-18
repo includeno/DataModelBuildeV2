@@ -197,6 +197,17 @@ def test_phase1_project_membership_and_version_commit_conflict(client: TestClien
     assert update_member.status_code == 200
     assert update_member.json()["role"] == "editor"
 
+    remove_member = client.delete(
+        f"/projects/{project_id}/members/{add_viewer.json()['userId']}",
+        headers=_auth_header(owner_token),
+    )
+    assert remove_member.status_code == 200
+    assert remove_member.json()["removed"] is True
+
+    members_after_remove = client.get(f"/projects/{project_id}/members", headers=_auth_header(owner_token))
+    assert members_after_remove.status_code == 200
+    assert len(members_after_remove.json()) == 2
+
     events = client.get(
         f"/projects/{project_id}/events?fromVersion=0&limit=20",
         headers=_auth_header(editor_token),

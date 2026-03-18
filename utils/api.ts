@@ -1,5 +1,22 @@
 
-import { ApiConfig, Dataset, SessionMetadata, OperationNode, Command, DataType, FilterGroup, FilterCondition, FieldInfo, SubTableConfig, SubTableConditionGroup } from "../types";
+import {
+    ApiConfig,
+    Dataset,
+    ProjectJob,
+    ProjectMember,
+    ProjectMetadata,
+    ProjectMetadataDetail,
+    SessionMetadata,
+    OperationNode,
+    Command,
+    DataType,
+    FilterGroup,
+    FilterCondition,
+    FieldInfo,
+    SubTableConfig,
+    SubTableConditionGroup
+} from "../types";
+import { applyPatches } from "./collabSync";
 
 // --- MOCK DATA GENERATORS ---
 
@@ -100,8 +117,113 @@ const MOCK_IMPORT_HISTORY = [
 
 const MOCK_SESSION_STATES: Record<string, any> = {};
 const MOCK_SESSION_METADATA: Record<string, any> = {};
+const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 
-const buildMockDiagnostics = (sessionId: string) => {
+const DEFAULT_MOCK_PROJECT_ID = 'prj_mock_demo';
+const DEFAULT_MOCK_MEMBER: ProjectMember = {
+    userId: 'usr_mock_owner',
+    email: 'mock.owner@example.com',
+    displayName: 'Mock Owner',
+    role: 'owner',
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+};
+
+const createMockProjectMetadata = (projectId: string, name: string): ProjectMetadata => ({
+    id: projectId,
+    orgId: 'org_mock_default',
+    name,
+    description: 'Mock collaborative workspace',
+    role: 'owner',
+    archived: false,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+});
+
+const createMockProjectMetadataDetail = (displayName: string): ProjectMetadataDetail => ({
+    displayName,
+    settings: {
+        cascadeDisable: false,
+        panelPosition: 'right',
+    },
+});
+
+const MOCK_PROJECTS: ProjectMetadata[] = [
+    createMockProjectMetadata(DEFAULT_MOCK_PROJECT_ID, 'Mock Demo Project'),
+];
+
+const MOCK_PROJECT_STATES: Record<string, { version: number; state: any }> = {
+    [DEFAULT_MOCK_PROJECT_ID]: {
+        version: 0,
+        state: {},
+    },
+};
+
+const MOCK_PROJECT_METADATA: Record<string, ProjectMetadataDetail> = {
+    [DEFAULT_MOCK_PROJECT_ID]: createMockProjectMetadataDetail('Mock Demo Project'),
+};
+
+const MOCK_PROJECT_DATASETS: Record<string, Dataset[]> = {
+    [DEFAULT_MOCK_PROJECT_ID]: clone(MOCK_DATASETS),
+};
+
+const MOCK_PROJECT_IMPORTS: Record<string, typeof MOCK_IMPORT_HISTORY> = {
+    [DEFAULT_MOCK_PROJECT_ID]: clone(MOCK_IMPORT_HISTORY),
+};
+
+const MOCK_PROJECT_MEMBERS: Record<string, ProjectMember[]> = {
+    [DEFAULT_MOCK_PROJECT_ID]: [clone(DEFAULT_MOCK_MEMBER)],
+};
+
+const MOCK_PROJECT_JOBS: Record<string, ProjectJob[]> = {
+    [DEFAULT_MOCK_PROJECT_ID]: [],
+};
+
+const ensureMockProject = (projectId: string) => {
+    const cleanId = projectId || DEFAULT_MOCK_PROJECT_ID;
+    const existing = MOCK_PROJECTS.find((project) => project.id === cleanId);
+    if (!existing) {
+        MOCK_PROJECTS.push(createMockProjectMetadata(cleanId, `Mock Project ${MOCK_PROJECTS.length + 1}`));
+    }
+    if (!MOCK_PROJECT_STATES[cleanId]) {
+        MOCK_PROJECT_STATES[cleanId] = { version: 0, state: {} };
+    }
+    if (!MOCK_PROJECT_METADATA[cleanId]) {
+        const project = MOCK_PROJECTS.find((item) => item.id === cleanId)!;
+        MOCK_PROJECT_METADATA[cleanId] = createMockProjectMetadataDetail(project.name);
+    }
+    if (!MOCK_PROJECT_DATASETS[cleanId]) {
+        MOCK_PROJECT_DATASETS[cleanId] = clone(MOCK_DATASETS);
+    }
+    if (!MOCK_PROJECT_IMPORTS[cleanId]) {
+        MOCK_PROJECT_IMPORTS[cleanId] = clone(MOCK_IMPORT_HISTORY);
+    }
+    if (!MOCK_PROJECT_MEMBERS[cleanId]) {
+        MOCK_PROJECT_MEMBERS[cleanId] = [clone(DEFAULT_MOCK_MEMBER)];
+    }
+    if (!MOCK_PROJECT_JOBS[cleanId]) {
+        MOCK_PROJECT_JOBS[cleanId] = [];
+    }
+    return cleanId;
+};
+
+const getMockProjectDatasets = (projectId: string): Dataset[] => {
+    return MOCK_PROJECT_DATASETS[ensureMockProject(projectId)];
+};
+
+const setMockProjectState = (projectId: string, nextState: any) => {
+    const ensuredId = ensureMockProject(projectId);
+    const current = MOCK_PROJECT_STATES[ensuredId] || { version: 0, state: {} };
+    MOCK_PROJECT_STATES[ensuredId] = {
+        version: current.version + 1,
+        state: clone(nextState || {}),
+    };
+    const project = MOCK_PROJECTS.find((item) => item.id === ensuredId);
+    if (project) project.updatedAt = Date.now();
+    return MOCK_PROJECT_STATES[ensuredId];
+};
+
+const buildMockDiagnostics = (sessionId: string, datasets: Dataset[] = MOCK_DATASETS) => {
     const state = MOCK_SESSION_STATES[sessionId] || {};
     const tree = state.tree;
     const sources: any[] = [];
@@ -174,7 +296,7 @@ const buildMockDiagnostics = (sessionId: string) => {
             linkId: s.config?.linkId
         })),
         sourceMap: [],
-        datasets: MOCK_DATASETS.map(d => ({
+        datasets: datasets.map(d => ({
             id: d.id,
             name: d.name,
             totalCount: d.totalCount,
@@ -411,7 +533,7 @@ const evaluateSubTableOnCondition = (mainRow: any, subRow: any, subConfig: SubTa
     return String(mainVal) === String(subVal);
 };
 
-const executeMockLogic = (tree: OperationNode, targetNodeId: string): any => {
+const executeMockLogic = (tree: OperationNode, targetNodeId: string, datasets: Dataset[] = MOCK_DATASETS): any => {
     const sourceMap = buildSourceMap(tree); // Build map first
     const path = findPathToNode(tree, targetNodeId);
     if (!path) throw new Error("Target node not found in tree");
@@ -429,15 +551,15 @@ const executeMockLogic = (tree: OperationNode, targetNodeId: string): any => {
             
             if (cmd.type === 'source' || (cmd.type !== 'join' && cmd.type !== 'group' && cmd.config.mainTable)) {
                 const tableName = cmd.config.mainTable;
-                const ds = MOCK_DATASETS.find(d => d.name === tableName);
+                const ds = datasets.find(d => d.name === tableName);
                 if (ds) {
                     currentData = [...ds.rows];
                     hasLoadedSource = true;
                 }
             } else {
                 if (!hasLoadedSource && currentData.length === 0) {
-                     if (MOCK_DATASETS.length > 0) {
-                        currentData = [...MOCK_DATASETS[0].rows];
+                     if (datasets.length > 0) {
+                        currentData = [...datasets[0].rows];
                         hasLoadedSource = true;
                      }
                 }
@@ -446,7 +568,7 @@ const executeMockLogic = (tree: OperationNode, targetNodeId: string): any => {
                     // Resolve table name: Check map first (for Link IDs), then use value directly
                     const resolvedName = sourceMap[cmd.config.dataSource] || cmd.config.dataSource;
                     
-                    const ds = MOCK_DATASETS.find(d => d.name === resolvedName);
+                    const ds = datasets.find(d => d.name === resolvedName);
                     if (ds) {
                         currentData = [...ds.rows];
                         // If we loaded data, we mark it.
@@ -469,7 +591,7 @@ const executeMockLogic = (tree: OperationNode, targetNodeId: string): any => {
                         variables[variableName] = variableValue as any;
                     }
                 } else {
-                    currentData = applyMockCommand(currentData, cmd, variables);
+                    currentData = applyMockCommand(currentData, cmd, variables, datasets);
                 }
             }
         }
@@ -479,7 +601,7 @@ const executeMockLogic = (tree: OperationNode, targetNodeId: string): any => {
     return { rows: currentData, totalCount: currentData.length, columns: columns };
 };
 
-const applyMockCommand = (data: any[], cmd: Command, variables: Record<string, any[]>): any[] => {
+const applyMockCommand = (data: any[], cmd: Command, variables: Record<string, any[]>, datasets: Dataset[] = MOCK_DATASETS): any[] => {
     const { config } = cmd;
 
     if (cmd.type === 'multi_table') {
@@ -572,7 +694,7 @@ const applyMockCommand = (data: any[], cmd: Command, variables: Record<string, a
 
     if (cmd.type === 'join') {
         const targetTable = config.joinTable;
-        const targetDs = MOCK_DATASETS.find(d => d.name === targetTable);
+        const targetDs = datasets.find(d => d.name === targetTable);
         if (!targetDs) return data;
         
         const joinType = (config.joinType || 'left').toLowerCase();
@@ -919,7 +1041,85 @@ export const api = {
         if (config.isMock) {
             await new Promise(r => setTimeout(r, 400));
             if (endpoint === '/sessions') return MOCK_SESSIONS;
+            if (endpoint === '/projects') return clone(MOCK_PROJECTS);
+            if (endpoint.startsWith('/projects/query')) {
+                return {
+                    items: clone(MOCK_PROJECTS),
+                    page: 1,
+                    pageSize: 20,
+                    total: MOCK_PROJECTS.length,
+                    hasMore: false,
+                    search: '',
+                };
+            }
             if (endpoint === '/datasets') return [...MOCK_DATASETS];
+            if (endpoint.match(/\/projects\/[^/]+\/datasets\/[^/]+\/preview/)) {
+                const parts = endpoint.split('/');
+                const projectId = ensureMockProject(parts[2] || DEFAULT_MOCK_PROJECT_ID);
+                const datasetName = decodeURIComponent((parts[4] || '').split('?')[0]);
+                const datasets = getMockProjectDatasets(projectId);
+                const ds = datasets.find(d => d.name === datasetName || d.id === datasetName);
+                return { rows: ds?.rows || [], totalCount: ds?.totalCount || 0 };
+            }
+            if (endpoint.match(/\/projects\/[^/]+\/imports/)) {
+                const projectId = ensureMockProject(endpoint.split('/')[2] || DEFAULT_MOCK_PROJECT_ID);
+                return clone(MOCK_PROJECT_IMPORTS[projectId] || []);
+            }
+            if (endpoint.match(/\/projects\/[^/]+\/datasets$/)) {
+                const projectId = ensureMockProject(endpoint.split('/')[2] || DEFAULT_MOCK_PROJECT_ID);
+                return clone(getMockProjectDatasets(projectId));
+            }
+            if (endpoint.match(/\/projects\/[^/]+\/state/)) {
+                const projectId = ensureMockProject(endpoint.split('/')[2] || DEFAULT_MOCK_PROJECT_ID);
+                const state = MOCK_PROJECT_STATES[projectId] || { version: 0, state: {} };
+                return {
+                    projectId,
+                    version: state.version,
+                    state: clone(state.state || {}),
+                    updatedAt: Date.now(),
+                };
+            }
+            if (endpoint.match(/\/projects\/[^/]+\/metadata/)) {
+                const projectId = ensureMockProject(endpoint.split('/')[2] || DEFAULT_MOCK_PROJECT_ID);
+                return clone(MOCK_PROJECT_METADATA[projectId] || createMockProjectMetadataDetail(''));
+            }
+            if (endpoint.match(/\/projects\/[^/]+\/diagnostics/)) {
+                const projectId = ensureMockProject(endpoint.split('/')[2] || DEFAULT_MOCK_PROJECT_ID);
+                const state = MOCK_PROJECT_STATES[projectId]?.state || {};
+                const diagnostics = buildMockDiagnostics(projectId, getMockProjectDatasets(projectId));
+                return {
+                    ...diagnostics,
+                    projectId,
+                    sessionId: undefined,
+                    sources: diagnostics.sources,
+                    datasets: getMockProjectDatasets(projectId).map(d => ({
+                        id: d.id,
+                        name: d.name,
+                        totalCount: d.totalCount,
+                        fieldCount: d.fields?.length || 0,
+                    })),
+                    operations: diagnostics.operations,
+                    generatedAt: new Date().toISOString(),
+                    state,
+                };
+            }
+            if (endpoint.match(/\/projects\/[^/]+\/members/)) {
+                const projectId = ensureMockProject(endpoint.split('/')[2] || DEFAULT_MOCK_PROJECT_ID);
+                return clone(MOCK_PROJECT_MEMBERS[projectId] || []);
+            }
+            if (endpoint.match(/\/projects\/[^/]+\/jobs/)) {
+                const projectId = ensureMockProject(endpoint.split('/')[2] || DEFAULT_MOCK_PROJECT_ID);
+                return clone(MOCK_PROJECT_JOBS[projectId] || []);
+            }
+            if (endpoint.match(/\/projects\/[^/]+$/)) {
+                const projectId = ensureMockProject(endpoint.split('/')[2] || DEFAULT_MOCK_PROJECT_ID);
+                return clone(MOCK_PROJECTS.find(project => project.id === projectId) || MOCK_PROJECTS[0]);
+            }
+            if (endpoint.match(/\/jobs\/[^/]+$/)) {
+                const jobId = endpoint.split('/')[2];
+                const job = Object.values(MOCK_PROJECT_JOBS).flat().find(item => item.id === jobId);
+                return clone(job || {});
+            }
             if (endpoint.match(/\/sessions\/.*\/datasets\/.*\/preview/)) {
                 const parts = endpoint.split('/');
                 const datasetName = decodeURIComponent((parts[4] || '').split('?')[0]);
@@ -944,6 +1144,205 @@ export const api = {
     async post(config: ApiConfig, endpoint: string, body: any) {
         if (config.isMock) {
             await new Promise(r => setTimeout(r, 600));
+            if (endpoint === '/projects') {
+                const projectId = `prj_mock_${Date.now()}`;
+                const project = createMockProjectMetadata(projectId, body?.name || `Mock Project ${MOCK_PROJECTS.length + 1}`);
+                project.description = body?.description || '';
+                MOCK_PROJECTS.unshift(project);
+                ensureMockProject(projectId);
+                MOCK_PROJECT_METADATA[projectId] = createMockProjectMetadataDetail(project.name);
+                MOCK_PROJECT_DATASETS[projectId] = [];
+                MOCK_PROJECT_IMPORTS[projectId] = [];
+                MOCK_PROJECT_STATES[projectId] = { version: 0, state: {} };
+                MOCK_PROJECT_MEMBERS[projectId] = [clone(DEFAULT_MOCK_MEMBER)];
+                MOCK_PROJECT_JOBS[projectId] = [];
+                return clone(project);
+            }
+            if (endpoint.match(/\/projects\/[^/]+\/archive/)) {
+                const projectId = ensureMockProject(endpoint.split('/')[2] || DEFAULT_MOCK_PROJECT_ID);
+                const project = MOCK_PROJECTS.find(item => item.id === projectId);
+                if (project) {
+                    project.archived = Boolean(body?.archived ?? true);
+                    project.updatedAt = Date.now();
+                }
+                return clone(project || {});
+            }
+            if (endpoint.match(/\/projects\/[^/]+\/members$/)) {
+                const projectId = ensureMockProject(endpoint.split('/')[2] || DEFAULT_MOCK_PROJECT_ID);
+                const nextMember: ProjectMember = {
+                    userId: `usr_mock_${Date.now()}`,
+                    email: String(body?.memberEmail || `member${Date.now()}@mock.local`),
+                    displayName: String(body?.memberEmail || 'Mock Member').split('@')[0],
+                    role: body?.role || 'viewer',
+                    createdAt: Date.now(),
+                    updatedAt: Date.now(),
+                };
+                MOCK_PROJECT_MEMBERS[projectId] = [...(MOCK_PROJECT_MEMBERS[projectId] || []), nextMember];
+                return clone(nextMember);
+            }
+            if (endpoint.match(/\/projects\/[^/]+\/state\/commit/)) {
+                const projectId = ensureMockProject(endpoint.split('/')[2] || DEFAULT_MOCK_PROJECT_ID);
+                const current = MOCK_PROJECT_STATES[projectId] || { version: 0, state: {} };
+                const baseVersion = Number(body?.baseVersion || 0);
+                if (baseVersion !== current.version) {
+                    return {
+                        conflict: true,
+                        latestVersion: current.version,
+                        state: clone(current.state || {}),
+                    };
+                }
+                const nextState = body?.state
+                    ? clone(body.state)
+                    : applyPatches(clone(current.state || {}), body?.patches || []);
+                const saved = setMockProjectState(projectId, nextState);
+                return {
+                    projectId,
+                    version: saved.version,
+                    state: clone(saved.state || {}),
+                    conflict: false,
+                    updatedAt: Date.now(),
+                };
+            }
+            if (endpoint.match(/\/projects\/[^/]+\/datasets\/update/)) {
+                const projectId = ensureMockProject(endpoint.split('/')[2] || DEFAULT_MOCK_PROJECT_ID);
+                const { datasetId, fieldTypes } = body;
+                const datasets = getMockProjectDatasets(projectId);
+                const target = datasets.find(d => d.id === datasetId || d.name === datasetId);
+                if (target) target.fieldTypes = fieldTypes;
+                return { status: "ok" };
+            }
+            if (endpoint.match(/\/projects\/[^/]+\/metadata/)) {
+                const projectId = ensureMockProject(endpoint.split('/')[2] || DEFAULT_MOCK_PROJECT_ID);
+                const current = MOCK_PROJECT_METADATA[projectId] || createMockProjectMetadataDetail('');
+                MOCK_PROJECT_METADATA[projectId] = { ...current, ...body };
+                const project = MOCK_PROJECTS.find(item => item.id === projectId);
+                if (project && body?.displayName !== undefined) {
+                    project.name = body.displayName || project.name;
+                    project.updatedAt = Date.now();
+                }
+                return { status: "ok" };
+            }
+            if (endpoint.match(/\/projects\/[^/]+\/execute/)) {
+                const projectId = ensureMockProject(endpoint.split('/')[2] || DEFAULT_MOCK_PROJECT_ID);
+                const { tree, targetNodeId, page = 1, pageSize = 50, viewId = "main" } = body;
+                const datasets = getMockProjectDatasets(projectId);
+                const mainResult = executeMockLogic(tree, targetNodeId, datasets);
+                let finalData = mainResult.rows;
+                let columns = mainResult.columns;
+
+                if (viewId !== "main") {
+                    finalData = [];
+                    columns = [];
+                    const path = findPathToNode(tree, targetNodeId);
+                    const targetNode = path ? path[path.length - 1] : null;
+                    const multiCmd = targetNode?.commands.find(c => c.type === 'multi_table');
+                    if (multiCmd && multiCmd.config.subTables) {
+                        const subConfig = multiCmd.config.subTables.find((s: any) => s.id === viewId);
+                        if (subConfig) {
+                            const subDs = datasets.find(d => d.name === subConfig.table);
+                            if (subDs) {
+                                finalData = subDs.rows.filter((subRow: any) =>
+                                    mainResult.rows.some((mainRow: any) =>
+                                        evaluateSubTableOnCondition(mainRow, subRow, subConfig as SubTableConfig)
+                                        && evaluateSubTableConditionGroup(
+                                            mainRow,
+                                            subRow,
+                                            (subConfig as SubTableConfig).onConditionGroup || (subConfig as SubTableConfig).conditionGroup || null
+                                        )
+                                    )
+                                );
+                                columns = subDs.fields;
+                            }
+                        }
+                    }
+                }
+
+                const totalCount = finalData.length;
+                const start = (page - 1) * pageSize;
+                return {
+                    rows: finalData.slice(start, start + pageSize),
+                    totalCount,
+                    columns,
+                    page,
+                    pageSize,
+                    activeViewId: viewId,
+                };
+            }
+            if (endpoint.match(/\/projects\/[^/]+\/jobs\/execute/)) {
+                const projectId = ensureMockProject(endpoint.split('/')[2] || DEFAULT_MOCK_PROJECT_ID);
+                const result = await this.post(config, `/projects/${projectId}/execute`, body);
+                const job: ProjectJob = {
+                    id: `job_mock_${Date.now()}`,
+                    projectId,
+                    type: 'execute',
+                    status: 'completed',
+                    progress: 100,
+                    payload: clone(body || {}),
+                    result: clone(result),
+                    createdAt: Date.now(),
+                    updatedAt: Date.now(),
+                    startedAt: Date.now(),
+                    finishedAt: Date.now(),
+                };
+                MOCK_PROJECT_JOBS[projectId] = [job, ...(MOCK_PROJECT_JOBS[projectId] || [])];
+                return clone(job);
+            }
+            if (endpoint.match(/\/projects\/[^/]+\/export/)) {
+                const projectId = ensureMockProject(endpoint.split('/')[2] || DEFAULT_MOCK_PROJECT_ID);
+                const job: ProjectJob = {
+                    id: `job_export_${Date.now()}`,
+                    projectId,
+                    type: 'export',
+                    status: 'completed',
+                    progress: 100,
+                    payload: clone(body || {}),
+                    result: {
+                        downloadUrl: `/jobs/job_export_${Date.now()}/result`,
+                        fileName: `export_${projectId}.csv`,
+                        contentType: 'text/csv',
+                    },
+                    createdAt: Date.now(),
+                    updatedAt: Date.now(),
+                    startedAt: Date.now(),
+                    finishedAt: Date.now(),
+                };
+                MOCK_PROJECT_JOBS[projectId] = [job, ...(MOCK_PROJECT_JOBS[projectId] || [])];
+                return clone(job);
+            }
+            if (endpoint.match(/\/projects\/[^/]+\/generate_sql/)) {
+                const query = body?.targetCommandId
+                    ? `-- mock SQL for ${body.targetCommandId}\nSELECT * FROM demo_table`
+                    : '-- mock SQL\nSELECT * FROM demo_table';
+                return { sql: query };
+            }
+            if (endpoint.match(/\/projects\/[^/]+\/analyze/)) return { report: ["⚠️ Mock Analysis: Overlap detected in 2 branches."] };
+            if (endpoint.match(/\/projects\/[^/]+\/query/)) {
+                const projectId = ensureMockProject(endpoint.split('/')[2] || DEFAULT_MOCK_PROJECT_ID);
+                const { query = "", page = 1, pageSize = 50 } = body;
+                const datasets = getMockProjectDatasets(projectId);
+                const match = query.match(/select \\* from (.*)/i);
+                if (match) {
+                    const rawTableName = match[1].trim().replace(/['"`]/g, '');
+                    const ds = datasets.find(d => d.name === rawTableName || d.id === rawTableName);
+                    if (ds) {
+                        const start = (page - 1) * pageSize;
+                        return { rows: ds.rows.slice(start, start + pageSize), totalCount: ds.totalCount, columns: ds.fields, page, pageSize };
+                    }
+                }
+                return { rows: [], totalCount: 0, columns: [], page: 1, pageSize: 50 };
+            }
+            if (endpoint.match(/\/jobs\/[^/]+:cancel/)) {
+                const jobId = endpoint.split('/')[2]?.replace(':cancel', '');
+                for (const projectId of Object.keys(MOCK_PROJECT_JOBS)) {
+                    const nextJobs = (MOCK_PROJECT_JOBS[projectId] || []).map(job => (
+                        job.id === jobId
+                            ? { ...job, status: 'canceled', cancelRequested: true, updatedAt: Date.now(), finishedAt: Date.now() }
+                            : job
+                    ));
+                    MOCK_PROJECT_JOBS[projectId] = nextJobs;
+                }
+                return { status: 'ok' };
+            }
             if (endpoint === '/sessions') return { sessionId: `mock-sess-${Date.now()}` };
             if (endpoint.match(/\/sessions\/.*\/datasets\/update/)) {
                  const { datasetId, fieldTypes } = body;
@@ -1038,6 +1437,34 @@ export const api = {
         return res.json();
     },
 
+    async patch(config: ApiConfig, endpoint: string, body: any) {
+        if (config.isMock) {
+            await new Promise(r => setTimeout(r, 300));
+            if (endpoint.match(/\/projects\/[^/]+\/members\/[^/]+/)) {
+                const parts = endpoint.split('/');
+                const projectId = ensureMockProject(parts[2] || DEFAULT_MOCK_PROJECT_ID);
+                const memberUserId = parts[4];
+                MOCK_PROJECT_MEMBERS[projectId] = (MOCK_PROJECT_MEMBERS[projectId] || []).map(member => (
+                    member.userId === memberUserId
+                        ? { ...member, role: body?.role || member.role, updatedAt: Date.now() }
+                        : member
+                ));
+                return clone((MOCK_PROJECT_MEMBERS[projectId] || []).find(member => member.userId === memberUserId) || {});
+            }
+            return {};
+        }
+        const res = await requestJson(config, endpoint, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err?.detail?.message || err?.detail || `API Error: ${res.statusText}`);
+        }
+        return res.json();
+    },
+
     async export(config: ApiConfig, endpoint: string, body: any) {
         if (config.isMock) return;
         const res = await requestJson(config, endpoint, {
@@ -1058,6 +1485,34 @@ export const api = {
 
     async delete(config: ApiConfig, endpoint: string) {
         if (config.isMock) {
+            if (endpoint.match(/\/projects\/[^/]+\/datasets\/(.*)/)) {
+                const parts = endpoint.split('/');
+                const projectId = ensureMockProject(parts[2] || DEFAULT_MOCK_PROJECT_ID);
+                const datasetName = decodeURIComponent(parts[4] || '');
+                const datasets = getMockProjectDatasets(projectId);
+                const idx = datasets.findIndex(d => d.name === datasetName || d.id === datasetName);
+                if (idx >= 0) datasets.splice(idx, 1);
+                return { status: "ok" };
+            }
+            if (endpoint.match(/\/projects\/[^/]+\/members\/[^/]+/)) {
+                const parts = endpoint.split('/');
+                const projectId = ensureMockProject(parts[2] || DEFAULT_MOCK_PROJECT_ID);
+                const memberUserId = parts[4];
+                MOCK_PROJECT_MEMBERS[projectId] = (MOCK_PROJECT_MEMBERS[projectId] || []).filter(member => member.userId !== memberUserId);
+                return { status: 'ok' };
+            }
+            if (endpoint.match(/\/projects\/[^/]+$/)) {
+                const projectId = endpoint.split('/')[2];
+                const index = MOCK_PROJECTS.findIndex(project => project.id === projectId);
+                if (index >= 0) MOCK_PROJECTS.splice(index, 1);
+                delete MOCK_PROJECT_STATES[projectId];
+                delete MOCK_PROJECT_METADATA[projectId];
+                delete MOCK_PROJECT_DATASETS[projectId];
+                delete MOCK_PROJECT_IMPORTS[projectId];
+                delete MOCK_PROJECT_MEMBERS[projectId];
+                delete MOCK_PROJECT_JOBS[projectId];
+                return { status: 'ok' };
+            }
             const match = endpoint.match(/\/sessions\/.*\/datasets\/(.*)/);
             if (match) {
                 const datasetName = decodeURIComponent(match[1]);
@@ -1079,6 +1534,21 @@ export const api = {
             const name = formData.get('name') as string;
             const rows = [{ col1: "A", col2: 100, col3: true }, { col1: "B", col2: 200, col3: false }];
             const newDs: Dataset = { id: `mock_table_${Date.now()}`, name: name || file.name, fields: ["col1", "col2", "col3"], rows: rows, fieldTypes: generateFieldTypes(rows), totalCount: 2 };
+            if (endpoint.match(/\/projects\/[^/]+\/upload/)) {
+                const projectId = ensureMockProject(endpoint.split('/')[2] || DEFAULT_MOCK_PROJECT_ID);
+                getMockProjectDatasets(projectId).push(newDs);
+                MOCK_PROJECT_IMPORTS[projectId] = [
+                    ...(MOCK_PROJECT_IMPORTS[projectId] || []),
+                    {
+                        timestamp: Date.now(),
+                        originalFileName: file?.name || 'mock.csv',
+                        datasetName: newDs.name,
+                        tableName: newDs.name,
+                        rows: newDs.totalCount || 0,
+                    }
+                ];
+                return newDs;
+            }
             MOCK_DATASETS.push(newDs);
             return newDs;
         }

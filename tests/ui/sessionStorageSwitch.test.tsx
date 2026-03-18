@@ -1,17 +1,18 @@
-import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act } from 'react-dom/test-utils';
+import { act } from 'react';
 import { createRoot, Root } from 'react-dom/client';
 import App from '../../App';
 import { api } from '../../utils/api';
+import { ProjectMetadata } from '../../types';
+import { INITIAL_TREE } from '../../utils/projectStore';
 
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 
-type SessionMeta = { sessionId: string; displayName?: string; createdAt: number };
+type ProjectMeta = ProjectMetadata;
 
-const sessionsByStorage: Record<string, SessionMeta[]> = {
-    sessions_a: [{ sessionId: 'sess_a1', displayName: 'Storage A Session', createdAt: 1 }],
-    sessions_b: [{ sessionId: 'sess_b1', displayName: 'Storage B Session', createdAt: 2 }]
+const projectsByStorage: Record<string, ProjectMeta[]> = {
+    sessions_a: [{ id: 'proj_a1', name: 'Storage A Project', role: 'owner', createdAt: 1, updatedAt: 1 }],
+    sessions_b: [{ id: 'proj_b1', name: 'Storage B Project', role: 'owner', createdAt: 2, updatedAt: 2 }]
 };
 
 describe('Session storage switching (UI)', () => {
@@ -26,10 +27,34 @@ describe('Session storage switching (UI)', () => {
         root = createRoot(container);
 
         vi.spyOn(api, 'get').mockImplementation(async (_config: any, endpoint: string) => {
-            if (endpoint === '/sessions') {
-                return sessionsByStorage[currentStorage];
+            if (endpoint === '/projects') {
+                return projectsByStorage[currentStorage];
             }
-            return {};
+            if (endpoint.startsWith('/projects/') && endpoint.endsWith('/state')) {
+                return {
+                    version: 1,
+                    updatedAt: Date.now(),
+                    state: {
+                        tree: INITIAL_TREE,
+                        sqlHistory: [],
+                    },
+                };
+            }
+            if (endpoint.startsWith('/projects/') && endpoint.endsWith('/metadata')) {
+                const projectId = endpoint.split('/')[2];
+                const project = Object.values(projectsByStorage).flat().find(item => item.id === projectId);
+                return {
+                    displayName: project?.name || projectId,
+                    settings: {
+                        cascadeDisable: true,
+                        panelPosition: 'right',
+                    },
+                };
+            }
+            if (endpoint.startsWith('/projects/') && endpoint.endsWith('/datasets')) return [];
+            if (endpoint.startsWith('/projects/') && endpoint.endsWith('/members')) return [];
+            if (endpoint.startsWith('/projects/') && endpoint.endsWith('/jobs')) return [];
+            return {} as any;
         });
         vi.spyOn(api, 'ping').mockResolvedValue(true);
 
@@ -82,16 +107,15 @@ describe('Session storage switching (UI)', () => {
     };
 
     const openSessionMenu = async () => {
-        const btn = Array.from(document.querySelectorAll('button'))
-            .find(b => (b.textContent || '').includes('Create Session') && (b.textContent || '').includes('Session'));
+        const btn = document.querySelector('button[title="Project Switcher"]');
         click(btn || null);
         await act(async () => { await flush(); });
     };
 
     it('updates session list immediately after switching storage', async () => {
         await openSessionMenu();
-        expect(document.body.textContent).toContain('Storage A Session');
-        expect(document.body.textContent).not.toContain('Storage B Session');
+        expect(document.body.textContent).toContain('Storage A Project');
+        expect(document.body.textContent).not.toContain('Storage B Project');
         // Close session menu
         await openSessionMenu();
 
@@ -108,7 +132,7 @@ describe('Session storage switching (UI)', () => {
 
         // Open session menu again and verify list updated
         await openSessionMenu();
-        expect(document.body.textContent).toContain('Storage B Session');
-        expect(document.body.textContent).not.toContain('Storage A Session');
+        expect(document.body.textContent).toContain('Storage B Project');
+        expect(document.body.textContent).not.toContain('Storage A Project');
     });
 });

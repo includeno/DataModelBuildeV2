@@ -6,7 +6,8 @@ import { OperationNode, Dataset, AppearanceConfig } from '../types';
 interface SidebarProps {
   width: number;
   currentView: 'workflow' | 'sql' | 'data';
-  sessionId: string;
+  projectId?: string;
+  sessionId?: string;
   tree: OperationNode;
   datasets: Dataset[];
   selectedNodeId: string;
@@ -23,12 +24,14 @@ interface SidebarProps {
   onAnalyzeOverlap?: (nodeId: string) => void;
   onOpenSchema?: (name: string) => void;
   onDeleteDataset?: (name: string) => void;
+  remoteEditorsByNode?: Record<string, string[]>;
   appearance: AppearanceConfig;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
   width,
   currentView,
+  projectId,
   sessionId,
   tree,
   datasets,
@@ -46,6 +49,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onAnalyzeOverlap,
   onOpenSchema,
   onDeleteDataset,
+  remoteEditorsByNode = {},
   appearance
 }) => {
   const [isOpsExpanded, setIsOpsExpanded] = useState(true);
@@ -54,7 +58,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [collapseAllCounter, setCollapseAllCounter] = useState(0);
   const [lastGlobalAction, setLastGlobalAction] = useState<'expand' | 'collapse' | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const canImportDataset = Boolean(sessionId);
+  const activeProjectId = projectId || sessionId || '';
+  const canImportDataset = Boolean(activeProjectId);
 
   const handleOpenDataset = (name: string) => {
       if (currentView === 'data' && onOpenTableInData) {
@@ -172,6 +177,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             parentId="root"
                             index={childIndex}
                             siblingCount={tree.children?.length ?? 0}
+                            activeEditorsByNode={remoteEditorsByNode}
                         />
                     ))}
                     {(!tree.children || tree.children.length === 0) && (
@@ -204,7 +210,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                      onImportClick();
                  }}
                  className={`p-1 rounded transition-colors ${canImportDataset ? 'hover:bg-blue-100 text-blue-600' : 'text-gray-300 cursor-not-allowed'}`}
-                 title={canImportDataset ? "Import Dataset" : "Create a session to import datasets"}
+                 title={canImportDataset ? "Import Dataset" : "Create a project to import datasets"}
                  disabled={!canImportDataset}
              >
                  <Plus className="w-4 h-4" />
@@ -213,8 +219,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
          
          {isDataExpanded && (
              <div className="flex-1 overflow-y-auto p-2 custom-scrollbar">
-                {!sessionId ? (
-                    <div className="flex flex-col items-center justify-center h-full text-center p-4 text-gray-400 italic text-xs">Create a session to manage data.</div>
+                {!activeProjectId ? (
+                    <div className="flex flex-col items-center justify-center h-full text-center p-4 text-gray-400 italic text-xs">Create a project to manage data.</div>
                 ) : datasets.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full text-center p-4 text-gray-400 italic text-xs">No tables found.<br/>Import CSV to start.</div>
                 ) : (

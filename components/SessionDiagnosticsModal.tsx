@@ -27,9 +27,9 @@ export const SessionDiagnosticsModal: React.FC<SessionDiagnosticsModalProps> = (
           <div className="flex items-center space-x-2">
             <Activity className="w-5 h-5 text-blue-600" />
             <div>
-              <h3 className="text-lg font-bold text-gray-900">Session Diagnostics</h3>
+              <h3 className="text-lg font-bold text-gray-900">Project Diagnostics</h3>
               <p className="text-xs text-gray-500 font-mono">
-                {report?.sessionId || 'No session loaded'}
+                {report?.projectId || report?.sessionId || 'No project loaded'}
               </p>
             </div>
           </div>

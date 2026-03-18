@@ -7,7 +7,8 @@ import { SessionConfig } from '../types';
 interface SessionSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  sessionId: string;
+  projectId?: string;
+  sessionId?: string;
   initialDisplayName: string;
   initialSettings: SessionConfig;
   onSave: (displayName: string, settings: SessionConfig) => Promise<void>;
@@ -16,6 +17,7 @@ interface SessionSettingsModalProps {
 export const SessionSettingsModal: React.FC<SessionSettingsModalProps> = ({
   isOpen,
   onClose,
+  projectId,
   sessionId,
   initialDisplayName,
   initialSettings,
@@ -24,6 +26,7 @@ export const SessionSettingsModal: React.FC<SessionSettingsModalProps> = ({
   const [displayName, setDisplayName] = useState(initialDisplayName);
   const [settings, setSettings] = useState<SessionConfig>(initialSettings);
   const [saving, setSaving] = useState(false);
+  const activeProjectId = projectId || sessionId || '';
 
   useEffect(() => {
     if (isOpen) {
@@ -67,8 +70,8 @@ export const SessionSettingsModal: React.FC<SessionSettingsModalProps> = ({
           <div className="flex items-center space-x-2">
             <Settings className="w-5 h-5 text-blue-600" />
             <div>
-                <h3 className="text-lg font-bold text-gray-900">Session Settings</h3>
-                <p className="text-xs text-gray-500 font-mono">{sessionId}</p>
+                <h3 className="text-lg font-bold text-gray-900">Project Settings</h3>
+                <p className="text-xs text-gray-500 font-mono">{activeProjectId}</p>
             </div>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
@@ -87,7 +90,7 @@ export const SessionSettingsModal: React.FC<SessionSettingsModalProps> = ({
                     type="text" 
                     value={displayName}
                     onChange={handleNameChange}
-                    placeholder="My Analysis Session"
+                    placeholder="My Analysis Project"
                     className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm"
                 />
                 <div className="flex justify-between mt-1">

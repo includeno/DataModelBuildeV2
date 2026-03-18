@@ -27,7 +27,9 @@
     "test:frontend": "vitest --run",
     "test:backend": "cd backend && pytest -q",
     "test:ci": "npm run test:frontend && npm run test:backend",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "smoke:cross-browser": "node scripts/cross_browser_collab_smoke.mjs",
+    "smoke:cross-browser:headed": "node scripts/cross_browser_collab_smoke.mjs --headed"
   },
   "dependencies": {
     "framer-motion": "^12.34.3",

@@ -1,12 +1,15 @@
 import json
 import os
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 import main as main_module
+import runtime_config as runtime_config_module
 import storage as storage_module
+from collab_storage import collab_storage
 from storage import storage
 
 client = TestClient(main_module.app)
@@ -15,13 +18,19 @@ client = TestClient(main_module.app)
 @pytest.fixture(autouse=True)
 def clean_env():
     storage.clear()
+    collab_storage.clear()
     yield
     storage.clear()
+    collab_storage.clear()
 
 
 def test_default_server_missing_file(monkeypatch, tmp_path: Path):
     missing = tmp_path / "missing.json"
-    monkeypatch.setattr(main_module, "DEFAULT_SERVER_FILE", str(missing))
+    monkeypatch.setattr(
+        runtime_config_module,
+        "DEFAULT_RUNTIME_CONFIG",
+        replace(runtime_config_module.DEFAULT_RUNTIME_CONFIG, default_server_file=str(missing)),
+    )
 
     res = client.get("/config/default_server")
     assert res.status_code == 200
@@ -33,7 +42,11 @@ def test_default_server_missing_file(monkeypatch, tmp_path: Path):
 def test_default_server_from_file(monkeypatch, tmp_path: Path):
     cfg = tmp_path / "default_server.json"
     cfg.write_text(json.dumps({"server": "http://localhost:8000"}), encoding="utf-8")
-    monkeypatch.setattr(main_module, "DEFAULT_SERVER_FILE", str(cfg))
+    monkeypatch.setattr(
+        runtime_config_module,
+        "DEFAULT_RUNTIME_CONFIG",
+        replace(runtime_config_module.DEFAULT_RUNTIME_CONFIG, default_server_file=str(cfg)),
+    )
 
     res = client.get("/config/default_server")
     assert res.status_code == 200
@@ -76,6 +89,57 @@ def test_auth_disabled_mode_blocks_auth_endpoints(monkeypatch):
     me = client.get("/auth/me")
     assert me.status_code == 404
     assert me.json()["detail"]["code"] == "AUTH_DISABLED"
+
+
+def test_auth_config_can_follow_runtime_config_defaults(monkeypatch):
+    monkeypatch.setattr(
+        runtime_config_module,
+        "DEFAULT_RUNTIME_CONFIG",
+        replace(runtime_config_module.DEFAULT_RUNTIME_CONFIG, auth_enabled=False),
+    )
+
+    cfg = client.get("/config/auth")
+    assert cfg.status_code == 200
+    payload = cfg.json()
+    assert payload["authEnabled"] is False
+    assert payload["authRequired"] is False
+    assert payload["mode"] == "disabled"
+
+
+def test_auth_env_override_takes_priority_over_runtime_defaults(monkeypatch):
+    monkeypatch.setattr(
+        runtime_config_module,
+        "DEFAULT_RUNTIME_CONFIG",
+        replace(runtime_config_module.DEFAULT_RUNTIME_CONFIG, auth_enabled=False),
+    )
+    monkeypatch.setenv("BACKEND_AUTH_ENABLED", "1")
+
+    cfg = client.get("/config/auth")
+    assert cfg.status_code == 200
+    payload = cfg.json()
+    assert payload["authEnabled"] is True
+    assert payload["authRequired"] is True
+    assert payload["mode"] == "required"
+
+
+def test_auth_disabled_mode_bootstraps_project_user(monkeypatch):
+    monkeypatch.setenv("BACKEND_AUTH_ENABLED", "0")
+
+    list_before = client.get("/projects")
+    assert list_before.status_code == 200
+    assert list_before.json() == []
+
+    created = client.post("/projects", json={"name": "Local Project", "description": "Auth disabled"})
+    assert created.status_code == 200
+    payload = created.json()
+    assert payload["name"] == "Local Project"
+    assert payload["role"] == "owner"
+
+    list_after = client.get("/projects")
+    assert list_after.status_code == 200
+    items = list_after.json()
+    assert len(items) == 1
+    assert items[0]["id"] == payload["id"]
 
 
 def test_dataset_preview_endpoint():

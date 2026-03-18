@@ -11,7 +11,8 @@ import { api } from '../utils/api';
 
 interface WorkspaceProps {
   currentView: 'workflow' | 'sql' | 'data';
-  sessionId: string;
+  projectId?: string;
+  sessionId?: string;
   apiConfig: ApiConfig;
   targetSqlTable: string | null;
   targetDataTable?: string | null;
@@ -48,6 +49,7 @@ interface WorkspaceProps {
 
 export const Workspace: React.FC<WorkspaceProps> = ({
   currentView,
+  projectId,
   sessionId,
   apiConfig,
   targetSqlTable,
@@ -82,6 +84,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   sqlHistory,
   onUpdateSqlHistory
 }) => {
+  const activeProjectId = projectId || sessionId || '';
   const [activeTab, setActiveTab] = useState<string>('');
   const [lastRunCommandId, setLastRunCommandId] = useState<string | undefined>(undefined);
 
@@ -139,8 +142,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({
 
   const handleRefreshView = async (viewId: string, page: number, pageSize: number): Promise<ExecutionResult> => {
       if (!selectedNode || !tree) throw new Error("No context");
-      const res = await api.post(apiConfig, '/execute', {
-          sessionId,
+      const res = await api.post(apiConfig, `/projects/${activeProjectId}/execute`, {
+          projectId: activeProjectId,
           tree,
           targetNodeId: selectedNode.id,
           page,
@@ -188,8 +191,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   const handleGenerateSql = async (commandId: string): Promise<string> => {
       if (!selectedNode || !tree) return "-- No context";
       try {
-          const res = await api.post(apiConfig, '/generate_sql', {
-              sessionId,
+          const res = await api.post(apiConfig, `/projects/${activeProjectId}/generate_sql`, {
+              projectId: activeProjectId,
               tree,
               targetNodeId: selectedNode.id,
               targetCommandId: commandId
@@ -342,8 +345,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({
         {currentView === 'sql' ? (
             <div className="flex-1 h-full overflow-hidden">
                 <SqlEditor 
-                    sessionId={sessionId} 
-                    apiConfig={apiConfig} 
+                    projectId={activeProjectId} 
+                    apiConfig={apiConfig}
                     datasets={datasets}
                     targetTable={targetSqlTable}
                     onClearTarget={onClearTargetSqlTable}
@@ -356,7 +359,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
         ) : currentView === 'data' ? (
             <div className="flex-1 h-full overflow-hidden">
                 <DataBrowser
-                    sessionId={sessionId}
+                    projectId={activeProjectId}
                     apiConfig={apiConfig}
                     datasets={datasets}
                     selectedTable={targetDataTable}

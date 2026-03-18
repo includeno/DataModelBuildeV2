@@ -199,6 +199,28 @@ export interface SessionMetadata {
   displayName?: string; 
 }
 
+export type ProjectRole = 'owner' | 'admin' | 'editor' | 'viewer';
+
+export interface ProjectMetadata {
+  id: string;
+  orgId?: string;
+  name: string;
+  description?: string;
+  role: ProjectRole;
+  archived?: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ProjectMember {
+  userId: string;
+  email: string;
+  displayName?: string;
+  role: ProjectRole;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface SessionConfig {
   cascadeDisable: boolean;
   panelPosition?: 'right' | 'left' | 'bottom' | 'top';
@@ -210,8 +232,14 @@ export interface SessionMetadataDetail {
     settings: SessionConfig;
 }
 
+export interface ProjectMetadataDetail {
+  displayName: string;
+  settings: SessionConfig;
+}
+
 export interface SessionDiagnosticsReport {
-  sessionId: string;
+  sessionId?: string;
+  projectId?: string;
   generatedAt: string;
   sources: Array<{ id: string; mainTable?: string; alias?: string; linkId?: string; note?: string }>;
   sourceMap: Array<{ identifier: string; table: string }>;
@@ -246,4 +274,52 @@ export interface AppearanceConfig {
   showOperationIds?: boolean;
   showCommandIds?: boolean;
   showDatasetIds?: boolean;
+}
+
+export interface ProjectSnapshot {
+  tree: OperationNode;
+  datasets: Dataset[];
+  sqlHistory: SqlHistoryItem[];
+  metadata: ProjectMetadataDetail;
+}
+
+export interface ProjectStateEnvelope {
+  projectId: string;
+  version: number;
+  state: Partial<ProjectSnapshot>;
+  updatedBy?: string;
+  updatedAt?: number;
+}
+
+export interface ProjectConflictInfo {
+  latestVersion: number;
+  remoteState: ProjectSnapshot;
+  pendingPatchesCount: number;
+  message: string;
+}
+
+export type ProjectSaveStatus = 'idle' | 'dirty' | 'saving' | 'saved' | 'conflict' | 'error';
+
+export interface ProjectJobError {
+  code?: string | null;
+  category?: string | null;
+  message: string;
+}
+
+export interface ProjectJob {
+  id: string;
+  projectId: string;
+  type: 'execute' | 'export' | string;
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'canceled' | string;
+  progress: number;
+  payload?: Record<string, any>;
+  result?: Record<string, any> | null;
+  error?: ProjectJobError | null;
+  cancelRequested?: boolean;
+  createdBy?: string;
+  createdAt: number;
+  updatedAt: number;
+  startedAt?: number | null;
+  finishedAt?: number | null;
+  downloadUrl?: string;
 }

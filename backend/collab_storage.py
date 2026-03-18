@@ -405,6 +405,40 @@ class CollabStorage:
             raise ValueError("user not found")
         return self._ensure_personal_org(conn, user_row)
 
+    def ensure_local_user(self, user_id: str, email: str, display_name: str = "") -> Dict[str, Any]:
+        normalized_email = _normalize_email(email) or f"{user_id}@local.invalid"
+        clean_display_name = (display_name or "").strip()
+        now = _now_ms()
+
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+            if row:
+                if row["email"] != normalized_email or (row["display_name"] or "") != clean_display_name:
+                    conn.execute(
+                        """
+                        UPDATE users
+                        SET email = ?, display_name = ?, updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (normalized_email, clean_display_name, now, user_id),
+                    )
+                    row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+            else:
+                conflict = conn.execute("SELECT id FROM users WHERE email = ?", (normalized_email,)).fetchone()
+                if conflict and conflict["id"] != user_id:
+                    normalized_email = f"{user_id}@local.invalid"
+                conn.execute(
+                    """
+                    INSERT INTO users (id, email, password_hash, display_name, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (user_id, normalized_email, _password_hash(secrets.token_urlsafe(24)), clean_display_name, now, now),
+                )
+                row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+
+            self._ensure_personal_org(conn, row)
+            return self._row_to_user(row)
+
     def _backfill_org_relationships(self, conn: sqlite3.Connection) -> None:
         users = conn.execute("SELECT * FROM users").fetchall()
         for user in users:
@@ -1107,6 +1141,50 @@ class CollabStorage:
                 "role": row["role"],
                 "createdAt": row["created_at"],
                 "updatedAt": row["updated_at"],
+            }
+
+    def remove_project_member(
+        self,
+        project_id: str,
+        actor_user_id: str,
+        member_user_id: str,
+    ) -> Dict[str, Any]:
+        now = _now_ms()
+        with self._connect() as conn:
+            actor_role = self._get_project_role(conn, project_id, actor_user_id)
+            if actor_role not in MANAGE_PROJECT_MEMBER_ROLES:
+                raise PermissionError("permission denied")
+
+            existing = conn.execute(
+                """
+                SELECT pm.user_id, pm.role, u.email, u.display_name, pm.created_at, pm.updated_at
+                FROM project_members pm
+                JOIN users u ON u.id = pm.user_id
+                WHERE pm.project_id = ? AND pm.user_id = ? AND pm.deleted_at IS NULL
+                """,
+                (project_id, member_user_id),
+            ).fetchone()
+            if not existing:
+                raise ValueError("member not found")
+            if existing["role"] == "owner":
+                raise ValueError("owner cannot be removed")
+
+            conn.execute(
+                """
+                UPDATE project_members
+                SET deleted_at = ?, updated_at = ?, added_by = ?
+                WHERE project_id = ? AND user_id = ? AND deleted_at IS NULL
+                """,
+                (now, now, actor_user_id, project_id, member_user_id),
+            )
+            return {
+                "userId": existing["user_id"],
+                "email": existing["email"],
+                "displayName": existing["display_name"] or "",
+                "role": existing["role"],
+                "createdAt": existing["created_at"],
+                "updatedAt": now,
+                "removed": True,
             }
 
     # --- Project datasets ---
