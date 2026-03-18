@@ -29,7 +29,12 @@
     "test:ci": "npm run test:frontend && npm run test:backend",
     "test:e2e": "playwright test",
     "smoke:cross-browser": "node scripts/cross_browser_collab_smoke.mjs",
-    "smoke:cross-browser:headed": "node scripts/cross_browser_collab_smoke.mjs --headed"
+    "smoke:cross-browser:headed": "node scripts/cross_browser_collab_smoke.mjs --headed",
+    "smoke:cross-browser:auth": "node scripts/cross_browser_collab_smoke.mjs --auth enabled",
+    "smoke:cross-browser:auth:headed": "node scripts/cross_browser_collab_smoke.mjs --auth enabled --headed",
+    "smoke:cross-browser:full": "node scripts/run_cross_browser_collab_smoke.mjs",
+    "smoke:cross-browser:full:headed": "node scripts/run_cross_browser_collab_smoke.mjs --headed",
+    "smoke:cross-browser:full:headless": "node scripts/run_cross_browser_collab_smoke.mjs --headless"
   },
   "dependencies": {
     "framer-motion": "^12.34.3",

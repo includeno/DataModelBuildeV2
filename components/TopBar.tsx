@@ -1,6 +1,5 @@
 import React, { useMemo, useState } from 'react';
 import {
-  AlertTriangle,
   Check,
   ChevronDown,
   Clock,
@@ -151,9 +150,8 @@ export const TopBar: React.FC<TopBarProps> = ({
     return `项目保存状态：${SAVE_STATUS_LABELS[saveStatus]}${timeLabel}`;
   }, [lastSavedAt, saveStatus]);
   const realtimeTitle = useMemo(() => {
-    const editor = remoteEditingLabel ? `，${remoteEditingLabel}` : '';
-    return `实时协作状态：${REALTIME_STATUS_LABELS[realtimeStatus]}，在线 ${onlineMembersCount} 人${editor}`;
-  }, [onlineMembersCount, realtimeStatus, remoteEditingLabel]);
+    return `实时协作状态：${REALTIME_STATUS_LABELS[realtimeStatus]}，在线 ${onlineMembersCount} 人`;
+  }, [onlineMembersCount, realtimeStatus]);
 
   return (
     <>
@@ -348,13 +346,6 @@ export const TopBar: React.FC<TopBarProps> = ({
             <span className="mx-1 text-current/40">|</span>
             <span>{onlineMembersCount} 人</span>
           </div>
-
-          {remoteEditingLabel && (
-            <div className="hidden xl:flex items-center px-3 py-1.5 text-xs font-medium rounded-full border bg-violet-50 text-violet-700 border-violet-200 max-w-[240px]" title={remoteEditingLabel}>
-              <AlertTriangle className="w-3.5 h-3.5 mr-1 shrink-0" />
-              <span className="truncate">{remoteEditingLabel}</span>
-            </div>
-          )}
 
           {projectId && (
             <button

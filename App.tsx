@@ -12,6 +12,7 @@ import { LoginPage } from './components/LoginPage';
 import { ProjectMembersModal } from './components/ProjectMembersModal';
 import { ConflictNoticeModal } from './components/ConflictNoticeModal';
 import { DraftRecoveryModal } from './components/DraftRecoveryModal';
+import { CollabPresenceFloat, type CollabPresenceItem } from './components/CollabPresenceFloat';
 import {
   AppearanceConfig,
   ApiConfig,
@@ -277,6 +278,18 @@ function App() {
     const nodeName = nodeNameLookup[nodeId] || nodeId;
     return `${names.join(', ')} 正在编辑 ${nodeName}`;
   }, [nodeNameLookup, remoteEditorsByNode]);
+
+  const remotePresenceMembers = useMemo<CollabPresenceItem[]>(() => {
+    return projectStore.presence
+      .filter(member => member.userId !== currentUser?.id)
+      .map(member => ({
+        connectionId: member.connectionId,
+        label: member.displayName || member.email || member.userId,
+        email: member.email || undefined,
+        role: member.role || undefined,
+        editingNodeName: member.editingNodeId ? (nodeNameLookup[member.editingNodeId] || member.editingNodeId) : null,
+      }));
+  }, [currentUser?.id, nodeNameLookup, projectStore.presence]);
 
   const isAuthenticated = useMemo(() => {
     if (apiConfig.isMock || !authEnabled) return false;
@@ -1394,6 +1407,19 @@ function App() {
         authError={authError}
         onLogout={handleLogout}
         canExecute={sqlRunState.canRun && !sqlRunState.running}
+      />
+
+      <CollabPresenceFloat
+        visible={Boolean(currentProject?.id)}
+        projectName={currentProjectName}
+        realtimeStatus={projectStore.connectionState}
+        onlineMembersCount={onlineMembersCount}
+        remoteEditingLabel={remoteEditingLabel}
+        members={remotePresenceMembers}
+        onOpenMembers={() => {
+          if (currentProject?.id) void fetchProjectMembers(currentProject.id);
+          setIsMembersOpen(true);
+        }}
       />
 
       <div className="flex flex-1 overflow-hidden relative">
