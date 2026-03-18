@@ -416,18 +416,18 @@ erDiagram
 
 ### TODO（详细拆分）
 
-- [ ] H-001 定义 API 命名规范与版本策略文档。
-- [ ] H-002 输出 OpenAPI 文档并自动生成 schema。
-- [ ] H-003 定义统一响应 envelope（data/error/meta/request_id）。
-- [ ] H-004 定义错误码字典（AUTH_*, PERM_*, CONFLICT_*, VALIDATION_*）。
-- [ ] H-005 新增请求追踪头 `X-Request-ID`。
-- [ ] H-006 兼容层：旧 `/sessions/*` 转发新 `/projects/*`（可配置开关）。
-- [ ] H-007 标记废弃接口并给出 deprecation 提示头。
-- [ ] H-008 为关键接口加 idempotency-key 支持。
-- [ ] H-009 为上传、执行、提交接口增加速率限制。
-- [ ] H-010 输出前后端合约测试（contract test）。
-- [ ] H-011 对外发布 API 变更日志（changelog）。
-- [ ] H-012 验收：前端升级期间可同时兼容旧数据与新接口。
+- [x] H-001 定义 API 命名规范与版本策略文档。
+- [x] H-002 输出 OpenAPI 文档并自动生成 schema。
+- [x] H-003 定义统一响应 envelope（data/error/meta/request_id）。
+- [x] H-004 定义错误码字典（AUTH_*, PERM_*, CONFLICT_*, VALIDATION_*）。
+- [x] H-005 新增请求追踪头 `X-Request-ID`。
+- [x] H-006 兼容层：旧 `/sessions/*` 转发新 `/projects/*`（可配置开关）。
+- [x] H-007 标记废弃接口并给出 deprecation 提示头。
+- [x] H-008 为关键接口加 idempotency-key 支持。
+- [x] H-009 为上传、执行、提交接口增加速率限制。
+- [x] H-010 输出前后端合约测试（contract test）。
+- [x] H-011 对外发布 API 变更日志（changelog）。
+- [x] H-012 验收：前端升级期间可同时兼容旧数据与新接口。
 
 ---
 

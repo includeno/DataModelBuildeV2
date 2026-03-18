@@ -1,7 +1,8 @@
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Body, Depends, Header, Query, WebSocket, WebSocketDisconnect
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Body, Depends, Header, Query, WebSocket, WebSocketDisconnect, Request, Response
+from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 import pandas as pd
 import numpy as np
@@ -41,6 +42,18 @@ from collab_storage import collab_storage
 from job_runner import ProjectJobRunner, JobExecutionError, JobCanceledError
 from realtime import realtime_hub
 from runtime_config import RuntimeConfig
+from api_contract import (
+    REQUEST_ID_HEADER,
+    ERROR_CODE_CATALOG,
+    IdempotencyStore,
+    RateLimiter,
+    add_request_headers,
+    ensure_request_id,
+    error_envelope,
+    get_request_id,
+    normalize_error_detail,
+    success_envelope,
+)
 
 LOG_PATH = os.environ.get(
     "BACKEND_LOG_PATH",
@@ -74,8 +87,19 @@ MAX_ASYNC_RESULT_ROWS = int(os.environ.get("MAX_ASYNC_RESULT_ROWS", "25000"))
 MAX_ASYNC_RESULT_BYTES = int(os.environ.get("MAX_ASYNC_RESULT_BYTES", str(64 * 1024 * 1024)))
 ASYNC_JOB_TIMEOUT_SECONDS = float(os.environ.get("ASYNC_JOB_TIMEOUT_SECONDS", "120"))
 MAX_RUNNING_JOBS_PER_PROJECT = int(os.environ.get("MAX_RUNNING_JOBS_PER_PROJECT", "1"))
+IDEMPOTENCY_TTL_SECONDS = int(os.environ.get("IDEMPOTENCY_TTL_SECONDS", "3600"))
+RATE_LIMIT_COMMIT_COUNT = int(os.environ.get("RATE_LIMIT_COMMIT_COUNT", "120"))
+RATE_LIMIT_COMMIT_WINDOW_SECONDS = int(os.environ.get("RATE_LIMIT_COMMIT_WINDOW_SECONDS", "60"))
+RATE_LIMIT_EXECUTE_COUNT = int(os.environ.get("RATE_LIMIT_EXECUTE_COUNT", "60"))
+RATE_LIMIT_EXECUTE_WINDOW_SECONDS = int(os.environ.get("RATE_LIMIT_EXECUTE_WINDOW_SECONDS", "60"))
+RATE_LIMIT_UPLOAD_COUNT = int(os.environ.get("RATE_LIMIT_UPLOAD_COUNT", "20"))
+RATE_LIMIT_UPLOAD_WINDOW_SECONDS = int(os.environ.get("RATE_LIMIT_UPLOAD_WINDOW_SECONDS", "60"))
 
-app = FastAPI()
+app = FastAPI(
+    title="DataFlow Engine API",
+    version="2.0.0",
+    description="Collaborative data workflow API with legacy session compatibility.",
+)
 
 
 def _load_cors_origins() -> List[str]:
@@ -107,9 +131,193 @@ app.add_middleware(
 
 engine = ExecutionEngine()
 sync_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="dmb-sync-exec")
+idempotency_store = IdempotencyStore(ttl_seconds=IDEMPOTENCY_TTL_SECONDS)
+rate_limiter = RateLimiter()
 
 def get_runtime_config() -> RuntimeConfig:
     return runtime_config_module.load_runtime_config()
+
+
+def _is_v2_path(path: str) -> bool:
+    return path.startswith("/v2/")
+
+
+def _is_legacy_path(path: str) -> bool:
+    if path.startswith("/sessions"):
+        return True
+    return path in {"/upload", "/execute", "/export", "/generate_sql", "/analyze", "/query"}
+
+
+def _build_response_headers(path: str) -> Dict[str, str]:
+    return add_request_headers({}, deprecated=get_runtime_config().deprecation_headers_enabled and _is_legacy_path(path))
+
+
+def _with_contract_headers(response: Response, path: str) -> Response:
+    headers = _build_response_headers(path)
+    for key, value in headers.items():
+        response.headers.setdefault(key, value)
+    return response
+
+
+def _v2_response(data: Any, *, meta: Optional[Dict[str, Any]] = None, status_code: int = 200) -> JSONResponse:
+    return JSONResponse(
+        status_code=status_code,
+        content=success_envelope(data, meta=meta),
+        headers=_build_response_headers("/v2"),
+    )
+
+
+def _ensure_legacy_sessions_enabled() -> None:
+    if get_runtime_config().legacy_session_compat_enabled:
+        return
+    raise HTTPException(
+        status_code=410,
+        detail={"code": "LEGACY_SESSION_DISABLED", "message": "Legacy session compatibility is disabled"},
+    )
+
+
+def _legacy_session_should_bridge(session_id: str, current_user: Optional[Dict[str, Any]]) -> bool:
+    config = get_runtime_config()
+    if not config.legacy_session_project_bridge_enabled:
+        return False
+    if not session_id.startswith("prj_"):
+        return False
+    if current_user is None:
+        if config.auth_enabled:
+            raise HTTPException(
+                status_code=401,
+                detail={"code": "LEGACY_SESSION_AUTH_REQUIRED", "message": "Legacy project-backed session access requires authentication"},
+            )
+        return False
+    return True
+
+
+def _subject_key(current_user: Dict[str, Any], project_id: str) -> str:
+    return f"{current_user.get('id') or 'anon'}:{project_id}"
+
+
+def _rate_limit(scope: str, *, subject: str, count: int, window_seconds: int) -> None:
+    retry_after = rate_limiter.hit(
+        scope=scope,
+        subject=subject,
+        limit=count,
+        window_seconds=window_seconds,
+    )
+    if retry_after is None:
+        return
+    raise HTTPException(
+        status_code=429,
+        detail={
+            "code": "RATE_LIMIT_EXCEEDED",
+            "message": f"Too many {scope.replace('_', ' ')} requests",
+            "category": "rate_limit",
+            "retryAfter": retry_after,
+        },
+    )
+
+
+def _idempotency_replay_or_none(scope: str, *, subject: str, idempotency_key: Optional[str], payload: Any) -> Optional[JSONResponse]:
+    if not idempotency_key:
+        return None
+    key = idempotency_key.strip()
+    if not key:
+        return None
+    try:
+        record = idempotency_store.get(scope=scope, subject=subject, key=key, payload=payload)
+    except ValueError:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "IDEMPOTENCY_KEY_REUSED",
+                "message": "Idempotency key was reused with a different payload",
+                "category": "conflict",
+            },
+        )
+    if not record:
+        return None
+    return JSONResponse(
+        status_code=record.status_code,
+        content=record.response_payload,
+        headers=_build_response_headers("/replay"),
+    )
+
+
+def _store_idempotent_response(scope: str, *, subject: str, idempotency_key: Optional[str], payload: Any, status_code: int, response_payload: Any) -> Any:
+    if not idempotency_key or not idempotency_key.strip():
+        return response_payload
+    idempotency_store.store(
+        scope=scope,
+        subject=subject,
+        key=idempotency_key.strip(),
+        payload=payload,
+        status_code=status_code,
+        response_payload=response_payload,
+    )
+    return response_payload
+
+
+@app.middleware("http")
+async def request_contract_middleware(request: Request, call_next):
+    request_id = ensure_request_id(request.headers.get(REQUEST_ID_HEADER))
+    request.state.request_id = request_id
+    response = await call_next(request)
+    return _with_contract_headers(response, request.url.path)
+
+
+@app.exception_handler(HTTPException)
+async def contract_http_exception_handler(request: Request, exc: HTTPException):
+    code, message, category, details = normalize_error_detail(exc.detail, status_code=exc.status_code)
+    if _is_v2_path(request.url.path):
+        response = JSONResponse(
+            status_code=exc.status_code,
+            content=error_envelope(code, message, status_code=exc.status_code, category=category, details=details),
+            headers=exc.headers or {},
+        )
+        return _with_contract_headers(response, request.url.path)
+
+    response = JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+        headers=exc.headers or {},
+    )
+    return _with_contract_headers(response, request.url.path)
+
+
+@app.exception_handler(Exception)
+async def contract_unhandled_exception_handler(request: Request, exc: Exception):
+    logger.exception("Unhandled request error")
+    if _is_v2_path(request.url.path):
+        response = JSONResponse(
+            status_code=500,
+            content=error_envelope(
+                "INTERNAL_ERROR",
+                ERROR_CODE_CATALOG["INTERNAL_ERROR"]["message"],
+                status_code=500,
+                category=ERROR_CODE_CATALOG["INTERNAL_ERROR"]["category"],
+            ),
+        )
+        return _with_contract_headers(response, request.url.path)
+
+    response = JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
+    return _with_contract_headers(response, request.url.path)
+
+
+@app.exception_handler(RequestValidationError)
+async def contract_validation_exception_handler(request: Request, exc: RequestValidationError):
+    if _is_v2_path(request.url.path):
+        response = JSONResponse(
+            status_code=422,
+            content=error_envelope(
+                "VALIDATION_ERROR",
+                ERROR_CODE_CATALOG["VALIDATION_ERROR"]["message"],
+                status_code=422,
+                category=ERROR_CODE_CATALOG["VALIDATION_ERROR"]["category"],
+                details=exc.errors(),
+            ),
+        )
+        return _with_contract_headers(response, request.url.path)
+    response = JSONResponse(status_code=422, content={"detail": exc.errors()})
+    return _with_contract_headers(response, request.url.path)
 
 
 def _ensure_auth_enabled() -> None:
@@ -217,6 +425,16 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> Dict[
     if not user:
         raise HTTPException(status_code=401, detail={"code": "AUTH_UNAUTHORIZED", "message": "Unauthorized"})
     return user
+
+
+async def get_optional_current_user(authorization: Optional[str] = Header(None)) -> Optional[Dict[str, Any]]:
+    config = get_runtime_config()
+    if not config.auth_enabled:
+        return await get_current_user(authorization)
+    token = _extract_bearer_token(authorization)
+    if not token:
+        return None
+    return collab_storage.get_user_by_token(token or "")
 
 
 def _require_project_access(project_id: str, user_id: str, need_write: bool = False, need_manage: bool = False) -> Dict[str, Any]:
@@ -510,6 +728,17 @@ def _serialize_dataframe_result(df: pd.DataFrame, *, page: int, page_size: int, 
 def _assert_job_not_canceled(job_id: str, is_cancel_requested) -> None:
     if is_cancel_requested(job_id):
         raise JobCanceledError()
+
+
+def _extract_response_payload(result: Any, default_status_code: int = 200) -> Tuple[Any, int]:
+    if isinstance(result, JSONResponse):
+        body = getattr(result, "body", b"") or b""
+        if isinstance(body, bytes):
+            payload = json.loads(body.decode("utf-8") or "null")
+        else:
+            payload = body
+        return payload, int(result.status_code or default_status_code)
+    return result, default_status_code
 
 
 def _execute_project_dataframe(
@@ -904,9 +1133,25 @@ async def get_project_state(
 async def commit_project_state(
     project_id: str,
     payload: CommitProjectStateRequest,
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
     current_user: Dict[str, Any] = Depends(get_current_user),
 ):
     _require_project_access(project_id, current_user["id"], need_write=True)
+    _rate_limit(
+        "project_commit",
+        subject=_subject_key(current_user, project_id),
+        count=RATE_LIMIT_COMMIT_COUNT,
+        window_seconds=RATE_LIMIT_COMMIT_WINDOW_SECONDS,
+    )
+    payload_dict = payload.model_dump(exclude_none=True) if hasattr(payload, "model_dump") else payload.dict(exclude_none=True)
+    replay = _idempotency_replay_or_none(
+        "project_commit",
+        subject=_subject_key(current_user, project_id),
+        idempotency_key=idempotency_key,
+        payload=payload_dict,
+    )
+    if replay is not None:
+        return replay
 
     raw_patches: Optional[List[Dict[str, Any]]] = None
     if payload.patches is not None:
@@ -949,7 +1194,14 @@ async def commit_project_state(
             "updatedAt": result.get("updatedAt"),
         },
     )
-    return result
+    return _store_idempotent_response(
+        "project_commit",
+        subject=_subject_key(current_user, project_id),
+        idempotency_key=idempotency_key,
+        payload=payload_dict,
+        status_code=200,
+        response_payload=result,
+    )
 
 
 @app.get("/projects/{project_id}/events")
@@ -1169,7 +1421,7 @@ async def project_update_metadata(
 async def project_diagnostics(project_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
     _require_project_access(project_id, current_user["id"])
     _ensure_project_runtime_session(project_id)
-    return await get_session_diagnostics(project_id)
+    return await get_session_diagnostics(project_id, current_user)
 
 
 @app.post("/projects/{project_id}/upload")
@@ -1181,6 +1433,12 @@ async def project_upload_file(
     current_user: Dict[str, Any] = Depends(get_current_user),
 ):
     _require_project_access(project_id, current_user["id"], need_write=True)
+    _rate_limit(
+        "project_upload",
+        subject=_subject_key(current_user, project_id),
+        count=RATE_LIMIT_UPLOAD_COUNT,
+        window_seconds=RATE_LIMIT_UPLOAD_WINDOW_SECONDS,
+    )
     _ensure_project_runtime_session(project_id)
     pending_asset_id: Optional[str] = None
     runtime_dataset_id: Optional[str] = None
@@ -1289,8 +1547,23 @@ async def project_upload_file(
 async def project_execute(
     project_id: str,
     payload: dict = Body(...),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
     current_user: Dict[str, Any] = Depends(get_current_user),
 ):
+    _rate_limit(
+        "project_execute",
+        subject=_subject_key(current_user, project_id),
+        count=RATE_LIMIT_EXECUTE_COUNT,
+        window_seconds=RATE_LIMIT_EXECUTE_WINDOW_SECONDS,
+    )
+    replay = _idempotency_replay_or_none(
+        "project_execute",
+        subject=_subject_key(current_user, project_id),
+        idempotency_key=idempotency_key,
+        payload=payload,
+    )
+    if replay is not None:
+        return replay
     try:
         body = _build_project_execution_context(project_id, current_user["id"], payload, require_tree=True)
         req = ExecuteRequest(**body)
@@ -1309,7 +1582,15 @@ async def project_execute(
             max_bytes=MAX_SYNC_RESULT_BYTES,
             scope="Execution",
         )
-        return _serialize_dataframe_result(validated, page=req.page, page_size=page_size, view_id=req.viewId)
+        result = _serialize_dataframe_result(validated, page=req.page, page_size=page_size, view_id=req.viewId)
+        return _store_idempotent_response(
+            "project_execute",
+            subject=_subject_key(current_user, project_id),
+            idempotency_key=idempotency_key,
+            payload=payload,
+            status_code=200,
+            response_payload=result,
+        )
     except HTTPException:
         raise
     except ValueError as e:
@@ -1323,8 +1604,23 @@ async def project_execute(
 async def project_execute_job(
     project_id: str,
     payload: dict = Body(...),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
     current_user: Dict[str, Any] = Depends(get_current_user),
 ):
+    _rate_limit(
+        "project_execute_job",
+        subject=_subject_key(current_user, project_id),
+        count=RATE_LIMIT_EXECUTE_COUNT,
+        window_seconds=RATE_LIMIT_EXECUTE_WINDOW_SECONDS,
+    )
+    replay = _idempotency_replay_or_none(
+        "project_execute_job",
+        subject=_subject_key(current_user, project_id),
+        idempotency_key=idempotency_key,
+        payload=payload,
+    )
+    if replay is not None:
+        return replay
     try:
         body = _build_project_execution_context(project_id, current_user["id"], payload, require_tree=True)
         req = ExecuteRequest(**body)
@@ -1344,7 +1640,14 @@ async def project_execute_job(
                 "pageSize": page_size,
             },
         )
-        return job
+        return _store_idempotent_response(
+            "project_execute_job",
+            subject=_subject_key(current_user, project_id),
+            idempotency_key=idempotency_key,
+            payload=payload,
+            status_code=202,
+            response_payload=job,
+        )
     except HTTPException:
         raise
     except PermissionError:
@@ -1370,8 +1673,23 @@ async def project_list_jobs(
 async def project_export(
     project_id: str,
     payload: dict = Body(...),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
     current_user: Dict[str, Any] = Depends(get_current_user),
 ):
+    _rate_limit(
+        "project_export",
+        subject=_subject_key(current_user, project_id),
+        count=RATE_LIMIT_EXECUTE_COUNT,
+        window_seconds=RATE_LIMIT_EXECUTE_WINDOW_SECONDS,
+    )
+    replay = _idempotency_replay_or_none(
+        "project_export",
+        subject=_subject_key(current_user, project_id),
+        idempotency_key=idempotency_key,
+        payload=payload,
+    )
+    if replay is not None:
+        return replay
     try:
         body = _build_project_execution_context(project_id, current_user["id"], payload, require_tree=True)
         req = ExecuteRequest(**body)
@@ -1390,7 +1708,14 @@ async def project_export(
                 "fileName": safe_name,
             },
         )
-        return job
+        return _store_idempotent_response(
+            "project_export",
+            subject=_subject_key(current_user, project_id),
+            idempotency_key=idempotency_key,
+            payload=payload,
+            status_code=202,
+            response_payload=job,
+        )
     except HTTPException:
         raise
     except PermissionError:
@@ -1494,6 +1819,55 @@ async def project_query(
         raise _execution_error("EXEC_INTERNAL_ERROR", str(e), category="system_error", status_code=500)
 
 
+@app.get("/v2/meta/error-codes")
+async def v2_error_code_catalog():
+    return _v2_response(ERROR_CODE_CATALOG)
+
+
+@app.post("/v2/projects")
+async def v2_create_project(payload: CreateProjectRequest, current_user: Dict[str, Any] = Depends(get_current_user)):
+    result = await create_project(payload, current_user)
+    body, status_code = _extract_response_payload(result, default_status_code=200)
+    return _v2_response(body, status_code=status_code)
+
+
+@app.get("/v2/projects")
+async def v2_list_projects(current_user: Dict[str, Any] = Depends(get_current_user)):
+    result = await list_projects(current_user)
+    body, status_code = _extract_response_payload(result, default_status_code=200)
+    return _v2_response(body, status_code=status_code)
+
+
+@app.get("/v2/projects/{project_id}")
+async def v2_get_project(project_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    result = await get_project(project_id, current_user)
+    body, status_code = _extract_response_payload(result, default_status_code=200)
+    return _v2_response(body, status_code=status_code)
+
+
+@app.get("/v2/projects/{project_id}/state")
+async def v2_get_project_state(
+    project_id: str,
+    since_version: Optional[int] = Query(None, alias="sinceVersion"),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    result = await get_project_state(project_id, since_version, current_user)
+    body, status_code = _extract_response_payload(result, default_status_code=200)
+    return _v2_response(body, status_code=status_code)
+
+
+@app.post("/v2/projects/{project_id}/state/commit")
+async def v2_commit_project_state(
+    project_id: str,
+    payload: CommitProjectStateRequest,
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    result = await commit_project_state(project_id, payload, idempotency_key, current_user)
+    body, status_code = _extract_response_payload(result, default_status_code=200)
+    return _v2_response(body, status_code=status_code)
+
+
 @app.get("/jobs/{job_id}")
 async def get_project_job(job_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
     try:
@@ -1541,6 +1915,7 @@ async def cancel_project_job(job_id: str, current_user: Dict[str, Any] = Depends
 
 @app.get("/sessions")
 async def list_sessions():
+    _ensure_legacy_sessions_enabled()
     return storage.list_sessions()
 
 @app.get("/config/default_server")
@@ -1625,25 +2000,43 @@ async def select_session_storage(payload: dict = Body(...)):
 
 @app.post("/sessions")
 async def create_session():
+    _ensure_legacy_sessions_enabled()
     new_id = f"sess_{uuid.uuid4().hex[:8]}"
     storage.create_session(new_id)
     return {"sessionId": new_id}
 
 @app.delete("/sessions/{session_id}")
-async def delete_session(session_id: str):
+async def delete_session(session_id: str, current_user: Optional[Dict[str, Any]] = Depends(get_optional_current_user)):
+    _ensure_legacy_sessions_enabled()
+    if _legacy_session_should_bridge(session_id, current_user):
+        return await delete_project(session_id, current_user)
     storage.delete_session(session_id)
     return {"status": "ok"}
 
 @app.get("/sessions/{session_id}/datasets")
-async def list_datasets(session_id: str):
+async def list_datasets(session_id: str, current_user: Optional[Dict[str, Any]] = Depends(get_optional_current_user)):
+    _ensure_legacy_sessions_enabled()
+    if _legacy_session_should_bridge(session_id, current_user):
+        return await project_list_datasets(session_id, current_user)
     return storage.list_datasets(session_id)
 
 @app.get("/sessions/{session_id}/imports")
-async def list_imports(session_id: str):
+async def list_imports(session_id: str, current_user: Optional[Dict[str, Any]] = Depends(get_optional_current_user)):
+    _ensure_legacy_sessions_enabled()
+    if _legacy_session_should_bridge(session_id, current_user):
+        return await project_list_imports(session_id, current_user)
     return storage.get_import_history(session_id)
 
 @app.get("/sessions/{session_id}/datasets/{dataset_id}/preview")
-async def get_dataset_preview(session_id: str, dataset_id: str, limit: int = 50):
+async def get_dataset_preview(
+    session_id: str,
+    dataset_id: str,
+    limit: int = 50,
+    current_user: Optional[Dict[str, Any]] = Depends(get_optional_current_user),
+):
+    _ensure_legacy_sessions_enabled()
+    if _legacy_session_should_bridge(session_id, current_user):
+        return await project_dataset_preview(session_id, dataset_id, limit, current_user)
     df = storage.get_dataset_preview(session_id, dataset_id, limit=limit)
     if df is None:
         raise HTTPException(status_code=404, detail="Dataset not found")
@@ -1653,14 +2046,28 @@ async def get_dataset_preview(session_id: str, dataset_id: str, limit: int = 50)
     }
 
 @app.delete("/sessions/{session_id}/datasets/{dataset_id}")
-async def delete_dataset(session_id: str, dataset_id: str):
+async def delete_dataset(
+    session_id: str,
+    dataset_id: str,
+    current_user: Optional[Dict[str, Any]] = Depends(get_optional_current_user),
+):
+    _ensure_legacy_sessions_enabled()
+    if _legacy_session_should_bridge(session_id, current_user):
+        return await project_delete_dataset(session_id, dataset_id, current_user)
     removed = storage.delete_dataset(session_id, dataset_id)
     if not removed:
         raise HTTPException(status_code=404, detail="Dataset not found")
     return {"status": "ok"}
 
 @app.post("/sessions/{session_id}/datasets/update")
-async def update_dataset_schema(session_id: str, payload: dict = Body(...)):
+async def update_dataset_schema(
+    session_id: str,
+    payload: dict = Body(...),
+    current_user: Optional[Dict[str, Any]] = Depends(get_optional_current_user),
+):
+    _ensure_legacy_sessions_enabled()
+    if _legacy_session_should_bridge(session_id, current_user):
+        return await project_update_dataset_schema(session_id, payload, current_user)
     dataset_id = payload.get("datasetId")
     field_types = payload.get("fieldTypes")
     if not dataset_id:
@@ -1672,26 +2079,62 @@ async def update_dataset_schema(session_id: str, payload: dict = Body(...)):
     return {"status": "ok"}
 
 @app.get("/sessions/{session_id}/state")
-async def get_session_state(session_id: str):
+async def get_session_state(
+    session_id: str,
+    current_user: Optional[Dict[str, Any]] = Depends(get_optional_current_user),
+):
+    _ensure_legacy_sessions_enabled()
+    if _legacy_session_should_bridge(session_id, current_user):
+        result = await get_project_state(session_id, None, current_user)
+        return result.get("state") if isinstance(result, dict) and "state" in result else result
     state = storage.get_session_state(session_id)
     return state or {}
 
 @app.post("/sessions/{session_id}/state")
-async def save_session_state(session_id: str, state: dict = Body(...)):
+async def save_session_state(
+    session_id: str,
+    state: dict = Body(...),
+    current_user: Optional[Dict[str, Any]] = Depends(get_optional_current_user),
+):
+    _ensure_legacy_sessions_enabled()
+    if _legacy_session_should_bridge(session_id, current_user):
+        current_state = await get_project_state(session_id, None, current_user)
+        current_version = int((current_state or {}).get("version") or 0)
+        payload = CommitProjectStateRequest(baseVersion=current_version, state=state)
+        result = await commit_project_state(session_id, payload, None, current_user)
+        payload_body, _ = _extract_response_payload(result, default_status_code=200)
+        return {"status": "ok", "version": (payload_body or {}).get("version")}
     storage.save_session_state(session_id, state)
     return {"status": "ok"}
 
 @app.get("/sessions/{session_id}/metadata")
-async def get_session_metadata(session_id: str):
+async def get_session_metadata(session_id: str, current_user: Optional[Dict[str, Any]] = Depends(get_optional_current_user)):
+    _ensure_legacy_sessions_enabled()
+    if _legacy_session_should_bridge(session_id, current_user):
+        return await project_get_metadata(session_id, current_user)
     return storage.get_session_metadata(session_id)
 
 @app.post("/sessions/{session_id}/metadata")
-async def update_session_metadata(session_id: str, metadata: dict = Body(...)):
+async def update_session_metadata(
+    session_id: str,
+    metadata: dict = Body(...),
+    current_user: Optional[Dict[str, Any]] = Depends(get_optional_current_user),
+):
+    _ensure_legacy_sessions_enabled()
+    if _legacy_session_should_bridge(session_id, current_user):
+        return await project_update_metadata(session_id, metadata, current_user)
     storage.save_session_metadata(session_id, metadata)
     return {"status": "ok"}
 
 @app.get("/sessions/{session_id}/diagnostics")
-async def get_session_diagnostics(session_id: str):
+async def get_session_diagnostics(
+    session_id: str,
+    current_user: Optional[Dict[str, Any]] = Depends(get_optional_current_user),
+):
+    _ensure_legacy_sessions_enabled()
+    if _legacy_session_should_bridge(session_id, current_user):
+        _require_project_access(session_id, current_user["id"])
+        _ensure_project_runtime_session(session_id)
     state = storage.get_session_state(session_id) or {}
     tree = state.get("tree")
     datasets = storage.list_datasets(session_id)

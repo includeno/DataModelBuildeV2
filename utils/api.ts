@@ -952,6 +952,26 @@ const requestJson = async (config: ApiConfig, endpoint: string, init?: RequestIn
     });
 };
 
+const isEnvelope = (body: any): body is { data: any; error: any; meta: any; request_id?: string } => {
+    return Boolean(body)
+        && typeof body === 'object'
+        && Object.prototype.hasOwnProperty.call(body, 'data')
+        && Object.prototype.hasOwnProperty.call(body, 'error')
+        && Object.prototype.hasOwnProperty.call(body, 'meta');
+};
+
+const unwrapBody = <T,>(body: any): T => {
+    if (isEnvelope(body)) return body.data as T;
+    return body as T;
+};
+
+const extractErrorMessage = (body: any, fallback: string): string => {
+    if (isEnvelope(body) && body?.error) {
+        return body.error.message || fallback;
+    }
+    return body?.detail?.message || body?.detail || body?.error?.message || fallback;
+};
+
 export const api = {
     setAuthApiEnabled(enabled: boolean) {
         AUTH_API_ENABLED = enabled;
@@ -983,8 +1003,8 @@ export const api = {
             body: JSON.stringify(payload)
         });
         const body = await res.json();
-        if (!res.ok) throw new Error(body?.detail?.message || body?.detail || `API Error: ${res.statusText}`);
-        return body;
+        if (!res.ok) throw new Error(extractErrorMessage(body, `API Error: ${res.statusText}`));
+        return unwrapBody(body);
     },
     async authLogin(config: ApiConfig, payload: { email: string; password: string }) {
         if (!AUTH_API_ENABLED) throw new Error('Authentication is disabled on this server');
@@ -995,20 +1015,21 @@ export const api = {
             body: JSON.stringify(payload)
         });
         const body = await res.json();
-        if (!res.ok) throw new Error(body?.detail?.message || body?.detail || `API Error: ${res.statusText}`);
-        if (body?.accessToken) {
-            setAuth({ accessToken: body.accessToken, refreshToken: body.refreshToken, expiresAt: body.expiresAt });
+        if (!res.ok) throw new Error(extractErrorMessage(body, `API Error: ${res.statusText}`));
+        const loginPayload = unwrapBody<any>(body);
+        if (loginPayload?.accessToken) {
+            setAuth({ accessToken: loginPayload.accessToken, refreshToken: loginPayload.refreshToken, expiresAt: loginPayload.expiresAt });
         }
-        return body;
+        return loginPayload;
     },
     async authMe(config: ApiConfig) {
         if (!AUTH_API_ENABLED) throw new Error('Authentication is disabled on this server');
         const res = await requestJson(config, '/auth/me', { method: 'GET' });
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
-            throw new Error(err?.detail?.message || err?.detail || `API Error: ${res.statusText}`);
+            throw new Error(extractErrorMessage(err, `API Error: ${res.statusText}`));
         }
-        return res.json();
+        return unwrapBody(await res.json());
     },
     async authLogout(config: ApiConfig) {
         if (!AUTH_API_ENABLED) {
@@ -1138,7 +1159,7 @@ export const api = {
         }
         const res = await requestJson(config, endpoint, { method: 'GET' });
         if (!res.ok) throw new Error(`API Error: ${res.statusText}`);
-        return res.json();
+        return unwrapBody(await res.json());
     },
 
     async post(config: ApiConfig, endpoint: string, body: any) {
@@ -1433,8 +1454,11 @@ export const api = {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body)
         });
-        if (!res.ok) { const err = await res.json(); throw new Error(err?.detail?.message || err?.detail || `API Error: ${res.statusText}`); }
-        return res.json();
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(extractErrorMessage(err, `API Error: ${res.statusText}`));
+        }
+        return unwrapBody(await res.json());
     },
 
     async patch(config: ApiConfig, endpoint: string, body: any) {
@@ -1460,9 +1484,9 @@ export const api = {
         });
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
-            throw new Error(err?.detail?.message || err?.detail || `API Error: ${res.statusText}`);
+            throw new Error(extractErrorMessage(err, `API Error: ${res.statusText}`));
         }
-        return res.json();
+        return unwrapBody(await res.json());
     },
 
     async export(config: ApiConfig, endpoint: string, body: any) {
@@ -1524,7 +1548,7 @@ export const api = {
         }
         const res = await requestJson(config, endpoint, { method: 'DELETE' });
         if (!res.ok) throw new Error(`API Error: ${res.statusText}`);
-        return res.json();
+        return unwrapBody(await res.json());
     },
 
     async upload(config: ApiConfig, endpoint: string, formData: FormData) {
@@ -1554,6 +1578,6 @@ export const api = {
         }
         const res = await requestJson(config, endpoint, { method: 'POST', body: formData });
         if (!res.ok) throw new Error(`Upload Error: ${res.statusText}`);
-        return res.json();
+        return unwrapBody(await res.json());
     }
 };
