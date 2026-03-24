@@ -98,6 +98,6 @@ describe('CollabPresenceFloat', () => {
     });
 
     expect(container.querySelector('[data-testid="collab-float-body"]')).toBeNull();
-    expect(container.querySelector('[data-testid="collab-float-summary"]')?.textContent).toContain('1 位协作者在线');
+    expect(container.querySelector('[data-testid="collab-float-summary"]')?.textContent).toContain('在线 1 人');
   });
 });

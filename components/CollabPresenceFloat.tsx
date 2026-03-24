@@ -49,7 +49,7 @@ export const CollabPresenceFloat: React.FC<CollabPresenceFloatProps> = ({
 
   const summaryText = useMemo(() => {
     if (remoteEditingLabel) return remoteEditingLabel;
-    if (onlineMembersCount > 0) return `${onlineMembersCount} 位协作者在线`;
+    if (onlineMembersCount > 0) return `在线 ${onlineMembersCount} 人`;
     if (realtimeStatus === 'connected') return '实时协作已连接';
     return '等待协作连接';
   }, [onlineMembersCount, realtimeStatus, remoteEditingLabel]);

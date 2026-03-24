@@ -299,7 +299,7 @@ function App() {
   const currentProjectName = projectStore.snapshot.metadata.displayName || currentProject?.name || '';
   const currentProjectSettings = projectStore.snapshot.metadata.settings || createDefaultProjectMetadata().settings;
   const currentProjectCanManage = ['owner', 'admin'].includes(String(currentProject?.role || ''));
-  const onlineMembersCount = projectStore.presence.filter(member => member.userId !== currentUser?.id).length;
+  const onlineMembersCount = projectStore.presence.length;
 
   const resetProjectState = useCallback((projectId = '') => {
     dispatchProjectStore({ type: 'RESET', projectId });
