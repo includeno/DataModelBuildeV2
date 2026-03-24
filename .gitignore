@@ -34,3 +34,7 @@ playwright-report
 test-results
 output/playwright
 artifacts
+output/
+coverage/
+run_local.md
+run_local.sh
