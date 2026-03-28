@@ -128,6 +128,44 @@ except AttributeError:
     OperationNode.update_forward_refs()
 
 
+# ── Import-time cleaning models ──────────────────────────────────────────
+
+class DedupConfig(BaseModel):
+    enabled: bool = True
+    fields: Union[List[str], str] = "all"  # list of field names or "all"
+    keep: str = "first"  # "first" | "last"
+
+class ImportFillRule(BaseModel):
+    field: str  # specific field name or "*number" / "*string" / "*date"
+    strategy: str  # "mean" | "median" | "mode" | "constant" | "forward" | "drop_row"
+    constantValue: Optional[str] = None
+
+class FillMissingConfig(BaseModel):
+    enabled: bool = True
+    rules: List[ImportFillRule] = [
+        ImportFillRule(field="*number", strategy="median"),
+        ImportFillRule(field="*string", strategy="constant", constantValue=""),
+        ImportFillRule(field="*date", strategy="drop_row"),
+    ]
+
+class OutlierConfig(BaseModel):
+    enabled: bool = False
+    method: str = "iqr"  # "iqr" | "zscore"
+    threshold: float = 1.5
+    action: str = "flag"  # "flag" | "remove"
+    targetFields: Union[List[str], str] = "numeric"  # list of field names or "numeric"
+
+class TrimWhitespaceConfig(BaseModel):
+    enabled: bool = True
+    fields: Union[List[str], str] = "string"  # list of field names or "string"
+
+class ImportCleanConfig(BaseModel):
+    dedup: DedupConfig = DedupConfig()
+    fillMissing: FillMissingConfig = FillMissingConfig()
+    outlier: OutlierConfig = OutlierConfig()
+    trimWhitespace: TrimWhitespaceConfig = TrimWhitespaceConfig()
+
+
 class ExecutionContextRequest(StrictRequestModel):
     session_id: Optional[str] = Field(None, alias="sessionId")
     project_id: Optional[str] = Field(None, alias="projectId")

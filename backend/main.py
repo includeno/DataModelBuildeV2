@@ -33,7 +33,9 @@ from models import (
     UpdateProjectMemberRequest,
     CommitProjectStateRequest,
     RefreshTokenRequest,
+    ImportCleanConfig,
 )
+from import_cleaner import ImportCleaner
 import storage as storage_module
 import runtime_config as runtime_config_module
 from storage import storage, resolve_data_subdir, to_data_relative, save_sessions_dir, PROJECT_ASSETS_DIRNAME, local_file_backend
@@ -107,6 +109,9 @@ app.add_middleware(
 )
 
 engine = ExecutionEngine()
+import_cleaner = ImportCleaner()
+_preview_cache: Dict[str, Tuple[pd.DataFrame, Dict[str, Any], float]] = {}
+PREVIEW_CACHE_TTL_SECONDS = 600  # 10 minutes
 sync_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="dmb-sync-exec")
 idempotency_store = IdempotencyStore(ttl_seconds=IDEMPOTENCY_TTL_SECONDS)
 rate_limiter = RateLimiter()
@@ -1531,12 +1536,53 @@ async def project_diagnostics(project_id: str, current_user: Dict[str, Any] = De
     return await get_session_diagnostics(project_id, current_user)
 
 
+@app.post("/projects/{project_id}/upload/preview")
+async def project_upload_preview(
+    project_id: str,
+    file: UploadFile = File(...),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Upload a file for preview without storing it. Returns schema, preview rows, and a clean report."""
+    _require_project_access(project_id, current_user["id"], need_write=True)
+    try:
+        df, _source_format, normalized_filename = await _read_uploaded_dataframe(file)
+        df.columns = [str(c).strip().replace(" ", "_") for c in df.columns]
+        schema = _build_dataframe_schema(df)
+        clean_report = import_cleaner.preview(df, schema)
+
+        # Cache the parsed DataFrame for later use
+        preview_token = uuid.uuid4().hex
+        _preview_cache[preview_token] = (df, schema, time.time())
+        # Evict expired entries
+        now = time.time()
+        expired = [k for k, v in _preview_cache.items() if now - v[2] > PREVIEW_CACHE_TTL_SECONDS]
+        for k in expired:
+            del _preview_cache[k]
+
+        preview_rows = clean_df_for_json(df.head(50))
+        return {
+            "previewToken": preview_token,
+            "fields": df.columns.tolist(),
+            "fieldTypes": schema,
+            "rows": preview_rows,
+            "totalCount": len(df),
+            "cleanReport": clean_report.to_dict(),
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("Upload preview error")
+        raise HTTPException(status_code=500, detail="Upload preview failed")
+
+
 @app.post("/projects/{project_id}/upload")
 async def project_upload_file(
     project_id: str,
     file: UploadFile = File(...),
     name: Optional[str] = Form(None),
     duplicateStrategy: str = Form("replace"),
+    cleanConfig: Optional[str] = Form(None),
+    previewToken: Optional[str] = Form(None),
     current_user: Dict[str, Any] = Depends(get_current_user),
 ):
     _require_project_access(project_id, current_user["id"], need_write=True)
@@ -1551,7 +1597,16 @@ async def project_upload_file(
     pending_asset_id: Optional[str] = None
     runtime_dataset_id: Optional[str] = None
     try:
-        df, _source_format, normalized_filename = await _read_uploaded_dataframe(file)
+        # Try to use cached preview DataFrame
+        clean_report_dict = None
+        if previewToken and previewToken in _preview_cache:
+            cached = _preview_cache.pop(previewToken)
+            df, _cached_schema, _cached_time = cached
+            normalized_filename = file.filename or "upload"
+            normalized_filename = _normalize_upload_filename(normalized_filename)
+        else:
+            df, _source_format, normalized_filename = await _read_uploaded_dataframe(file)
+
         df.columns = [str(c).strip().replace(" ", "_") for c in df.columns]
         duplicate_strategy = _normalize_duplicate_strategy(duplicateStrategy)
         requested_name = _normalize_dataset_name(name, normalized_filename)
@@ -1564,6 +1619,18 @@ async def project_upload_file(
         asset_id = f"ast_{uuid.uuid4().hex[:12]}"
         storage_key = _build_project_storage_key(project_id, asset_id, next_version)
         schema = _build_dataframe_schema(df)
+
+        # Apply import-time cleaning
+        if cleanConfig is not None:
+            try:
+                clean_cfg = ImportCleanConfig(**json.loads(cleanConfig))
+            except Exception:
+                raise ValueError("Invalid cleanConfig JSON")
+            df, clean_result = import_cleaner.clean(df, clean_cfg, schema)
+            clean_report_dict = clean_result.to_dict()
+            # Rebuild schema after cleaning (columns may have changed)
+            schema = _build_dataframe_schema(df)
+
         pending_asset = collab_storage.prepare_project_dataset_asset(
             project_id,
             current_user["id"],
@@ -1636,6 +1703,7 @@ async def project_upload_file(
             "status": asset["status"],
             "format": asset["format"],
             "duplicateStrategy": duplicate_strategy,
+            "cleanReport": clean_report_dict,
         }
     except PermissionError:
         if pending_asset_id:
@@ -2414,19 +2482,28 @@ async def _read_uploaded_dataframe(file: UploadFile) -> Tuple[pd.DataFrame, str,
 
 @app.post("/upload")
 async def upload_file(
-    file: UploadFile = File(...), 
+    file: UploadFile = File(...),
     sessionId: str = Form(...),
-    name: Optional[str] = Form(None)
+    name: Optional[str] = Form(None),
+    cleanConfig: Optional[str] = Form(None),
 ):
     try:
         df, _source_format, normalized_filename = await _read_uploaded_dataframe(file)
-            
+
         # Clean col names
         df.columns = [str(c).strip().replace(" ", "_") for c in df.columns]
-        
+
         # Determine dataset name
         dataset_name = _normalize_dataset_name(name, normalized_filename)
-        
+
+        if cleanConfig is not None:
+            try:
+                clean_cfg = ImportCleanConfig(**json.loads(cleanConfig))
+            except Exception:
+                raise ValueError("Invalid cleanConfig JSON")
+            schema = _build_dataframe_schema(df)
+            df, _clean_result = import_cleaner.clean(df, clean_cfg, schema)
+
         table_name = storage.add_dataset(sessionId, dataset_name, df)
 
         storage.append_import_history(sessionId, {

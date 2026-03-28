@@ -249,6 +249,62 @@ export interface SessionDiagnosticsReport {
   warnings: string[];
 }
 
+// ── Import-time cleaning types ──────────────────────────────────────────
+
+export interface ImportFillRule {
+  field: string; // specific field name or '*number' / '*string' / '*date'
+  strategy: 'mean' | 'median' | 'mode' | 'constant' | 'forward' | 'drop_row';
+  constantValue?: string;
+}
+
+export interface DedupConfig {
+  enabled: boolean;
+  fields: string[] | 'all';
+  keep: 'first' | 'last';
+}
+
+export interface FillMissingConfig {
+  enabled: boolean;
+  rules: ImportFillRule[];
+}
+
+export interface OutlierConfig {
+  enabled: boolean;
+  method: 'zscore' | 'iqr';
+  threshold: number;
+  action: 'remove' | 'flag';
+  targetFields: string[] | 'numeric';
+}
+
+export interface TrimWhitespaceConfig {
+  enabled: boolean;
+  fields: string[] | 'string';
+}
+
+export interface ImportCleanConfig {
+  dedup: DedupConfig;
+  fillMissing: FillMissingConfig;
+  outlier: OutlierConfig;
+  trimWhitespace: TrimWhitespaceConfig;
+}
+
+export interface CleanPreviewReport {
+  duplicateRowCount: number;
+  missingValueCounts: Record<string, number>;
+  outlierCounts: Record<string, number>;
+  whitespaceFieldCount: number;
+}
+
+export interface CleanReport {
+  dedupRemoved: number;
+  fillApplied: Record<string, number>;
+  outlierFlagged: Record<string, number>;
+  outlierRemoved: number;
+  trimApplied: number;
+  originalRowCount: number;
+  finalRowCount: number;
+}
+
 export interface ExecutionResult {
   rows: any[];
   totalCount: number;

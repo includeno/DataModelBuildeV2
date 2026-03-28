@@ -466,12 +466,24 @@ const createProjectViaUi = async (page, browserName, token) => {
 
 const importDatasetViaUi = async (page, datasetPath, browserName) => {
   logStep(`${browserName} importDataset:start`, path.basename(datasetPath));
+  await dismissTransientUi(page);
   await page.getByRole('button', { name: 'Import Dataset' }).first().click();
-  await page.getByRole('heading', { name: 'Import Data Source' }).waitFor({ timeout: 10000 });
-  await page.getByTestId('data-import-file-input').setInputFiles(datasetPath);
-  await page.getByPlaceholder('Enter a name for this dataset').fill(args.datasetName);
-  await page.getByRole('button', { name: 'Import Dataset' }).last().click();
+  const modal = page.locator('div.fixed.inset-0.z-50:has([aria-label="Close Import Data Source"])').first();
+  await modal.getByRole('heading', { name: 'Import Data Source' }).waitFor({ timeout: 10000 });
+  await modal.getByTestId('data-import-file-input').setInputFiles(datasetPath);
+  await modal.getByPlaceholder('Enter a name for this dataset').fill(args.datasetName);
+
+  const previewButton = modal.getByRole('button', { name: 'Next: Preview' });
+  if (await previewButton.isVisible().catch(() => false)) {
+    await clickElement(previewButton);
+  }
+
+  const importButton = modal.getByRole('button', { name: 'Import Dataset' });
+  await importButton.waitFor({ state: 'visible', timeout: 10000 });
+  await clickElement(importButton);
+
   await page.getByText(args.datasetName, { exact: true }).waitFor({ timeout: 15000 });
+  await modal.waitFor({ state: 'detached', timeout: 10000 }).catch(() => {});
   await dismissTransientUi(page);
   logStep(`${browserName} importDataset:done`);
 };

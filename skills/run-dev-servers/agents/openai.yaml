@@ -1,0 +1,4 @@
+interface:
+  display_name: "Run Dev Servers"
+  short_description: "Start frontend/backend with auth and port scenarios"
+  default_prompt: "Start or troubleshoot DataModelBuildeV2 frontend/backend servers for the requested scenario, then verify connectivity endpoints."

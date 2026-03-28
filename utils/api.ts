@@ -13,6 +13,7 @@ import {
     FilterGroup,
     FilterCondition,
     FieldInfo,
+    CleanPreviewReport,
     SubTableConfig,
     SubTableConditionGroup
 } from "../types";
@@ -1578,6 +1579,38 @@ export const api = {
         }
         const res = await requestJson(config, endpoint, { method: 'POST', body: formData });
         if (!res.ok) throw new Error(`Upload Error: ${res.statusText}`);
+        return unwrapBody(await res.json());
+    },
+
+    async uploadPreview(config: ApiConfig, projectId: string, file: File): Promise<{
+        previewToken: string;
+        fields: string[];
+        fieldTypes: Record<string, FieldInfo>;
+        rows: any[];
+        totalCount: number;
+        cleanReport: CleanPreviewReport;
+    }> {
+        if (config.isMock) {
+            await new Promise(r => setTimeout(r, 500));
+            const rows = [{ col1: "A", col2: 100, col3: true }, { col1: "B", col2: 200, col3: false }];
+            return {
+                previewToken: `mock_preview_${Date.now()}`,
+                fields: ["col1", "col2", "col3"],
+                fieldTypes: { col1: { type: "string" }, col2: { type: "number" }, col3: { type: "boolean" } },
+                rows,
+                totalCount: 2,
+                cleanReport: {
+                    duplicateRowCount: 0,
+                    missingValueCounts: {},
+                    outlierCounts: {},
+                    whitespaceFieldCount: 0,
+                },
+            };
+        }
+        const formData = new FormData();
+        formData.append('file', file);
+        const res = await requestJson(config, `/projects/${projectId}/upload/preview`, { method: 'POST', body: formData });
+        if (!res.ok) throw new Error(`Preview Error: ${res.statusText}`);
         return unwrapBody(await res.json());
     }
 };

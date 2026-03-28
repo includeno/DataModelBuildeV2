@@ -102,6 +102,15 @@ describe('DataImportModal', () => {
   it('supports drag-drop, escape close, reserved names and successful upload', async () => {
     const onClose = vi.fn();
     const onImport = vi.fn();
+    const mockPreviewResult = {
+      previewToken: 'tok_preview_abc',
+      fields: ['id', 'name'],
+      fieldTypes: { id: { type: 'number' as const }, name: { type: 'string' as const } },
+      rows: [{ id: 1, name: 'Alice' }],
+      totalCount: 1,
+      cleanReport: { duplicateRowCount: 0, missingValueCounts: {}, outlierCounts: {}, whitespaceFieldCount: 0 },
+    };
+    vi.spyOn(api, 'uploadPreview').mockResolvedValue(mockPreviewResult);
     vi.spyOn(api, 'upload').mockResolvedValue({
       id: 'ds_people',
       name: 'people_dataset',
@@ -135,6 +144,7 @@ describe('DataImportModal', () => {
     const nameInput = container.querySelector('input[placeholder="Enter a name for this dataset"]') as HTMLInputElement | null;
     expect(nameInput?.value).toBe('people');
 
+    // Reserved name validation
     await act(async () => {
       nameInput && Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(nameInput, 'select');
       nameInput?.dispatchEvent(new Event('input', { bubbles: true }));
@@ -142,15 +152,24 @@ describe('DataImportModal', () => {
     });
     expect(container.textContent).toContain("reserved keyword");
 
+    // Set valid name
     await act(async () => {
       nameInput && Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(nameInput, 'people_dataset');
       nameInput?.dispatchEvent(new Event('input', { bubbles: true }));
       await flush();
     });
 
-    const uploadButton = Array.from(container.querySelectorAll('button')).find((button) => button.textContent?.includes('Import Dataset'));
+    // Step 1 → click "Next: Preview" to trigger preview
+    const nextButton = Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.includes('Next: Preview'));
     await act(async () => {
-      uploadButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      nextButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    // Now in preview step — click "Import Dataset"
+    const importButton = Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.includes('Import Dataset'));
+    await act(async () => {
+      importButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await flush();
     });
 
@@ -168,6 +187,15 @@ describe('DataImportModal', () => {
 
   it('shows upload errors and lets the user clear selected file', async () => {
     const onClose = vi.fn();
+    const mockPreviewResult = {
+      previewToken: 'tok_err_abc',
+      fields: ['id', 'name'],
+      fieldTypes: { id: { type: 'number' as const }, name: { type: 'string' as const } },
+      rows: [{ id: 1, name: 'Alice' }],
+      totalCount: 1,
+      cleanReport: { duplicateRowCount: 0, missingValueCounts: {}, outlierCounts: {}, whitespaceFieldCount: 0 },
+    };
+    vi.spyOn(api, 'uploadPreview').mockResolvedValue(mockPreviewResult);
     vi.spyOn(api, 'upload').mockRejectedValue(new Error('upload failed'));
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
@@ -178,7 +206,7 @@ describe('DataImportModal', () => {
           onClose={onClose}
           onImport={() => {}}
           sessionId="sess_demo"
-          apiConfig={{ baseUrl: 'mockServer', isMock: true }}
+          apiConfig={{ baseUrl: 'http://localhost:8000', isMock: false }}
         />
       );
       await flush();
@@ -197,16 +225,37 @@ describe('DataImportModal', () => {
       await flush();
     });
 
-    const uploadButton = Array.from(container.querySelectorAll('button')).find((button) => button.textContent?.includes('Import Dataset'));
+    // Step 1 → "Next: Preview"
+    const nextButton = Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.includes('Next: Preview'));
     await act(async () => {
-      uploadButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      nextButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    // Step 2 → "Import Dataset" → triggers upload error
+    const importButton = Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.includes('Import Dataset'));
+    await act(async () => {
+      importButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await flush();
     });
 
     expect(container.textContent).toContain('upload failed');
     expect(errorSpy).toHaveBeenCalled();
 
-    const clearButton = Array.from(container.querySelectorAll('button')).find((button) => button !== uploadButton && !button.textContent?.trim());
+    // Go back to select step via the back (ChevronLeft) button
+    const backButton = Array.from(container.querySelectorAll('button')).find(
+      (b) => !b.textContent?.trim() && b.querySelector('svg')
+        && b !== container.querySelector('[aria-label="Close Import Data Source"]')
+    );
+    await act(async () => {
+      backButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await flush();
+    });
+
+    // Now in select step with file still loaded — click X to clear
+    const clearButton = Array.from(container.querySelectorAll('button')).find(
+      (b) => !b.textContent?.trim() && b.querySelector('svg')
+    );
     await act(async () => {
       clearButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await flush();
