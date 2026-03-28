@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { Sidebar } from './components/Sidebar';
+import { LineagePanel } from './components/LineagePanel';
 import { Workspace } from './components/Workspace';
 import { TopBar } from './components/TopBar';
 import { DataImportModal } from './components/DataImport';
@@ -29,6 +30,7 @@ import {
   SessionConfig,
   SessionDiagnosticsReport,
   SqlHistoryItem,
+  LineageMap,
 } from './types';
 import { api } from './utils/api';
 import { buildConflictNotice, DebouncedCommitQueue } from './utils/collabSync';
@@ -157,6 +159,9 @@ function App() {
   const [diagnosticsReport, setDiagnosticsReport] = useState<SessionDiagnosticsReport | null>(null);
   const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
   const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
+
+  const [lineageData, setLineageData] = useState<{ nodeId: string; commandId?: string; sourceTable?: string; map: LineageMap } | null>(null);
+  const [lineageLoading, setLineageLoading] = useState(false);
 
   const [membersLoading, setMembersLoading] = useState(false);
   const [membersError, setMembersError] = useState<string | null>(null);
@@ -1029,6 +1034,25 @@ function App() {
     applyLocalAction({ type: 'SET_SQL_HISTORY', sqlHistory: newHistory });
   };
 
+  const handleViewLineage = async (nodeId: string, commandId?: string, sourceTable?: string) => {
+    if (!currentProject) return;
+    setLineageLoading(true);
+    try {
+      const result = await api.getLineage(
+        apiConfig,
+        currentProject.id,
+        nodeId,
+        projectStore.snapshot.tree,
+        commandId,
+      );
+      setLineageData({ nodeId, commandId, sourceTable, map: result.lineage ?? {} });
+    } catch (e) {
+      console.error('Lineage fetch failed', e);
+    } finally {
+      setLineageLoading(false);
+    }
+  };
+
   const handleUpdateCommands = (operationId: string, newCommands: Command[]) => {
     applyLocalAction({ type: 'UPDATE_COMMANDS', operationId, commands: newCommands });
   };
@@ -1454,6 +1478,7 @@ function App() {
                     onOpenTableInData={(table) => { setTargetDataTable(table); setCurrentView('data'); setIsMobileSidebarOpen(false); }}
                     onOpenSchema={(name) => { void handleOpenSchema(name, true); }}
                     onDeleteDataset={(name) => { void handleDeleteDataset(name); }}
+                    onViewLineage={(id) => { void handleViewLineage(id); }}
                     remoteEditorsByNode={remoteEditorsByNode}
                     appearance={appearance}
                   />
@@ -1481,6 +1506,7 @@ function App() {
                 onOpenTableInData={(table) => { setTargetDataTable(table); setCurrentView('data'); }}
                 onOpenSchema={(name) => { void handleOpenSchema(name, false); }}
                 onDeleteDataset={(name) => { void handleDeleteDataset(name); }}
+                onViewLineage={(id) => { void handleViewLineage(id); }}
                 remoteEditorsByNode={remoteEditorsByNode}
                 appearance={appearance}
               />
@@ -1512,6 +1538,9 @@ function App() {
               onViewPath={(commandId) => {
                 setTargetCommandId(commandId);
                 setIsPathModalOpen(true);
+              }}
+              onViewCommandLineage={(commandId, srcTable) => {
+                if (selectedNodeId) void handleViewLineage(selectedNodeId, commandId, srcTable);
               }}
               isRightPanelOpen={isRightPanelOpen}
               onCloseRightPanel={() => setIsRightPanelOpen(false)}
@@ -1643,6 +1672,16 @@ function App() {
         dataset={selectedDatasetForSchema}
         onSave={handleSchemaSave}
       />
+
+      {lineageData && (
+        <LineagePanel
+          lineage={lineageData.map}
+          nodeId={lineageData.nodeId}
+          commandId={lineageData.commandId}
+          lockedTable={lineageData.sourceTable}
+          onClose={() => setLineageData(null)}
+        />
+      )}
     </div>
   );
 }

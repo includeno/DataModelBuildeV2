@@ -1916,6 +1916,36 @@ async def project_export(
         raise _execution_error("EXEC_INVALID_REQUEST", str(e), category="user_error", status_code=400)
 
 
+@app.post("/projects/{project_id}/lineage")
+async def project_lineage(
+    project_id: str,
+    payload: dict = Body(...),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Return field-level lineage for the target node (T1.3.3)."""
+    try:
+        body = _build_project_execution_context(project_id, current_user["id"], payload, require_tree=True)
+        req = ExecuteRequest(**body)
+        lineage = _run_with_timeout(
+            engine.compute_lineage,
+            req.session_id,
+            req.tree,
+            req.targetNodeId,
+            req.targetCommandId,
+            timeout_s=MAX_SYNC_EXECUTION_SECONDS,
+            timeout_code="EXEC_TIMEOUT",
+            timeout_message=f"Lineage computation exceeded {int(MAX_SYNC_EXECUTION_SECONDS)} seconds",
+        )
+        return {"lineage": lineage}
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise _execution_error("EXEC_INVALID_REQUEST", str(e), category="user_error", status_code=400)
+    except Exception as e:
+        logger.exception("Lineage computation error")
+        raise _execution_error("EXEC_INTERNAL_ERROR", str(e), category="system_error", status_code=500)
+
+
 @app.post("/projects/{project_id}/generate_sql")
 async def project_generate_sql(
     project_id: str,

@@ -2,7 +2,7 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { Command, CommandType, Dataset, OperationType, AggregationConfig, OperationNode, DataType, HavingCondition, MappingRule, SubTableConfig, FieldInfo, AppearanceConfig, SubTableConditionGroup, ValidationRule } from '../types';
 import { Button } from './Button';
-import { Trash2, Plus, GripVertical, Type, Database, Play, Layers, ArrowRight, Filter as FilterIcon, Table, Calculator, List, Check, ChevronDown, ChevronUp, Split, LayoutDashboard, AlertTriangle, Settings2, Eye, Variable, Route, Code, Pin, PinOff } from 'lucide-react';
+import { Trash2, Plus, GripVertical, Type, Database, Play, Layers, ArrowRight, Filter as FilterIcon, Table, Calculator, List, Check, ChevronDown, ChevronUp, Split, LayoutDashboard, AlertTriangle, Settings2, Eye, Variable, Route, Code, Pin, PinOff, GitBranch } from 'lucide-react';
 import { Reorder } from 'framer-motion';
 import { CustomSelect, SelectOption } from './command-editor/CustomSelect';
 import { CollapsibleSection } from './command-editor/CollapsibleSection';
@@ -33,6 +33,7 @@ interface CommandEditorProps {
   onViewPath: (commandId?: string) => void;
   onRun?: (commandId?: string) => void;
   onGenerateSql?: (commandId: string) => Promise<string>;
+  onViewLineage?: (commandId: string, sourceTable?: string) => void;
   tree?: OperationNode; 
   canRun?: boolean;
 }
@@ -51,6 +52,7 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
   onViewPath,
   onRun,
   onGenerateSql,
+  onViewLineage,
   tree,
   canRun = true
 }) => {
@@ -1162,13 +1164,28 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                             </div>
                             <div className="flex items-center space-x-2">
                                 {/* Run to Step Button */}
-                                <button 
+                                <button
                                     onClick={() => onViewPath(cmd.id)}
                                     className="p-1 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded transition-colors"
                                     title="View Path Logic Synthesis"
                                 >
                                     <Route className="w-3.5 h-3.5" />
                                 </button>
+                                {onViewLineage && (() => {
+                                    const cmdSourceTable =
+                                        (cmd.config.dataSource && cmd.config.dataSource !== 'stream')
+                                            ? cmd.config.dataSource
+                                            : cmd.config.mainTable || undefined;
+                                    return (
+                                        <button
+                                            onClick={() => onViewLineage(cmd.id, cmdSourceTable)}
+                                            className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                                            title={cmdSourceTable ? `查看字段血缘（表：${cmdSourceTable}）` : '查看此步骤的字段血缘'}
+                                        >
+                                            <GitBranch className="w-3.5 h-3.5" />
+                                        </button>
+                                    );
+                                })()}
                                 <button 
                                     onClick={() => handleGenerateSql(cmd.id)}
                                     disabled={

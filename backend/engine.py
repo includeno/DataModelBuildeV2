@@ -8,6 +8,7 @@ import json
 import duckdb
 from typing import List, Optional, Dict, Set, Any, Union
 from models import Command, OperationNode
+from lineage import LineageTracker
 import runtime_config as runtime_config_module
 from security import compile_python_transform
 from storage import storage
@@ -1169,3 +1170,110 @@ class ExecutionEngine:
 
         df.attrs["_validation_report"] = report
         return df
+
+    # ── Lineage computation (T1.3.2) ─────────────────────────────────────────
+
+    def compute_lineage(
+        self,
+        session_id: str,
+        tree: OperationNode,
+        target_node_id: str,
+        target_command_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Walk the path to *target_node_id* and build field-level lineage.
+
+        Unlike ``execute``, this method never runs actual transformations; it
+        symbolically traces field origins through the command pipeline using
+        lightweight dataset schema lookups.
+        """
+        path = self._find_path_to_node(tree, target_node_id)
+        if not path:
+            raise ValueError("Target node not found in operation tree")
+
+        tracker = LineageTracker()
+        # Tracks the set of field names currently in the stream
+        current_fields: List[str] = []
+
+        for node in path:
+            if not node.enabled:
+                continue
+            sorted_cmds = sorted(node.commands, key=lambda c: c.order)
+
+            for cmd in sorted_cmds:
+                try:
+                    # ── source loading (same resolution logic as _apply_node_commands) ──
+                    source_name: Optional[str] = None
+                    explicit_source = cmd.config.dataSource
+                    if explicit_source and explicit_source != 'stream':
+                        resolved = self._resolve_table_from_link_id(tree, explicit_source)
+                        source_name = resolved or explicit_source
+
+                    if cmd.type == 'source' and cmd.config.mainTable:
+                        source_name = cmd.config.mainTable
+
+                    if source_name:
+                        src_df = storage.get_full_dataset(session_id, source_name)
+                        if src_df is not None:
+                            current_fields = src_df.columns.tolist()
+                            tracker.init_from_source(source_name, current_fields, node.id, cmd.id)
+
+                    # ── per-command lineage ────────────────────────────────────────────
+                    if cmd.type == 'join':
+                        join_table = cmd.config.joinTable
+                        if join_table:
+                            right_df = storage.get_full_dataset(session_id, join_table)
+                            if right_df is not None:
+                                suffix = cmd.config.joinSuffix or "_joined"
+                                existing = set(current_fields)
+                                new_fields = []
+                                for f in right_df.columns:
+                                    candidate = f if f not in existing else f"{f}{suffix}"
+                                    new_fields.append(candidate)
+                                tracker.record_join(join_table, new_fields, node.id, cmd.id)
+                                current_fields = current_fields + [f for f in new_fields if f not in existing]
+
+                    elif cmd.type == 'transform':
+                        for rule in (cmd.config.mappings or []):
+                            if rule.outputField:
+                                tracker.record_transform(
+                                    rule.outputField,
+                                    rule.expression or "",
+                                    node.id,
+                                    cmd.id,
+                                )
+                                if rule.outputField not in current_fields:
+                                    current_fields = current_fields + [rule.outputField]
+
+                    elif cmd.type in ('group', 'aggregate'):
+                        group_fields = cmd.config.groupByFields or []
+                        aggs = cmd.config.aggregations or []
+                        agg_aliases = [a.get('alias', '') for a in aggs if a.get('alias')]
+                        agg_exprs = [
+                            f"{a.get('func', 'count')}({a.get('field', '')})"
+                            for a in aggs
+                        ]
+                        tracker.record_group(
+                            group_fields, agg_aliases, agg_exprs, node.id, cmd.id
+                        )
+                        current_fields = group_fields + agg_aliases
+
+                    elif cmd.type == 'view':
+                        view_fields_cfg = cmd.config.viewFields or []
+                        kept = [vf.field for vf in view_fields_cfg if getattr(vf, 'field', None) and vf.field in set(current_fields)]
+                        if kept:
+                            tracker.record_view(kept, node.id, cmd.id)
+                            current_fields = kept
+
+                except Exception:
+                    # Never let lineage errors propagate — return best-effort result
+                    pass
+
+                # Stop after target command (only when we are in the target node)
+                if (
+                    target_command_id
+                    and node.id == target_node_id
+                    and cmd.id == target_command_id
+                ):
+                    return tracker.to_dict()
+
+        return tracker.to_dict()

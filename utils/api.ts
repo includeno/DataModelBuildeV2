@@ -1163,6 +1163,22 @@ export const api = {
         return unwrapBody(await res.json());
     },
 
+    async getLineage(config: ApiConfig, projectId: string, nodeId: string, tree: any, commandId?: string) {
+        if (config.isMock) {
+            await new Promise(r => setTimeout(r, 400));
+            return { lineage: {} };
+        }
+        const body: Record<string, any> = { tree, targetNodeId: nodeId };
+        if (commandId) body.targetCommandId = commandId;
+        const res = await requestJson(config, `/projects/${projectId}/lineage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        if (!res.ok) throw new Error(`API Error: ${res.statusText}`);
+        return unwrapBody(await res.json());
+    },
+
     async post(config: ApiConfig, endpoint: string, body: any) {
         if (config.isMock) {
             await new Promise(r => setTimeout(r, 600));

@@ -322,6 +322,22 @@ export interface CleanReport {
   finalRowCount: number;
 }
 
+export interface LineageStep {
+  nodeId: string;
+  commandId: string;
+  commandType: string;
+  expression?: string | null;
+}
+
+export interface FieldLineage {
+  fieldName: string;
+  originTable: string;
+  originField: string;
+  transformations: LineageStep[];
+}
+
+export type LineageMap = Record<string, FieldLineage>;
+
 export interface ValidationReport {
   passed: boolean;
   totalChecks: number;

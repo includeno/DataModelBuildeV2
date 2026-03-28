@@ -29,6 +29,7 @@ interface WorkspaceProps {
   onUpdateName: (name: string) => void;
   onUpdateType: (opId: string, type: OperationType) => void;
   onViewPath: (commandId?: string) => void;
+  onViewCommandLineage?: (commandId: string, sourceTable?: string) => void;
   isRightPanelOpen: boolean;
   onCloseRightPanel: () => void;
   rightPanelWidth: number;
@@ -67,6 +68,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   onUpdateName,
   onUpdateType,
   onViewPath,
+  onViewCommandLineage,
   isRightPanelOpen,
   onCloseRightPanel,
   rightPanelWidth, // Acts as panelSize (Width or Height)
@@ -221,7 +223,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                 onRun={(cmdId) => runPreview(1, cmdId)}
                 canRun={canRunOperation}
                 onGenerateSql={handleGenerateSql}
-                tree={tree} 
+                onViewLineage={onViewCommandLineage ? (cmdId, srcTable) => onViewCommandLineage(cmdId, srcTable) : undefined}
+                tree={tree}
             />
         ) : (
             <div className="flex-1 flex flex-col items-center justify-center text-gray-400 bg-gray-50">

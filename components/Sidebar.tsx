@@ -22,6 +22,7 @@ interface SidebarProps {
   onExportOperations?: () => void;
   onImportOperations?: (file: File) => void;
   onAnalyzeOverlap?: (nodeId: string) => void;
+  onViewLineage?: (nodeId: string) => void;
   onOpenSchema?: (name: string) => void;
   onDeleteDataset?: (name: string) => void;
   remoteEditorsByNode?: Record<string, string[]>;
@@ -47,6 +48,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onExportOperations,
   onImportOperations,
   onAnalyzeOverlap,
+  onViewLineage,
   onOpenSchema,
   onDeleteDataset,
   remoteEditorsByNode = {},
@@ -169,6 +171,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             onDelete={onDeleteNode}
                             onMoveNode={onMoveNode}
                             onAnalyzeOverlap={onAnalyzeOverlap}
+                            onViewLineage={onViewLineage}
                             expandTrigger={expandAllCounter}
                             collapseTrigger={collapseAllCounter}
                             globalAction={lastGlobalAction}

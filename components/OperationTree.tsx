@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronRight, ChevronDown, ChevronUp, FileText, Database, Split, Power, Plus, Trash2, Layers } from 'lucide-react';
+import { ChevronRight, ChevronDown, ChevronUp, FileText, Database, Split, Power, Plus, Trash2, Layers, GitBranch } from 'lucide-react';
 import { OperationNode, AppearanceConfig } from '../types';
 
 interface OperationTreeProps {
@@ -11,6 +11,7 @@ interface OperationTreeProps {
   onDelete: (id: string) => void;
   onMoveNode?: (id: string, direction: 'up' | 'down') => void;
   onAnalyzeOverlap?: (id: string) => void;
+  onViewLineage?: (id: string) => void;
   expandTrigger?: number;
   collapseTrigger?: number;
   globalAction?: 'expand' | 'collapse' | null;
@@ -31,6 +32,7 @@ export const OperationTree: React.FC<OperationTreeProps> = ({
   onDelete,
   onMoveNode,
   onAnalyzeOverlap,
+  onViewLineage,
   expandTrigger,
   collapseTrigger,
   globalAction,
@@ -138,6 +140,9 @@ export const OperationTree: React.FC<OperationTreeProps> = ({
               {hasChildren && onAnalyzeOverlap && (
                  <button onClick={(e) => { e.stopPropagation(); onAnalyzeOverlap(node.id); }} className="p-1 rounded hover:bg-yellow-100 text-yellow-600" title="Overlap"><Split className="w-3 h-3" /></button>
               )}
+              {onViewLineage && node.operationType !== 'setup' && (
+                 <button onClick={(e) => { e.stopPropagation(); onViewLineage(node.id); }} className="p-1 rounded hover:bg-blue-100 text-blue-500" title="查看血缘"><GitBranch className="w-3 h-3" /></button>
+              )}
               {/* Only show small power toggle if Enabled (to disable) */}
               {node.enabled && (
                   <button onClick={(e) => { 
@@ -191,6 +196,7 @@ export const OperationTree: React.FC<OperationTreeProps> = ({
                     onDelete={onDelete}
                     onMoveNode={onMoveNode}
                     onAnalyzeOverlap={onAnalyzeOverlap}
+                    onViewLineage={onViewLineage}
                     expandTrigger={expandTrigger}
                     collapseTrigger={collapseTrigger}
                     globalAction={globalAction}
