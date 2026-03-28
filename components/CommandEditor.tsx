@@ -1,6 +1,6 @@
 
 import React, { useMemo, useState, useRef, useEffect } from 'react';
-import { Command, CommandType, Dataset, OperationType, AggregationConfig, OperationNode, DataType, HavingCondition, MappingRule, SubTableConfig, FieldInfo, AppearanceConfig, SubTableConditionGroup } from '../types';
+import { Command, CommandType, Dataset, OperationType, AggregationConfig, OperationNode, DataType, HavingCondition, MappingRule, SubTableConfig, FieldInfo, AppearanceConfig, SubTableConditionGroup, ValidationRule } from '../types';
 import { Button } from './Button';
 import { Trash2, Plus, GripVertical, Type, Database, Play, Layers, ArrowRight, Filter as FilterIcon, Table, Calculator, List, Check, ChevronDown, ChevronUp, Split, LayoutDashboard, AlertTriangle, Settings2, Eye, Variable, Route, Code, Pin, PinOff } from 'lucide-react';
 import { Reorder } from 'framer-motion';
@@ -1774,6 +1774,81 @@ export const CommandEditor: React.FC<CommandEditorProps> = ({
                                     </div>
                                     </div>
                             )}
+
+                            {cmd.type === 'validate' && (() => {
+                                const rules: ValidationRule[] = cmd.config.validationRules || [];
+                                const mode = cmd.config.validationMode || 'warn';
+                                const addRule = () => {
+                                    const newRule: ValidationRule = { id: `vr_${Date.now()}`, field: fieldNames[0] || '', rule: 'not_null' };
+                                    updateCommand(cmd.id, 'config.validationRules', [...rules, newRule]);
+                                };
+                                const removeRule = (ruleId: string) => {
+                                    updateCommand(cmd.id, 'config.validationRules', rules.filter(r => r.id !== ruleId));
+                                };
+                                const updateRule = (ruleId: string, key: keyof ValidationRule, val: any) => {
+                                    updateCommand(cmd.id, 'config.validationRules', rules.map(r => r.id === ruleId ? { ...r, [key]: val } : r));
+                                };
+                                return (
+                                    <div className="space-y-3">
+                                        {rules.map((rule) => (
+                                            <div key={rule.id} className="border border-gray-200 rounded-md p-2 space-y-2 bg-white">
+                                                <div className="grid grid-cols-12 gap-2">
+                                                    <div className="col-span-5">
+                                                        <select className={baseInputStyles} value={rule.field} onChange={(e) => updateRule(rule.id, 'field', e.target.value)}>
+                                                            <option value="">Select Field...</option>
+                                                            {fieldNames.map(f => <option key={f} value={f}>{f}</option>)}
+                                                        </select>
+                                                    </div>
+                                                    <div className="col-span-5">
+                                                        <select className={baseInputStyles} value={rule.rule} onChange={(e) => updateRule(rule.id, 'rule', e.target.value as ValidationRule['rule'])}>
+                                                            <option value="not_null">Not Null</option>
+                                                            <option value="unique">Unique</option>
+                                                            <option value="range">Range</option>
+                                                            <option value="regex">Regex</option>
+                                                            <option value="enum">Enum</option>
+                                                            <option value="type_check">Type Check</option>
+                                                        </select>
+                                                    </div>
+                                                    <div className="col-span-2 flex justify-end">
+                                                        <button onClick={() => removeRule(rule.id)} className="text-gray-400 hover:text-red-500 p-1"><Trash2 className="w-3.5 h-3.5" /></button>
+                                                    </div>
+                                                </div>
+                                                {rule.rule === 'range' && (
+                                                    <div className="grid grid-cols-2 gap-2">
+                                                        <input type="number" className={baseInputStyles} placeholder="Min" value={rule.min ?? ''} onChange={(e) => updateRule(rule.id, 'min', e.target.value === '' ? undefined : Number(e.target.value))} />
+                                                        <input type="number" className={baseInputStyles} placeholder="Max" value={rule.max ?? ''} onChange={(e) => updateRule(rule.id, 'max', e.target.value === '' ? undefined : Number(e.target.value))} />
+                                                    </div>
+                                                )}
+                                                {rule.rule === 'regex' && (
+                                                    <input type="text" className={baseInputStyles} placeholder="Regex pattern (e.g. ^\d+$)" value={rule.pattern || ''} onChange={(e) => updateRule(rule.id, 'pattern', e.target.value)} />
+                                                )}
+                                                {rule.rule === 'enum' && (
+                                                    <input type="text" className={baseInputStyles} placeholder="Allowed values, comma-separated" value={(rule.enumValues || []).join(',')} onChange={(e) => updateRule(rule.id, 'enumValues', e.target.value.split(',').map(s => s.trim()).filter(Boolean))} />
+                                                )}
+                                                {rule.rule === 'type_check' && (
+                                                    <select className={baseInputStyles} value={rule.expectedType || ''} onChange={(e) => updateRule(rule.id, 'expectedType', e.target.value as DataType)}>
+                                                        <option value="">Select Type...</option>
+                                                        <option value="string">String</option>
+                                                        <option value="number">Number</option>
+                                                        <option value="boolean">Boolean</option>
+                                                        <option value="date">Date</option>
+                                                    </select>
+                                                )}
+                                                <input type="text" className={baseInputStyles} placeholder="Custom error message (optional)" value={rule.message || ''} onChange={(e) => updateRule(rule.id, 'message', e.target.value || undefined)} />
+                                            </div>
+                                        ))}
+                                        <button onClick={addRule} className="text-xs text-blue-600 hover:underline"><Plus className="w-3 h-3 inline mr-1" />Add Rule</button>
+                                        <div className="flex items-center gap-2 pt-1 border-t border-gray-100 mt-2">
+                                            <span className="text-xs text-gray-500">On failure:</span>
+                                            {(['warn', 'fail', 'flag'] as const).map(m => (
+                                                <button key={m} onClick={() => updateCommand(cmd.id, 'config.validationMode', m)} className={`text-xs px-2 py-0.5 rounded border ${mode === m ? 'bg-blue-600 text-white border-blue-600' : 'text-gray-600 border-gray-300 hover:bg-gray-50'}`}>
+                                                    {m === 'warn' ? 'Warn' : m === 'fail' ? 'Fail (Stop)' : 'Flag Rows'}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                );
+                            })()}
                         </div>
                         </>
                         )}

@@ -766,6 +766,9 @@ def _serialize_dataframe_result(df: pd.DataFrame, *, page: int, page_size: int, 
     }
     if view_id is not None:
         payload["activeViewId"] = view_id
+    validation_report = df.attrs.get("_validation_report")
+    if validation_report is not None:
+        payload["validationReport"] = validation_report
     return payload
 
 
@@ -2542,12 +2545,13 @@ async def execute(req: ExecuteRequest):
         )
         # Pass viewId and targetCommandId to engine
         df = engine.execute(req.session_id, req.tree, req.targetNodeId, req.viewId, req.targetCommandId)
-        
+
         total_count = len(df)
         paginated_df = paginate_df(df, req.page, req.pageSize)
         clean_rows = clean_df_for_json(paginated_df)
-        
-        return {
+        validation_report = df.attrs.get("_validation_report")
+
+        response = {
             "rows": clean_rows,
             "totalCount": total_count,
             "columns": df.columns.tolist(),
@@ -2555,6 +2559,9 @@ async def execute(req: ExecuteRequest):
             "pageSize": req.pageSize,
             "activeViewId": req.viewId
         }
+        if validation_report is not None:
+            response["validationReport"] = validation_report
+        return response
     except Exception as e:
         logger.exception("Execution Error")
         raise HTTPException(status_code=500, detail=str(e))

@@ -753,6 +753,7 @@ class ExecutionEngine:
                         df = self._apply_group(df, cmd, session_id)
                         source_stream_reusable = False
                     elif cmd.type == 'transform': df = self._apply_transform(df, cmd)
+                    elif cmd.type == 'validate': df = self._apply_validate(df, cmd)
                     # multi_table and view are pass-throughs for the stream itself (data loaded via context above)
                     if df is not None and current_source_name:
                         df.attrs["_source_name"] = current_source_name
@@ -1067,4 +1068,104 @@ class ExecutionEngine:
         f = cmd.config.field
         asc = cmd.config.ascending if cmd.config.ascending is not None else True
         if f and f in df.columns: return df.sort_values(by=f, ascending=asc)
+        return df
+
+    def _apply_validate(self, df: pd.DataFrame, cmd: Command) -> pd.DataFrame:
+        rules = cmd.config.validationRules or []
+        mode = cmd.config.validationMode or "warn"
+        details = []
+        failed_checks = 0
+
+        flag_mask = pd.Series([False] * len(df), index=df.index)
+
+        for rule in rules:
+            field = rule.field
+            if field not in df.columns:
+                continue
+
+            failed_count = 0
+            sample_values: list = []
+
+            if rule.rule == 'not_null':
+                mask = df[field].isna()
+                failed_count = int(mask.sum())
+                if failed_count:
+                    sample_values = df.loc[mask, field].head(5).tolist()
+
+            elif rule.rule == 'unique':
+                mask = df[field].duplicated(keep=False)
+                failed_count = int(mask.sum())
+                if failed_count:
+                    sample_values = df.loc[mask, field].head(5).tolist()
+
+            elif rule.rule == 'range':
+                lo = rule.min
+                hi = rule.max
+                col = pd.to_numeric(df[field], errors='coerce')
+                mask = pd.Series([False] * len(df), index=df.index)
+                if lo is not None:
+                    mask = mask | (col < lo)
+                if hi is not None:
+                    mask = mask | (col > hi)
+                mask = mask & col.notna()
+                failed_count = int(mask.sum())
+                if failed_count:
+                    sample_values = df.loc[mask, field].head(5).tolist()
+
+            elif rule.rule == 'regex':
+                if rule.pattern:
+                    mask = ~df[field].astype(str).str.match(rule.pattern, na=False)
+                    failed_count = int(mask.sum())
+                    if failed_count:
+                        sample_values = df.loc[mask, field].head(5).tolist()
+
+            elif rule.rule == 'enum':
+                if rule.enumValues is not None:
+                    mask = ~df[field].isin(rule.enumValues)
+                    failed_count = int(mask.sum())
+                    if failed_count:
+                        sample_values = df.loc[mask, field].head(5).tolist()
+
+            elif rule.rule == 'type_check':
+                expected = rule.expectedType
+                if expected in ('number',):
+                    mask = pd.to_numeric(df[field], errors='coerce').isna() & df[field].notna()
+                elif expected == 'boolean':
+                    mask = ~df[field].isin([True, False, 'true', 'false', 'True', 'False', 1, 0]) & df[field].notna()
+                else:
+                    mask = pd.Series([False] * len(df), index=df.index)
+                failed_count = int(mask.sum())
+                if failed_count:
+                    sample_values = df.loc[mask, field].head(5).tolist()
+            else:
+                continue
+
+            details.append({
+                "ruleId": rule.id,
+                "field": field,
+                "failedRowCount": failed_count,
+                "sampleValues": [str(v) if not isinstance(v, (int, float, bool, type(None))) else v for v in sample_values],
+            })
+            if failed_count > 0:
+                failed_checks += 1
+                if mode == 'flag' and 'mask' in dir():
+                    flag_mask = flag_mask | mask
+
+        report = {
+            "passed": failed_checks == 0,
+            "totalChecks": len(details),
+            "failedChecks": failed_checks,
+            "details": details,
+        }
+
+        if mode == 'fail' and failed_checks > 0:
+            raise ValueError(f"Validation failed: {failed_checks} rule(s) violated. " + "; ".join(
+                f"{d['field']} ({d['ruleId']}): {d['failedRowCount']} rows" for d in details if d['failedRowCount'] > 0
+            ))
+
+        if mode == 'flag':
+            df = df.copy()
+            df['_validation_failed'] = flag_mask
+
+        df.attrs["_validation_report"] = report
         return df

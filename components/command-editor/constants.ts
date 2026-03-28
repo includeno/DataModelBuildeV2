@@ -14,7 +14,8 @@ export const COMMAND_LABELS: Record<string, string> = {
     group: 'Group',
     save: 'Save Var',
     view: 'View',
-    multi_table: 'Complex View'
+    multi_table: 'Complex View',
+    validate: 'Validate'
 };
 
 export const OPERATORS: Record<string, { value: string; label: string }[]> = {

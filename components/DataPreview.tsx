@@ -1,9 +1,9 @@
 
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Download, RefreshCw, Table as TableIcon, ChevronLeft, ChevronRight, FileDown, List, Columns, Check } from 'lucide-react';
+import { Download, RefreshCw, Table as TableIcon, ChevronLeft, ChevronRight, FileDown, List, Columns, Check, AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
 import { Button } from './Button';
-import { ExecutionResult } from '../types';
+import { ExecutionResult, ValidationReport } from '../types';
 
 interface DataPreviewProps {
   data: ExecutionResult | null;
@@ -278,6 +278,33 @@ export const DataPreview: React.FC<DataPreviewProps> = ({
         </table>
       </div>
       
+      {/* Validation Report Panel */}
+      {data.validationReport && (
+        <div className={`px-5 py-3 border-t ${data.validationReport.passed ? 'border-green-200 bg-green-50' : 'border-yellow-200 bg-yellow-50'}`}>
+          <div className="flex items-center gap-2 mb-2">
+            {data.validationReport.passed
+              ? <CheckCircle className="w-4 h-4 text-green-600" />
+              : <AlertTriangle className="w-4 h-4 text-yellow-600" />
+            }
+            <span className={`text-xs font-semibold ${data.validationReport.passed ? 'text-green-700' : 'text-yellow-700'}`}>
+              Validation {data.validationReport.passed ? 'Passed' : 'Failed'} — {data.validationReport.failedChecks}/{data.validationReport.totalChecks} rules failed
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {data.validationReport.details.map((d) => {
+              const ok = d.failedRowCount === 0;
+              return (
+                <div key={d.ruleId} className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] border ${ok ? 'bg-green-100 border-green-200 text-green-800' : 'bg-red-100 border-red-200 text-red-800'}`}>
+                  {ok ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+                  <span className="font-medium">{d.field}</span>
+                  {!ok && <span>({d.failedRowCount} rows)</span>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Pagination Footer */}
       <div className="px-5 py-2 border-t border-gray-200 bg-white text-xs text-gray-500 flex justify-between items-center shrink-0">
          <div className="flex items-center space-x-4">

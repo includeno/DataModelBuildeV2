@@ -1,6 +1,6 @@
 
 
-export type CommandType = 'filter' | 'join' | 'transform' | 'group' | 'sort' | 'pivot' | 'export' | 'source' | 'custom' | 'save' | 'multi_table' | 'view' | 'define_variable';
+export type CommandType = 'filter' | 'join' | 'transform' | 'group' | 'sort' | 'pivot' | 'export' | 'source' | 'custom' | 'save' | 'multi_table' | 'view' | 'define_variable' | 'validate';
 
 export type OperationType = 'dataset' | 'process' | 'setup' | 'root';
 
@@ -85,6 +85,18 @@ export interface ViewSortConfig {
   ascending?: boolean;
 }
 
+export interface ValidationRule {
+  id: string;
+  field: string;
+  rule: 'not_null' | 'unique' | 'range' | 'regex' | 'enum' | 'type_check';
+  min?: number;
+  max?: number;
+  pattern?: string;
+  enumValues?: string[];
+  expectedType?: DataType;
+  message?: string;
+}
+
 export interface CommandConfig {
   dataSource?: string; 
 
@@ -137,8 +149,13 @@ export interface CommandConfig {
 
   groupBy?: string[];
   aggFunc?: string;
-  
-  dataType?: DataType; 
+
+  dataType?: DataType;
+
+  // Validate Command
+  validationRules?: ValidationRule[];
+  validationMode?: 'fail' | 'warn' | 'flag';
+
   [key: string]: any;
 }
 
@@ -305,6 +322,13 @@ export interface CleanReport {
   finalRowCount: number;
 }
 
+export interface ValidationReport {
+  passed: boolean;
+  totalChecks: number;
+  failedChecks: number;
+  details: { ruleId: string; field: string; failedRowCount: number; sampleValues: any[] }[];
+}
+
 export interface ExecutionResult {
   rows: any[];
   totalCount: number;
@@ -314,6 +338,7 @@ export interface ExecutionResult {
   // If result is from a multi_table command
   isMultiTable?: boolean;
   activeViewId?: string; // 'main' or subTableId
+  validationReport?: ValidationReport;
 }
 
 export interface ApiConfig {

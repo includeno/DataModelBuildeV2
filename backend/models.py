@@ -43,6 +43,29 @@ class ViewSortConfig(BaseModel):
     field: str
     ascending: Optional[bool] = True
 
+class ValidationRule(BaseModel):
+    id: str
+    field: str
+    rule: str  # 'not_null' | 'unique' | 'range' | 'regex' | 'enum' | 'type_check'
+    min: Optional[float] = None
+    max: Optional[float] = None
+    pattern: Optional[str] = None
+    enumValues: Optional[List[str]] = None
+    expectedType: Optional[str] = None
+    message: Optional[str] = None
+
+class ValidationReportDetail(BaseModel):
+    ruleId: str
+    field: str
+    failedRowCount: int
+    sampleValues: List[Any] = []
+
+class ValidationReport(BaseModel):
+    passed: bool
+    totalChecks: int
+    failedChecks: int
+    details: List[ValidationReportDetail] = []
+
 class CommandConfig(BaseModel):
     # New: Context selection
     dataSource: Optional[str] = "stream" # 'stream' or table_name
@@ -105,6 +128,10 @@ class CommandConfig(BaseModel):
     viewSortAscending: Optional[bool] = True
     viewSorts: Optional[List[ViewSortConfig]] = None
     viewLimit: Optional[int] = None
+
+    # Validate command
+    validationRules: Optional[List[ValidationRule]] = None
+    validationMode: Optional[str] = "warn"  # 'fail' | 'warn' | 'flag'
 
 class Command(BaseModel):
     id: str
